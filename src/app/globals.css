@@ -1,21 +1,268 @@
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300&display=swap");
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300..700&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --font-sora: "Sora", sans-serif;
+  --font-code: "Source Code Pro", monospace;
+  --font-grotesk: "Space Grotesk", sans-serif;
+  --font-fira: "Fira Code", monospace;
+  --font-jetbrains: "JetBrains Mono", monospace;
+  color-scheme: dark;
+  --color-primary: #AC6AFF;
+  --color-background-dark-start: #1E2A44;
+  --color-background-dark-end: #2C3E50;
+  --color-text-primary: #f2eded;
+  --color-text-secondary: #D3DCE6;
+  --color-button-background: #000000;
+  --color-button-border: #AC6AFF;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+* {
+  scroll-behavior: smooth;
+}
+
+/* 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+} */
+
+body {
+  @apply overscroll-none touch-manipulation;
+}
+/* @layer base {
+  body {
+    @apply font-sans bg-n-8 text-n-1 text-base;
+  }
+} */
+/* 
+html, body {
+  min-height: 100%;
+  height: auto;
+  overflow-y: auto;
+} */
+/* تخصيص شريط التمرير */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: #2c2c2c; /* لون داكن للمسار */
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #6b6b6b; /* تدرج لوني للشريط */
+  border-radius: 10px;
+  border: 3px solid #2c2c2c; /* لون الحدود يتناسب مع المسار */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #888; /* تغيير التدرج عند التحويم */
+}
+
+/* إضافة الأسهم */
+.scroll-container {
+  position: relative;
+  width: 300px;
+  height: 200px;
+  overflow-y: scroll;
+  border: 1px solid #444; /* لون حدود داكن */
+  padding: 10px;
+  background-color: #1e1e1e; /* خلفية داكنة */
+  color: #e0e0e0; /* لون النص فاتح */
+}
+
+.scroll-container::before,
+.scroll-container::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+}
+
+.scroll-container::before {
+  top: 0;
+  border-bottom: 10px solid #888; /* لون السهم العلوي */
+}
+
+.scroll-container::after {
+  bottom: 0;
+  border-top: 10px solid #888; /* لون السهم السفلي */
+}
+
+.padding-x {
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+@layer utilities {
+  .rotate-45 {
+    @apply rotate-[45deg];
+  }
+
+  .rotate-90 {
+    @apply rotate-[90deg];
+  }
+
+  .rotate-135 {
+    @apply rotate-[135deg];
+  }
+
+  .rotate-180 {
+    @apply rotate-[180deg];
+  }
+
+  .rotate-225 {
+    @apply rotate-[225deg];
+  }
+
+  .rotate-270 {
+    @apply rotate-[270deg];
+  }
+
+  .rotate-315 {
+    @apply rotate-[315deg];
+  }
+
+  .rotate-360 {
+    @apply rotate-[360deg];
+  }
+
+  .-rotate-45 {
+    @apply rotate-[-45deg];
+  }
+
+  .-rotate-90 {
+    @apply rotate-[-90deg];
+  }
+
+  .-rotate-135 {
+    @apply rotate-[-135deg];
+  }
+
+  .-rotate-180 {
+    @apply rotate-[-180deg];
+  }
+
+  .-rotate-225 {
+    @apply rotate-[-225deg];
+  }
+
+  .-rotate-270 {
+    @apply rotate-[-270deg];
+  }
+
+  .-rotate-315 {
+    @apply rotate-[-315deg];
+  }
+
+  .-rotate-360 {
+    @apply rotate-[-360deg];
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+}
+
+@layer base {
+  * {
+    @apply border-gray-200 ring-opacity-50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@keyframes slow-move {
+  0% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(30px, 30px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+.animate-slow {
+  animation: slow-move 10s infinite ease-in-out;
+}
+@keyframes moveAcrossScreen {
+  0% {
+    transform: translate(0vw, 0vh);
+  }
+  25% {
+    transform: translate(80vw, 20vh);
+  }
+  50% {
+    transform: translate(40vw, 80vh);
+  }
+  75% {
+    transform: translate(20vw, 40vh);
+  }
+  100% {
+    transform: translate(0vw, 0vh);
+  }
+}
+
+.animate-second {
+  animation: moveAcrossScreen 10s infinite linear alternate;
+}
+
+
+@keyframes roundedHeader {
+  from { border-radius: 0; }
+  to { border-radius: 60px }
+}
+
+.animate-rounded {
+  animation: roundedHeader 2s infinite alternate;
+}
+
+.header {
+  transition: transform 0.3s ease;
+}
+.header.hidden {
+  transform: translateY(-100%);
+}
+
+@keyframes rotate3d {
+  from { transform: rotate(0deg) scale(1); }
+  to { transform: rotate(360deg) scale(1.2); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+.text-shadow-glass {
+  text-shadow: 
+    0 0 10px rgba(255, 255, 255, 0.6),
+    0 0 20px rgba(255, 255, 255, 0.4),
+    0 0 30px rgba(255, 255, 255, 0.2),
+    inset 0 0 5px rgba(255, 255, 255, 0.3); 
+}
+
+
+
+@supports (backdrop-filter: blur(12px)) {
+  .header-blur {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
 }

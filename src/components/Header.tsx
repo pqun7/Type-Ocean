@@ -6,7 +6,6 @@ import Image from "next/image";
 import { brainwaveSymbol } from "@/assets";
 import { navigation } from "@/constants";
 import Link from "next/link";
-import throttle from "lodash.throttle";
 import {
   motion,
   useScroll,

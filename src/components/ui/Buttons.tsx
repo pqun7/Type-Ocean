@@ -69,15 +69,14 @@ export const Button2 = ({
     >
       <button
         onClick={onClick}
-        className={`relative inline-flex h-12 overflow-hidden rounded-full p-[1px] transition-transform duration-300 hover:scale-105 ${className}`}
+        className={`relative inline-flex h-12 overflow-hidden rounded-full p-[2px] transition-all duration-300  ${className}`}
       >
-       
-          <span className="absolute inset-[-1000%] animate-[spin_2s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#E2CBFF_0%,#393BB2_50%,#E2CBFF_100%)]" />
-          <span
-            className={`inline-flex h-full w-full cursor-pointer items-center justify-center rounded-full bg-slate-950  px-6 py-1 text-sm font-medium text-white backdrop-blur-3xl`}
-          >
-            {children}
-          </span>
+        <span className="absolute inset-[-1000%] animate-[spin_2s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,rgba(140,200,240,0.8)_0%,rgba(80,60,190,0.8)_50%,rgba(140,200,240,0.8)_100%)]" />
+        <span
+          className={`inline-flex h-full w-full cursor-pointer items-center justify-center rounded-full bg-n-7 px-6 py-1 text-sm font-medium text-[rgb(200,240,255)] backdrop-blur-3xl transition-all duration-300 hover:bg-n-6`}
+        >
+          {children}
+        </span>
       </button>
     </Magnetic>
   );

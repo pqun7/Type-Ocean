@@ -30,13 +30,13 @@ const HeroHeading = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Directly call hooks for each transform
-  const h1Y = useOptimizedScrollTransform(containerRef, [200, -120]);
+  const h1Y = useOptimizedScrollTransform(containerRef, [200, -200]);
   const h1Opacity = useOptimizedScrollTransform(containerRef, [0, 1.6]);
   const h1Scale = useOptimizedScrollTransform(containerRef, [0.8, 1.4]);
 
   const pScale = useOptimizedScrollTransform(containerRef, [0.8, 1.1]);
 
-  const buttonTransform = useOptimizedScrollTransform(containerRef, [-160, 80]);
+  const buttonTransform = useOptimizedScrollTransform(containerRef, [-160, 130]);
 
   return (
     <motion.div
@@ -47,7 +47,7 @@ const HeroHeading = () => {
     >
 <motion.h1 
         style={{ y: h1Y, opacity: h1Opacity, scale: h1Scale }}
-        className="mb-6 h1"
+        className="mb-6 h1 mt-10 px-7"
       >        Turn<span className="opacity-60 text-purple-200/50"> Your </span>Fingers
         <span className="opacity-60 text-purple-200/50"> into </span>Speed
         Machines!
