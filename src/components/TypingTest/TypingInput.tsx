@@ -27,6 +27,8 @@ export default function TypingInput({ inputRef, userInput, handleInputChange }: 
       value={userInput}
       onChange={handleInputChange}
       onKeyDown={handleKeyDown} 
+      onBlur={() => inputRef.current?.focus()} // إعادة التركيز عند فقدانه
+
 
       className="text-xl w-full p-4 border-none outline-none bg-transparent absolute top-0 left-0 opacity-0"
       dir="ltr"

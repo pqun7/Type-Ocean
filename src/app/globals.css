@@ -6,6 +6,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 :root {
   --font-sora: "Sora", sans-serif;
   --font-code: "Source Code Pro", monospace;
@@ -22,64 +23,70 @@
   --color-button-border: #AC6AFF;
 }
 
-* {
-  scroll-behavior: smooth;
+@layer base {
+  :root {
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+  }
+
+  .dark {
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
 }
 
-/* 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-gray-200 ring-opacity-50;
   }
   body {
     @apply bg-background text-foreground;
   }
-} */
+}
+
+
+* {
+  scroll-behavior: smooth;
+}
 
 body {
   @apply overscroll-none touch-manipulation;
 }
-/* @layer base {
-  body {
-    @apply font-sans bg-n-8 text-n-1 text-base;
-  }
-} */
-/* 
-html, body {
-  min-height: 100%;
-  height: auto;
-  overflow-y: auto;
-} */
-/* تخصيص شريط التمرير */
+
 ::-webkit-scrollbar {
   width: 12px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #2c2c2c; /* لون داكن للمسار */
+  background: #2c2c2c;
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #6b6b6b; /* تدرج لوني للشريط */
+  background: #6b6b6b;
   border-radius: 10px;
-  border: 3px solid #2c2c2c; /* لون الحدود يتناسب مع المسار */
+  border: 3px solid #2c2c2c;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #888; /* تغيير التدرج عند التحويم */
+  background: #888;
 }
 
-/* إضافة الأسهم */
 .scroll-container {
   position: relative;
   width: 300px;
   height: 200px;
   overflow-y: scroll;
-  border: 1px solid #444; /* لون حدود داكن */
+  border: 1px solid #444;
   padding: 10px;
-  background-color: #1e1e1e; /* خلفية داكنة */
-  color: #e0e0e0; /* لون النص فاتح */
+  background-color: #1e1e1e;
+  color: #e0e0e0;
 }
 
 .scroll-container::before,
@@ -96,12 +103,12 @@ html, body {
 
 .scroll-container::before {
   top: 0;
-  border-bottom: 10px solid #888; /* لون السهم العلوي */
+  border-bottom: 10px solid #888;
 }
 
 .scroll-container::after {
   bottom: 0;
-  border-top: 10px solid #888; /* لون السهم السفلي */
+  border-top: 10px solid #888;
 }
 
 .padding-x {
@@ -113,79 +120,54 @@ html, body {
   .rotate-45 {
     @apply rotate-[45deg];
   }
-
   .rotate-90 {
     @apply rotate-[90deg];
   }
-
   .rotate-135 {
     @apply rotate-[135deg];
   }
-
   .rotate-180 {
     @apply rotate-[180deg];
   }
-
   .rotate-225 {
     @apply rotate-[225deg];
   }
-
   .rotate-270 {
     @apply rotate-[270deg];
   }
-
   .rotate-315 {
     @apply rotate-[315deg];
   }
-
   .rotate-360 {
     @apply rotate-[360deg];
   }
-
   .-rotate-45 {
     @apply rotate-[-45deg];
   }
-
   .-rotate-90 {
     @apply rotate-[-90deg];
   }
-
   .-rotate-135 {
     @apply rotate-[-135deg];
   }
-
   .-rotate-180 {
     @apply rotate-[-180deg];
   }
-
   .-rotate-225 {
     @apply rotate-[-225deg];
   }
-
   .-rotate-270 {
     @apply rotate-[-270deg];
   }
-
   .-rotate-315 {
     @apply rotate-[-315deg];
   }
-
   .-rotate-360 {
     @apply rotate-[-360deg];
   }
 }
 
-@layer base {
-}
 
-@layer base {
-  * {
-    @apply border-gray-200 ring-opacity-50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-}
 
 @keyframes slow-move {
   0% {
@@ -198,9 +180,11 @@ html, body {
     transform: translate(0, 0);
   }
 }
+
 .animate-slow {
   animation: slow-move 10s infinite ease-in-out;
 }
+
 @keyframes moveAcrossScreen {
   0% {
     transform: translate(0vw, 0vh);
@@ -223,10 +207,13 @@ html, body {
   animation: moveAcrossScreen 10s infinite linear alternate;
 }
 
-
 @keyframes roundedHeader {
-  from { border-radius: 0; }
-  to { border-radius: 60px }
+  from {
+    border-radius: 0;
+  }
+  to {
+    border-radius: 60px;
+  }
 }
 
 .animate-rounded {
@@ -236,29 +223,37 @@ html, body {
 .header {
   transition: transform 0.3s ease;
 }
+
 .header.hidden {
   transform: translateY(-100%);
 }
 
 @keyframes rotate3d {
-  from { transform: rotate(0deg) scale(1); }
-  to { transform: rotate(360deg) scale(1.2); }
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  to {
+    transform: rotate(360deg) scale(1.2);
+  }
 }
 
 @keyframes pulse-slow {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.1); }
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
 }
 
 .text-shadow-glass {
-  text-shadow: 
-    0 0 10px rgba(255, 255, 255, 0.6),
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.6),
     0 0 20px rgba(255, 255, 255, 0.4),
     0 0 30px rgba(255, 255, 255, 0.2),
-    inset 0 0 5px rgba(255, 255, 255, 0.3); 
+    inset 0 0 5px rgba(255, 255, 255, 0.3);
 }
-
-
 
 @supports (backdrop-filter: blur(12px)) {
   .header-blur {

@@ -1,4 +1,7 @@
 import { Magnetic } from "./magnetic";
+import { HoverBorderGradient } from "./hover-border-gradient";
+import { brainwaveSymbol } from "@/assets";
+import Image from "next/image";
 
 export const Button1 = ({
   children,
@@ -29,9 +32,9 @@ export const Button1 = ({
       >
         {/* تأثير التوهج عند hover */}
         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          <div 
+          <div
             className="absolute w-[150%] h-[150%] -top-1/4 -left-1/4 bg-gradient-radial from-[rgba(140,200,240,0.4)] to-transparent"
-            style={{ clipPath: 'circle(25% at 50% 100%)' }}
+            style={{ clipPath: "circle(25% at 50% 100%)" }}
           />
         </div>
 
@@ -67,17 +70,38 @@ export const Button2 = ({
       actionArea="global"
       range={120}
     >
-      <button
-        onClick={onClick}
-        className={`relative inline-flex h-12 overflow-hidden rounded-full p-[2px] transition-all duration-300  ${className}`}
-      >
-        <span className="absolute inset-[-1000%] animate-[spin_2s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,rgba(140,200,240,0.8)_0%,rgba(80,60,190,0.8)_50%,rgba(140,200,240,0.8)_100%)]" />
-        <span
-          className={`inline-flex h-full w-full cursor-pointer items-center justify-center rounded-full bg-n-7 px-6 py-1 text-sm font-medium text-[rgb(200,240,255)] backdrop-blur-3xl transition-all duration-300 hover:bg-n-6`}
+       <div className={`relative inline-flex h-15 overflow-hidden rounded-full p-[2px] transition-all duration-300 ${className}`}>
+        <HoverBorderGradient
+          containerClassName="rounded-full"
+          as="button" // This is the interactive button
+          onClick={onClick} // Moved onClick here
+          className="h-11 flex items-center space-x-2 rounded-full bg-n-7 px-6 py-1 text-sm font-medium text-[rgb(200,240,255)] backdrop-blur-3xl transition-all duration-300 hover:bg-n-6"
         >
-          {children}
-        </span>
-      </button>
+          <AceternityLogo />
+          <span>{children}</span>
+        </HoverBorderGradient>
+      </div>
     </Magnetic>
+  );
+};
+
+const AceternityLogo = () => {
+  return (
+    <svg
+      width="66"
+      height="65"
+      viewBox="0 0 66 65"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="h-3 w-3 text-white"
+    >
+      <path
+        d="M8 8.05571C8 8.05571 54.9009 18.1782 57.8687 30.062C60.8365 41.9458 9.05432 57.4696 9.05432 57.4696"
+        stroke="currentColor"
+        strokeWidth="15"
+        strokeMiterlimit="3.86874"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 };

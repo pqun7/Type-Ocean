@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Texts {
+  id      Int      @id @default(autoincrement())
+  content String   @unique
+  length  Int
+  type    TextType // Index for performance
+  @@index([type])
+}
+
+enum TextType {
+  SHORT
+  MEDIUM
+  LONG
+}

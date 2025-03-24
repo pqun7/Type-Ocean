@@ -1,19 +1,14 @@
 import {
   benefitIcon1,
-  benefitIcon2,
+  // benefitIcon2,
   benefitIcon3,
-  benefitIcon4,
+  // benefitIcon4,
   benefitIcon5,
   benefitIcon6,
-  benefitIcon7,
+  // benefitIcon7,
   benefitIcon8,
-  benefitIcon9,
+  // benefitIcon9,
   benefitIcon10,
-  file02,
-  homeSmile,
-  plusSquare,
-  searchMd,
-  yourlogo,
   gmail,
   github,
   twitter,
@@ -51,15 +46,6 @@ export const navigation: NavigationItem[] = [
   },
 ];
 
-export const heroIcons: string[] = [homeSmile, file02, searchMd, plusSquare];
-
-export const companyLogos: string[] = [
-  yourlogo,
-  yourlogo,
-  yourlogo,
-  yourlogo,
-  yourlogo,
-];
 
 type PricingPlan = {
   id: string;

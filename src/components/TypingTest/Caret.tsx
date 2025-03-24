@@ -17,7 +17,7 @@ export default function Caret({ caretPosition, caretHeight }: CaretProps) {
         scaleY: [1, 0.7, 1],
       }}
       transition={{
-        left: { type: "spring", stiffness: 300, damping: 20 },
+        left: { type: "spring", stiffness: 350, damping: 30 },
         top: { type: "spring", stiffness: 300, damping: 20 },
         opacity: { duration: 1.1, ease: "easeInOut", repeat: Infinity, repeatType: "mirror" },
         scaleY: { duration: 1.1, ease: "easeInOut", repeat: Infinity, repeatType: "mirror" },

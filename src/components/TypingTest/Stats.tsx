@@ -7,10 +7,10 @@ interface StatsProps {
     return (
       <div className="flex justify-between mb-4">
         <div className="text-sm text-gray-100">
-          WPM: <span className="font-bold text-blue-500">{wpm}</span>
+          WPM: <span className="font-bold font-jetbrains">{wpm}</span>
         </div>
         <div className="text-sm text-gray-100">
-          Accuracy: <span className="font-bold text-blue-500">{Math.round(accuracy)}%</span>
+          Accuracy: <span className="font-bold font-jetbrains">{Math.round(accuracy)}%</span>
         </div>
       </div>
     );

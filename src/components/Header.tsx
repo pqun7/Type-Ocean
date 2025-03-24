@@ -1,10 +1,12 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { FiUser } from "react-icons/fi";
 import { HiOutlineMenu, HiX } from "react-icons/hi";
 import Image from "next/image";
 import { brainwaveSymbol } from "@/assets";
 import { navigation } from "@/constants";
+import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
+
 import Link from "next/link";
 import {
   motion,
@@ -13,34 +15,12 @@ import {
   useTransform,
   AnimatePresence,
   useMotionTemplate,
+  MotionValue,
 } from "framer-motion";
 
-const navVariants = {
-  hidden: { opacity: 0, y: -20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.5,
-      ease: "easeInOut",
-      staggerChildren: 0.1,
-    },
-  },
-};
-
-const linkVariants = {
-  hidden: { opacity: 0, y: -10 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.4 },
-  },
-};
-
 const Header: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
-  const [isClient, setIsClient] = useState<boolean>(false);
   const headerRef = useRef<HTMLDivElement>(null);
 
   const { scrollY } = useScroll();
@@ -87,7 +67,6 @@ const Header: React.FC = () => {
   );
 
   useEffect(() => {
-    setIsClient(true);
     setIsLoggedIn(!!localStorage.getItem("userToken"));
   }, []);
 
@@ -108,7 +87,7 @@ const Header: React.FC = () => {
           border: borderValue,
           backgroundColor: backgroundColorValue,
         }}
-        className="fixed top-0 left-0 right-0 z-50 mx-auto h-16 mt-3 border border-slate-300 "
+        className="fixed top-0 left-0 right-0 z-50 mx-auto h-16 mt-2 border border-slate-300 "
       >
         <div className="flex items-center justify-between h-full px-2 lg:px-16">
           <motion.div style={{ translateX: logoTranslateX }} className="z-10">
@@ -117,9 +96,8 @@ const Header: React.FC = () => {
 
           <DesktopNavigation scrollY={scrollY} />
 
-          <motion.div style={{ translateX: userMenuTranslateX}}>
+          <motion.div style={{ translateX: userMenuTranslateX }}>
             <UserMenu
-              isClient={isClient}
               isLoggedIn={isLoggedIn}
               toggleMenu={toggleMenu}
               isMenuOpen={isMenuOpen}
@@ -134,7 +112,6 @@ const Header: React.FC = () => {
         isLoggedIn={isLoggedIn}
         scrollY={scrollY}
       />
-
     </>
   );
 };
@@ -155,7 +132,7 @@ const Logo: React.FC = () => (
 );
 
 interface NavigationProps {
-  scrollY: any;
+  scrollY: MotionValue<number>;
 }
 
 const DesktopNavigation: React.FC<NavigationProps> = ({ scrollY }) => {
@@ -190,26 +167,36 @@ const DesktopNavigation: React.FC<NavigationProps> = ({ scrollY }) => {
 };
 
 interface UserMenuProps {
-  isClient: boolean;
   isLoggedIn: boolean;
   toggleMenu: () => void;
   isMenuOpen: boolean;
 }
 
 const UserMenu: React.FC<UserMenuProps> = ({
-  isClient,
   isLoggedIn,
   toggleMenu,
   isMenuOpen,
 }) => (
   <div className="flex items-center ml-auto space-x-4">
-    {isClient && (
-      <Link
-        href={isLoggedIn ? "/user" : "/login"}
-        className="relative flex items-center justify-center text-white"
-      >
-        <FiUser size={28} className="text-slate-200 hover:text-white " />
+    {isLoggedIn ? (
+      <Link href="/user" className="relative flex items-center justify-center">
+        <FiUser
+          size={28}
+          className="text-slate-100 hover:text-slate-300 transition-colors"
+        />
       </Link>
+    ) : (
+      <HoverBorderGradient
+        containerClassName="rounded-full hidden sm:block"
+        as="button"
+        className="bg-transparent text-slate-300 hover:text-slate-100 "
+        bgColor="bg-[rgba(255, 255, 255, 0.1)]"
+        hideMovingBorder={true}
+      >
+        <Link href="/login" className="px-4 py-2 font-jetbrains">
+          Login
+        </Link>
+      </HoverBorderGradient>
     )}
     {isMenuOpen ? (
       <HiX
@@ -229,14 +216,14 @@ interface MobileNavigationProps {
   isMenuOpen: boolean;
   setIsMenuOpen: (open: boolean) => void;
   isLoggedIn: boolean;
-  scrollY: any;
+  scrollY: MotionValue<number>;
 }
 
 const MobileNavigation: React.FC<MobileNavigationProps> = ({
   isMenuOpen,
   setIsMenuOpen,
-  isLoggedIn,
   scrollY,
+  isLoggedIn
 }) => {
   const marginAdjust = useSpring(useTransform(scrollY, [0, 100], [0, -40]), {
     stiffness: 200,
@@ -263,16 +250,18 @@ const MobileNavigation: React.FC<MobileNavigationProps> = ({
             transition={{ duration: 0.3 }}
             className="z-30 flex flex-col items-center justify-center lg:flex-row"
           >
-            {navigation.map((item) => (
-              <Link
-                key={item.id}
-                href={item.url}
-                className="block px-6 py-6 text-2xl text-white uppercase transition-colors hover:text-slate-200"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                {item.title}
-              </Link>
-            ))}
+            {navigation
+              .filter((item) => !(isLoggedIn && item.isLoggedIn === false)) // 🚀 تصفية العناصر
+              .map((item) => (
+                <Link
+                  key={item.id}
+                  href={item.url}
+                  className="block px-6 py-6 text-2xl text-white uppercase transition-colors hover:text-slate-200"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  {item.title}
+                </Link>
+              ))}
           </motion.nav>
         </div>
       </motion.div>

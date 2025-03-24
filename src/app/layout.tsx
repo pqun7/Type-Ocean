@@ -1,11 +1,13 @@
+
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Inter } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { BackgroundGradientAnimation } from "@/components/ui/background-gradient-animation";
-import { SpaceBackground } from "@/components/ui/SpaceBackground";
-import { EnhancedBackgroundGradient } from "@/components/ui/EnhancedBackgroundGradient ";
+import ClientBackground from "@/components/ui/ClientBackground";
+import Background from "@/components/ui/Background";
+
+
 
 
 const inter = Inter({
@@ -23,17 +25,18 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+
   return (
     <html lang="en" className="h-full">
       <body
         className={`${inter.className} antialiased bg-n-11 font-sans text-n-1 text-base min-h-full relative`}
       >
-        {/* Background Gradient as a separate layer */}
-        <BackgroundGradientAnimation className="fixed inset-0 pointer-events-none -z-10" />
+        {/* <ClientBackground /> */}
+        <Background className="fixed inset-0 pointer-events-none -z-10" />
+
 
         <Header />
 
-        {/* Ensure content can scroll */}
         <main className="relative z-10 min-h-screen overflow-x-hidden overflow-y-auto pointer-events-auto">
           {children}
         </main>
@@ -43,3 +46,4 @@ export default function RootLayout({
     </html>
   );
 }
+

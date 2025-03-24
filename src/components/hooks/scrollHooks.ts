@@ -5,11 +5,10 @@ import { RefObject } from "react";
 const SCROLL_CONFIG = {
   offset: ["start end", "end start"] as ["start end", "end start"],
 };
-
 const SPRING_SETTINGS = {
-  damping: 18,
-  stiffness: 150,
-  mass: 0.2,
+  damping: 20,    // زيادة التخميد قليلاً لتقليل التذبذب
+  stiffness: 100, // تقليل الصلابة لتقليل التحديثات
+  mass: 0.5,      // زيادة الكتلة لجعل الحركة أبطأ وأقل استهلاكاً للموارد
 };
 
 export const useOptimizedScrollTransform = (

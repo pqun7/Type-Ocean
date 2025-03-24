@@ -4,9 +4,10 @@ import { motion } from "framer-motion";
 import { benefits } from "@/constants";
 import Section from "./Section";
 import { FlipWords } from "./ui/flip-words";
-import Image from "next/image";
+import Image, { StaticImageData } from "next/image";
 import { useOptimizedScrollTransform } from "@/components/hooks/scrollHooks";
 import { useRef } from "react";
+
 
 const Header = () => {
   const ref = useRef<HTMLDivElement>(null);
@@ -34,7 +35,7 @@ const Header = () => {
   );
 };
 
-const AnimatedBenefit = ({ benefit, index }: { benefit: any; index: number }) => {
+const AnimatedBenefit = ({ benefit, index }: { benefit: { icon: string | StaticImageData; title: string; text: string; width?: number; }; index: number }) => {
   const ref = useRef<HTMLDivElement>(null);
   const opacity = useOptimizedScrollTransform(ref, [0, 1.6]);
   const y = useOptimizedScrollTransform(ref, [70 * (index % 3), 0]);

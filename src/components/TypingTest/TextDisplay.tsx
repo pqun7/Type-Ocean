@@ -1,6 +1,6 @@
 import { RefObject, memo } from "react";
 import { motion } from "framer-motion";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 interface TextDisplayProps {
   text: string;
@@ -92,7 +92,7 @@ const TextDisplay = memo(
       <div
         className={`${fontSize} ${lineHeight} transition-all duration-300 tracking-tight 
           ${isError ? "text-red-500" : "text-gray-800"} ${font} 
-          break-words overflow-hidden w-full max-w-2xl whitespace-pre-wrap`}
+          break-words overflow-hidden w-full whitespace-pre-wrap`}
       >
         {wordsWithSpaces.map((wordWithSpace, wordIndex) => {
           const word = wordWithSpace.trimEnd(); // الكلمة بدون مسافات زائدة في النهاية

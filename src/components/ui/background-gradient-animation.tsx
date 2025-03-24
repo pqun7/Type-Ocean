@@ -1,6 +1,6 @@
 "use client";
 import { cn } from "@/lib/utils";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 export const BackgroundGradientAnimation = ({
   gradientBackgroundStart = "rgb(30, 70, 100)",
@@ -15,7 +15,7 @@ export const BackgroundGradientAnimation = ({
   children,
   className,
   interactive = true,
-  containerClassName,
+  // containerClassName,
 }: {
   gradientBackgroundStart?: string;
   gradientBackgroundEnd?: string;
@@ -50,6 +50,15 @@ export const BackgroundGradientAnimation = ({
     document.body.style.setProperty("--size", size);
     document.body.style.setProperty("--blending-value", blendingValue);
   }, []);
+
+  // gradientBackgroundStart,
+  //   gradientBackgroundEnd,
+  //   firstColor,
+  //   secondColor,
+  //   pointerColor,
+  //   largeCircleColor,
+  //   size,
+  //   blendingValue,
 
   // Function to move the large circle based on mouse movement
   const handleMouseMove = (event: MouseEvent) => {

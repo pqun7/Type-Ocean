@@ -27,10 +27,14 @@ export default {
         fourth: "moveHorizontal 40s ease infinite",
         fifth: "moveInCircle 20s ease infinite",
         shimmer: "shimmer 2s linear infinite",
-        softPulse: "softPulse 3s ease-in-out infinite",
+        softPulse: "softPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
         float: 'float 8s ease-in-out infinite',
         'float-delayed': 'float-delayed 10s ease-in-out infinite',
         'pulse-slow': 'pulse-slow 6s ease-in-out infinite',
+        bubble: 'bubble 15s infinite ease-in-out',
+        wave: 'wave 20s linear infinite',
+        'wave-opacity': 'wave-opacity 12s ease-in-out infinite',
+
       },
       dropShadow: {
         glow: [
@@ -39,6 +43,16 @@ export default {
         ]
       },
       keyframes: {
+        'wave-opacity': {
+          '0%, 100%': { 
+            transform: 'translateX(0) scaleY(1)',
+            opacity: '0.4'
+          },
+          '50%': { 
+            transform: 'translateX(-25%) scaleY(0.9)',
+            opacity: '0.6'
+          }
+        },
         moveHorizontal: {
           "0%": {
             transform: "translateX(-50%) translateY(-10%)",
@@ -50,6 +64,15 @@ export default {
             transform: "translateX(-50%) translateY(-10%)",
           },
         },
+        bubble: {
+          '0%, 100%': { transform: 'translateY(0) scale(1)' },
+          '50%': { transform: 'translateY(-100px) scale(1.2)' }
+        },
+        wave: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' }
+        },
+        
         moveInCircle: {
           "0%": {
             transform: "rotate(0deg)",
@@ -80,12 +103,14 @@ export default {
             backgroundPosition: "-200% 0",
           },
         },
-        softPulse:{
+        softPulse: {
           "0%, 100%": {
-            transform: "scale(1)",
+            opacity: '0.9',
+            filter: "drop-shadow(0 0 2px rgba(0, 0, 0, 0.1))"
           },
           "50%": {
-            transform: "scale(1.05)",
+            opacity: '1',
+            filter: "drop-shadow(0 0 6px rgba(0, 0, 0, 0.15))"
           },
         },
         float: {
@@ -166,6 +191,12 @@ export default {
       borderWidth: {
         DEFAULT: "0.0625rem",
       },
+      willChange: {
+        'transform': 'transform, opacity',
+      },
+      backdropBlur: {
+        'lg': '16px',
+      },
       backgroundImage: ({ theme }) => ({
         "gradient-mystic-dusk": `linear-gradient(135deg, ${theme("colors.indigo.800")} 0%, ${theme("colors.blue.600")} 40%, ${theme("colors.gray.900")} 100%)`,
         "gradient-vivid-dream": `linear-gradient(120deg, ${theme("colors.purple.700")}, ${theme("colors.blue.500")}, ${theme("colors.cyan.400")})`,
@@ -173,6 +204,8 @@ export default {
         "gradient-sunset-glow": `linear-gradient(135deg, ${theme("colors.orange.600")} 0%, ${theme("colors.pink.500")} 50%, ${theme("colors.red.400")} 100%)`,
         "gradient-starry-night": `linear-gradient(135deg, ${theme("colors.n.9")}, ${theme("colors.n.6")}, ${theme("colors.color.Primary")})`,
         "gradient-twilight": `linear-gradient(135deg, ${theme("colors.color.Primary")}, ${theme("colors.n.6")})`,
+        'gradient-40': 'linear-gradient(40deg, var(--gradient-start), var(--gradient-end))',
+
 
       }),      
     },

@@ -1,5 +1,3 @@
-import SectionSvg from "../assets/svg/SectionSvg";
-
 import { ReactNode } from "react";
 
 type SectionProps = {
@@ -15,7 +13,6 @@ const Section: React.FC<SectionProps> = ({
   className = "",
   id,
   crosses = false,
-  crossesOffset = "",
   customPaddings,
   children,
 }) => (

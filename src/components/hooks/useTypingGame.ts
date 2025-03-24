@@ -5,7 +5,19 @@ import useCaret from "./useCaret";
 
 export default function useTypingGame(texts: string[]) {
   const { text, resetText } = useTextManager(texts);
-  const { userInput, isError, wpm, accuracy, handleInputChange, resetGame } = useTypingLogic(text, resetText);
+  const {
+    userInput,
+    isError,
+    wpm,
+    accuracy,
+    state,
+    elapsedTime,
+    handleInputChange,
+    resetGame,
+    isIdle,
+    
+    
+  } = useTypingLogic(text, resetText);
   const { caretPosition, textRefs } = useCaret(userInput, text);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -14,16 +26,31 @@ export default function useTypingGame(texts: string[]) {
     inputRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (state === "end" && e.key === "Tab") {
+        e.preventDefault();
+        resetGame();
+        inputRef.current?.focus(); // Focus input after reset
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [state, resetGame]);
+
   return {
     text,
     userInput,
     isError,
     wpm,
     accuracy,
+    state,
     caretPosition,
     handleInputChange,
     resetGame,
     inputRef,
     textRefs,
+    isIdle,
+    elapsedTime,
   };
 }
