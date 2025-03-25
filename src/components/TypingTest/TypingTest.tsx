@@ -5,8 +5,7 @@ import TypingInput from "./TypingInput";
 import Caret from "./Caret";
 import useTypingGame from "../hooks/useTypingGame";
 
-
-type TypingTestProps = {
+interface TypingTestProps {
   texts: string[];
   onStateChange: (state: "start" | "running" | "end") => void;
   onWpmChange: (wpm: number) => void;
