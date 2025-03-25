@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useWpmHistory } from "./useWpmHistory";
 
 type Level = "SHORT" | "MEDIUM" | "LONG";
 type State = "start" | "running" | "end";
@@ -26,6 +27,8 @@ export default function useTypingLogic(
   const textRef = useRef(text);
   const startTimeRef = useRef(startTime);
 
+  const { wpmHistory, errorTimes, addWpmPoint, resetHistory } = useWpmHistory();
+
   // Sync refs with the latest values
   useEffect(() => {
     userInputRef.current = userInput;
@@ -46,7 +49,7 @@ export default function useTypingLogic(
     };
 
     if (state === "running" && !isIdle) {
-      updateElapsedTime(); // Immediate update on start
+      updateElapsedTime();
       intervalId = setInterval(updateElapsedTime, 1000);
     }
 
@@ -87,11 +90,19 @@ export default function useTypingLogic(
           setWpm(newWpm);
           lastActiveWpm.current = newWpm;
         }
+
+        // Calculate time and previous WPM
+        const currentTime = activeTime;
+        const prevWpm = wpmHistory.length > 0 
+          ? wpmHistory[wpmHistory.length - 1].wpm 
+          : 0;
+
+        addWpmPoint(currentTime, newWpm, prevWpm);
       }, 3000);
     }
 
     return () => intervalId && clearInterval(intervalId);
-  }, [state, isIdle, wpm]);
+  }, [state, isIdle, wpm, wpmHistory, addWpmPoint]);
 
   // Handle user input
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,7 +127,13 @@ export default function useTypingLogic(
         .reduce((acc, char, i) => acc + (input[i] === char ? 1 : 0), 0);
       const activeTime =
         performance.now() - startTimeRef.current - pausedDurationRef.current;
-      const finalWpm = Math.round((correctChars / 5) / (activeTime / 60000));
+      const finalWpm = Math.round(correctChars / 5 / (activeTime / 60000));
+
+      // Add final WPM point
+      const prevWpm = wpmHistory.length > 0 
+        ? wpmHistory[wpmHistory.length - 1].wpm 
+        : 0;
+      addWpmPoint(activeTime, finalWpm, prevWpm);
 
       setWpm(finalWpm);
       setElapsedTime(Math.floor(activeTime / 1000));
@@ -136,7 +153,6 @@ export default function useTypingLogic(
     // Reset idle timer
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
-      // lastActiveWpm.current = wpm;
       idleStartTimeRef.current = performance.now();
       setIsIdle(true);
     }, 4000);
@@ -162,6 +178,7 @@ export default function useTypingLogic(
     setIsIdle(false);
     lastActiveWpm.current = 0;
     if (idleTimer.current) clearTimeout(idleTimer.current);
+    resetHistory();
   };
 
   return {
@@ -174,5 +191,7 @@ export default function useTypingLogic(
     resetGame,
     isIdle,
     elapsedTime,
+    wpmHistory,
+    errorTimes,
   };
 }

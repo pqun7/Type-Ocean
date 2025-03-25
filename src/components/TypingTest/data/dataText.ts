@@ -1604,7 +1604,7 @@ export const textsData: TextData[] = [
   },
   {
     "id": 270,
-    "content": "The greatest glory in living lies not in never falling, but in rising every time we fall. Success is not final, failure is not fatal: It is the courage to continue that counts.",
+    "content": "The greatest glory in living lies not in never falling, but in rising every time we fall. Success is not final, failure is not fatal It is the courage to continue that counts.",
     "length": 176,
     "type": "LONG"
   },
@@ -1640,7 +1640,7 @@ export const textsData: TextData[] = [
   },
   {
     "id": 559,
-    "content": "Success is not final, failure is not fatal: it is the courage to continue that counts.",
+    "content": "Success is not final, failure is not fatal it is the courage to continue that counts.",
     "length": 86,
     "type": "SHORT"
   },
@@ -2342,7 +2342,7 @@ export const textsData: TextData[] = [
   },
   {
     "id": 687,
-    "content": "Success is not final, failure is not fatal: It is the courage to continue that counts.",
+    "content": "Success is not final, failure is not fatal It is the courage to continue that counts.",
     "length": 86,
     "type": "SHORT"
   },
@@ -3350,7 +3350,7 @@ export const textsData: TextData[] = [
   },
   {
     "id": 854,
-    "content": "Success is not final, failure is not fatal: It is the courage to continue that counts. Keep moving forward.",
+    "content": "Success is not final, failure is not fatal It is the courage to continue that counts. Keep moving forward.",
     "length": 107,
     "type": "SHORT"
   },

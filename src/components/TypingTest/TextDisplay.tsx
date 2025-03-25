@@ -10,6 +10,7 @@ interface TextDisplayProps {
   fontSize: string;
   lineHeight: string;
   font: string;
+
 }
 
 const CharSpan = memo(
@@ -25,6 +26,7 @@ const CharSpan = memo(
     isTyped: boolean;
     isCorrect: boolean;
     textRefs: RefObject<(HTMLSpanElement | null)[]>;
+    
   }) => {
     const getColorClass = () => {
       if (!isTyped) return "text-slate-400";
@@ -92,7 +94,7 @@ const TextDisplay = memo(
       <div
         className={`${fontSize} ${lineHeight} transition-all duration-300 tracking-tight 
           ${isError ? "text-red-500" : "text-gray-800"} ${font} 
-          break-words overflow-hidden w-full whitespace-pre-wrap`}
+          break-words overflow-hidden w-full  whitespace-pre-wrap pointer-events-none`}
       >
         {wordsWithSpaces.map((wordWithSpace, wordIndex) => {
           const word = wordWithSpace.trimEnd(); // الكلمة بدون مسافات زائدة في النهاية

@@ -15,8 +15,8 @@ export default function useTypingGame(texts: string[]) {
     handleInputChange,
     resetGame,
     isIdle,
-    
-    
+    wpmHistory, 
+    errorTimes,
   } = useTypingLogic(text, resetText);
   const { caretPosition, textRefs } = useCaret(userInput, text);
 
@@ -31,7 +31,6 @@ export default function useTypingGame(texts: string[]) {
       if (state === "end" && e.key === "Tab") {
         e.preventDefault();
         resetGame();
-        inputRef.current?.focus(); // Focus input after reset
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -52,5 +51,7 @@ export default function useTypingGame(texts: string[]) {
     textRefs,
     isIdle,
     elapsedTime,
+    wpmHistory,
+    errorTimes,
   };
 }

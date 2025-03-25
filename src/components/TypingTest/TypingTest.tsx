@@ -13,6 +13,8 @@ interface TypingTestProps {
   onIdleChange: (isIdle: boolean) => void;
   onElapsedTimeChange: (time: number) => void;
   onGameEnd?: (wpmHistory: { time: number; wpm: number }[], errorTimes: number[]) => void;
+  onWpmHistoryChange: (history: any[]) => void;
+  onErrorTimesChange: (errors: number[]) => void;
   fontSize?: string;
   caretHeight?: string;
   font?: string;
@@ -32,8 +34,7 @@ export default function TypingTest({
   onAccuracyChange,
   onIdleChange,
   onElapsedTimeChange,
-  onGameEnd
-  
+  onWpmHistoryChange,  
 }: TypingTestProps) {
   const {
     text,
@@ -48,7 +49,13 @@ export default function TypingTest({
     textRefs,
     isIdle,
     elapsedTime,
+    wpmHistory,
   } = useTypingGame(texts);
+
+  
+  useEffect(() => {
+    onWpmHistoryChange?.(wpmHistory);
+  }, [wpmHistory, onWpmHistoryChange]);
 
   useEffect(() => {
     onStateChange(state);
