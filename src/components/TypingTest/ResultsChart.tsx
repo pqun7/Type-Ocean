@@ -45,19 +45,6 @@ const ResultsChart = ({
     // accuracy: accuracy, // يمكن إضافة دقة لكل نقطة إذا لزم
   }));
 
-  const ErrorMarks = () => (
-    <>
-      {errorTimes.map((time, idx) => (
-        <circle
-          key={idx}
-          cx={`${(time / (currentTime * 1000)) * 100}%`}
-          cy="50%"
-          r="4"
-          fill="red"
-        />
-      ))}
-    </>
-  );
 
   const chartConfig = {
     wpm: {
@@ -100,8 +87,6 @@ const ResultsChart = ({
                     className="h-[200px] w-full"
                   >
                     <AreaChart data={chartData}>
-                    <g>{ErrorMarks()}</g>
-
                       <defs>
                         <linearGradient id="fillWpm" x1="0" y1="0" x2="0" y2="1">
                           <stop

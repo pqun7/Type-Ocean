@@ -27,7 +27,8 @@ export default function useTypingLogic(
   const textRef = useRef(text);
   const startTimeRef = useRef(startTime);
 
-  const { wpmHistory, errorTimes, addWpmPoint, resetHistory } = useWpmHistory();
+  const { wpmHistory, errorTimes, addWpmPoint, recordError, resetHistory } =
+    useWpmHistory();
 
   // Sync refs with the latest values
   useEffect(() => {
@@ -49,7 +50,7 @@ export default function useTypingLogic(
     };
 
     if (state === "running" && !isIdle) {
-      updateElapsedTime();
+      updateElapsedTime(); // Immediate update on start
       intervalId = setInterval(updateElapsedTime, 1000);
     }
 
@@ -83,7 +84,7 @@ export default function useTypingLogic(
           performance.now() - startTimeRef.current - pausedDurationRef.current;
         const minutes = activeTime / 60000;
         const newWpm = Math.round(
-          (correctChars / 5) / Math.max(minutes, 0.016667)
+          correctChars / 5 / Math.max(minutes, 0.016667)
         );
 
         if (newWpm !== wpm) {
@@ -91,18 +92,15 @@ export default function useTypingLogic(
           lastActiveWpm.current = newWpm;
         }
 
-        // Calculate time and previous WPM
-        const currentTime = activeTime;
-        const prevWpm = wpmHistory.length > 0 
-          ? wpmHistory[wpmHistory.length - 1].wpm 
-          : 0;
-
-        addWpmPoint(currentTime, newWpm, prevWpm);
-      }, 3000);
+        // getting the previous wpm value for the chart results
+        const prevWpm =
+          wpmHistory.length > 0 ? wpmHistory[wpmHistory.length - 1].wpm : 0;
+          addWpmPoint(activeTime, newWpm, prevWpm); // استخدام activeTime المحسوب مسبقًا
+        }, 3000);
     }
 
     return () => intervalId && clearInterval(intervalId);
-  }, [state, isIdle, wpm, wpmHistory, addWpmPoint]);
+  }, [state, isIdle, wpm]);
 
   // Handle user input
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -129,12 +127,6 @@ export default function useTypingLogic(
         performance.now() - startTimeRef.current - pausedDurationRef.current;
       const finalWpm = Math.round(correctChars / 5 / (activeTime / 60000));
 
-      // Add final WPM point
-      const prevWpm = wpmHistory.length > 0 
-        ? wpmHistory[wpmHistory.length - 1].wpm 
-        : 0;
-      addWpmPoint(activeTime, finalWpm, prevWpm);
-
       setWpm(finalWpm);
       setElapsedTime(Math.floor(activeTime / 1000));
       setState("end");
@@ -153,9 +145,16 @@ export default function useTypingLogic(
     // Reset idle timer
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
+      // lastActiveWpm.current = wpm;
+
       idleStartTimeRef.current = performance.now();
       setIsIdle(true);
     }, 4000);
+
+    // // Record errors
+    // if (isError) {
+    //   recordError(Date.now() - startTimeRef.current!);
+    // }
   };
 
   // Freeze WPM during idle periods
@@ -178,7 +177,7 @@ export default function useTypingLogic(
     setIsIdle(false);
     lastActiveWpm.current = 0;
     if (idleTimer.current) clearTimeout(idleTimer.current);
-    resetHistory();
+    resetHistory(); // تصحيح الاستدعاء هنا
   };
 
   return {
@@ -193,5 +192,7 @@ export default function useTypingLogic(
     elapsedTime,
     wpmHistory,
     errorTimes,
+    recordError,
+    resetHistory,
   };
 }

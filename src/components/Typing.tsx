@@ -158,7 +158,6 @@ const HeaderGame = ({
               onElapsedTimeChange={setCurrentTime}
               className="w-[1200px] mt-4 overflow-x-auto"
               onWpmHistoryChange={setWpmHistory}
-              onErrorTimesChange={setErrorTimes}
             />
           </div>
         </div>

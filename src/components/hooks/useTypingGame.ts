@@ -11,12 +11,13 @@ export default function useTypingGame(texts: string[]) {
     wpm,
     accuracy,
     state,
-    elapsedTime,
+    recordError,
+    resetHistory,
+    wpmHistory,
     handleInputChange,
     resetGame,
     isIdle,
-    wpmHistory, 
-    errorTimes,
+    elapsedTime,
   } = useTypingLogic(text, resetText);
   const { caretPosition, textRefs } = useCaret(userInput, text);
 
@@ -51,7 +52,7 @@ export default function useTypingGame(texts: string[]) {
     textRefs,
     isIdle,
     elapsedTime,
+    recordError,
     wpmHistory,
-    errorTimes,
   };
 }

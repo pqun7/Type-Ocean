@@ -7,20 +7,19 @@ import useTypingGame from "../hooks/useTypingGame";
 
 interface TypingTestProps {
   texts: string[];
-  onStateChange: (state: "start" | "running" | "end") => void;
-  onWpmChange: (wpm: number) => void;
-  onAccuracyChange: (accuracy: number) => void;
-  onIdleChange: (isIdle: boolean) => void;
-  onElapsedTimeChange: (time: number) => void;
-  onGameEnd?: (wpmHistory: { time: number; wpm: number }[], errorTimes: number[]) => void;
-  onWpmHistoryChange: (history: any[]) => void;
-  onErrorTimesChange: (errors: number[]) => void;
   fontSize?: string;
-  caretHeight?: string;
+  lineHeight?: string;
   font?: string;
+  caretHeight?: string;
   className?: string;
-  lineHeight?: string
-};
+  onStateChange: (state: "start" | "running" | "end") => void;
+  onWpmChange?: (wpm: number) => void;
+  onAccuracyChange?: (accuracy: number) => void;
+  onIdleChange?: (isIdle: boolean) => void;
+  onElapsedTimeChange?: (time: number) => void;
+  onWpmHistoryChange: (history: Array<{time: number, wpm: number, prevWpm: number}>) => void;
+
+}
 
 export default function TypingTest({
   texts,
@@ -34,7 +33,8 @@ export default function TypingTest({
   onAccuracyChange,
   onIdleChange,
   onElapsedTimeChange,
-  onWpmHistoryChange,  
+  onWpmHistoryChange
+  
 }: TypingTestProps) {
   const {
     text,
@@ -49,10 +49,9 @@ export default function TypingTest({
     textRefs,
     isIdle,
     elapsedTime,
-    wpmHistory,
+    wpmHistory
   } = useTypingGame(texts);
 
-  
   useEffect(() => {
     onWpmHistoryChange?.(wpmHistory);
   }, [wpmHistory, onWpmHistoryChange]);
@@ -76,7 +75,6 @@ export default function TypingTest({
   useEffect(() => {
     onElapsedTimeChange?.(elapsedTime);
   }, [elapsedTime, onElapsedTimeChange]);
-  
 
   return (
     <div className={`relative w-full h-full rounded-md p-4 ${className}`}>
