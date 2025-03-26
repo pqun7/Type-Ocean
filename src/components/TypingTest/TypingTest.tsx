@@ -17,7 +17,7 @@ interface TypingTestProps {
   onAccuracyChange?: (accuracy: number) => void;
   onIdleChange?: (isIdle: boolean) => void;
   onElapsedTimeChange?: (time: number) => void;
-  onWpmHistoryChange: (history: Array<{time: number, wpm: number, prevWpm: number}>) => void;
+  onWpmHistoryChange: (history: Array<{ time: number; wpm: number; prevWpm: number }[]>) => void;
 
 }
 

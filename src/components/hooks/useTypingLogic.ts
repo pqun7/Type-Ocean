@@ -8,7 +8,6 @@ export default function useTypingLogic(
   text: string,
   selectNewText: (level?: Level) => void
 ) {
-  // Basic application states
   const [userInput, setUserInput] = useState<string>("");
   const [isError, setIsError] = useState<boolean>(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -18,7 +17,6 @@ export default function useTypingLogic(
   const [isIdle, setIsIdle] = useState<boolean>(false);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
 
-  // Refs for managing state without causing re-renders
   const idleTimer = useRef<NodeJS.Timeout | null>(null);
   const lastActiveWpm = useRef(wpm);
   const pausedDurationRef = useRef<number>(0);
@@ -27,17 +25,15 @@ export default function useTypingLogic(
   const textRef = useRef(text);
   const startTimeRef = useRef(startTime);
 
-  const { wpmHistory, errorTimes, addWpmPoint, recordError, resetHistory } =
+  const { wpmHistory, errorTimes, addWpmPoint, recordError, resetHistory, startNewSession } =
     useWpmHistory();
 
-  // Sync refs with the latest values
   useEffect(() => {
     userInputRef.current = userInput;
     textRef.current = text;
     startTimeRef.current = startTime;
   }, [userInput, text, startTime]);
 
-  // Manage elapsed time, accounting for idle periods
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
@@ -50,14 +46,13 @@ export default function useTypingLogic(
     };
 
     if (state === "running" && !isIdle) {
-      updateElapsedTime(); // Immediate update on start
+      updateElapsedTime();
       intervalId = setInterval(updateElapsedTime, 1000);
     }
 
     return () => clearInterval(intervalId);
   }, [state, isIdle]);
 
-  // Calculate WPM and accuracy every 3 seconds
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
@@ -68,7 +63,6 @@ export default function useTypingLogic(
         const currentInput = userInputRef.current;
         const currentText = textRef.current;
 
-        // Calculate accuracy
         const correctChars = currentText
           .slice(0, currentInput.length)
           .split("")
@@ -79,7 +73,6 @@ export default function useTypingLogic(
         ).toFixed(1);
         setAccuracy(newAccuracy);
 
-        // Calculate WPM
         const activeTime =
           performance.now() - startTimeRef.current - pausedDurationRef.current;
         const minutes = activeTime / 60000;
@@ -92,31 +85,36 @@ export default function useTypingLogic(
           lastActiveWpm.current = newWpm;
         }
 
-        // getting the previous wpm value for the chart results
-        const prevWpm =
-          wpmHistory.length > 0 ? wpmHistory[wpmHistory.length - 1].wpm : 0;
-          addWpmPoint(activeTime, newWpm, prevWpm); // استخدام activeTime المحسوب مسبقًا
-        }, 3000);
+        // حساب prevWpm من الجلسة السابقة
+        let prevWpm = 0;
+        if (wpmHistory.length > 1) {
+          const previousSession = wpmHistory[wpmHistory.length - 2];
+          const timeInSeconds = Math.floor(activeTime / 1000);
+          const prevPoint = previousSession.find(p => Math.floor(p.time / 1000) === timeInSeconds);
+          prevWpm = prevPoint ? prevPoint.wpm : previousSession[previousSession.length - 1]?.wpm || 0;
+        }
+
+        addWpmPoint(activeTime, newWpm, prevWpm);
+      }, 2000);
     }
 
     return () => intervalId && clearInterval(intervalId);
-  }, [state, isIdle, wpm]);
+  }, [state, isIdle, wpm, wpmHistory]);
 
-  // Handle user input
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
 
-    // Start the timer on the first input
     if (state === "start") {
       setState("running");
       setStartTime(performance.now());
       setElapsedTime(0);
+      startNewSession();
+      addWpmPoint(0, 0, 0); // نقطة البداية عند 0
     }
 
     setUserInput(input);
     setIsError(text.slice(0, input.length) !== input);
 
-    // Check if the text is completed
     if (input.length === text.length) {
       if (!startTimeRef.current) return;
 
@@ -132,7 +130,6 @@ export default function useTypingLogic(
       setState("end");
     }
 
-    // Manage idle periods
     if (isIdle) {
       if (idleStartTimeRef.current) {
         pausedDurationRef.current +=
@@ -142,27 +139,17 @@ export default function useTypingLogic(
       setIsIdle(false);
     }
 
-    // Reset idle timer
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
-      // lastActiveWpm.current = wpm;
-
       idleStartTimeRef.current = performance.now();
       setIsIdle(true);
     }, 4000);
-
-    // // Record errors
-    // if (isError) {
-    //   recordError(Date.now() - startTimeRef.current!);
-    // }
   };
 
-  // Freeze WPM during idle periods
   useEffect(() => {
     if (isIdle) setWpm(lastActiveWpm.current);
   }, [isIdle]);
 
-  // Reset the game
   const resetGame = () => {
     selectNewText();
     setUserInput("");
@@ -177,7 +164,7 @@ export default function useTypingLogic(
     setIsIdle(false);
     lastActiveWpm.current = 0;
     if (idleTimer.current) clearTimeout(idleTimer.current);
-    resetHistory(); // تصحيح الاستدعاء هنا
+    // لا نستدعي resetHistory للاحتفاظ بالجلسات السابقة
   };
 
   return {

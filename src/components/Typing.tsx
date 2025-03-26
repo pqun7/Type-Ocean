@@ -40,11 +40,9 @@ const HeaderGame = ({
   const [isIdle, setIsIdle] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
 
-  const [wpmHistory, setWpmHistory] = useState<any[]>([]);
-  const [errorTimes, setErrorTimes] = useState<number[]>([]);
-  const [previousSessionData, setPreviousSessionData] = useState<
-    { time: number; wpm: number }[]
-  >([]);
+  const [wpmHistory, setWpmHistory] = useState<{ time: number; wpm: number; prevWpm: number }[][]>([]);
+   const [errorTimes, setErrorTimes] = useState<number[]>([]);
+
 
   const selectNewText = useCallback(
     (level: Level = selectedLevel) => {
@@ -73,20 +71,6 @@ const HeaderGame = ({
     setTextKey((prev) => prev + 1);
     setGameState("start");
   };
-
-  const handleGameEnd = (
-    history: { time: number; wpm: number }[],
-    errors: number[]
-  ) => {
-    setWpmHistory(history);
-    setErrorTimes(errors);
-    localStorage.setItem("previousSessionData", JSON.stringify(history));
-  };
-
-  useEffect(() => {
-    const savedData = localStorage.getItem("previousSessionData");
-    if (savedData) setPreviousSessionData(JSON.parse(savedData));
-  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
