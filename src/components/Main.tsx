@@ -74,7 +74,7 @@ const HeroCard = () => {
           }}
           className="rounded-[2.5rem] "
         >
-          <HeaderGame texts={STATIC_TEXT} HomePage={true} />
+          <HeaderGame texts={STATIC_TEXT} HomePage={true} className = "max-w-5xl mx-auto" fontSize="text-base md:text-xl"/>
         </motion.div>
       </div>
     </motion.div>
