@@ -1,10 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWpmHistory } from "./useWpmHistory";
+import { Level, State, TimePoint } from "../types";
+import { useInterval } from "./useInterval";
+import { getPreviousWpm } from "../utils/getPreviousWpm";
 
-type Level = "SHORT" | "MEDIUM" | "LONG";
-type State = "start" | "running" | "end";
-type TimePoint = { time: number; wpm: number; prevWpm: number };
-
+/**
+ * Core typing test logic hook managing:
+ * - User input handling and validation
+ * - Real-time metrics calculation (WPM, accuracy, time)
+ * - Session lifecycle management
+ * - Idle state detection and pause handling
+ * - Historical performance tracking
+ * 
+ * @param text - Target text for typing test
+ * @param selectNewText - Function to generate new test text
+ * @returns Object containing state, handlers, and metrics
+ */
 export default function useTypingLogic(
   text: string,
   selectNewText: (level?: Level) => void
@@ -18,8 +29,8 @@ export default function useTypingLogic(
     accuracy: 100,
     elapsedTime: 0,
   });
-  
-  // Refs for persistent values
+
+  // Persistent references
   const startTime = useRef<number | null>(null);
   const idleTimer = useRef<NodeJS.Timeout | null>(null);
   const idleState = useRef({
@@ -28,8 +39,8 @@ export default function useTypingLogic(
     pausedDuration: 0,
     idleStart: null as number | null,
   });
-  
-  // Historical data and session management
+
+  // Historical data management
   const {
     wpmHistory,
     errorTimes,
@@ -39,38 +50,36 @@ export default function useTypingLogic(
     recordError,
   } = useWpmHistory();
 
-  // Derived values and refs
+  // Derived values
   const textRef = useRef(text);
   const userInputRef = useRef(userInput);
   const sessionActive = state === "running" && !idleState.current.isIdle;
 
-  // Update refs on changes
+  // Sync refs with current values
   useEffect(() => {
     textRef.current = text;
     userInputRef.current = userInput;
   }, [text, userInput]);
 
-  // Time calculation utilities
+  /** Calculate active time accounting for pauses */
   const getActiveTime = useCallback(() => {
-    if (!startTime.current) return 0;
-    return performance.now() - startTime.current - idleState.current.pausedDuration;
+    return startTime.current 
+      ? performance.now() - startTime.current - idleState.current.pausedDuration
+      : 0;
   }, []);
 
+  /** Calculate current WPM and accuracy metrics */
   const calculateMetrics = useCallback(() => {
-    const currentInput = userInputRef.current;
-    const currentText = textRef.current;
-    
-    // Accuracy calculation
-    const correctChars = currentText
-      .slice(0, currentInput.length)
+    const input = userInputRef.current;
+    const target = textRef.current;
+    const correctChars = target.slice(0, input.length)
       .split("")
-      .filter((char, i) => char === currentInput[i]).length;
-    const accuracy = +(correctChars / Math.max(currentInput.length, 1) * 100).toFixed(1);
+      .filter((char, i) => char === input[i]).length;
     
-    // WPM calculation
+    const accuracy = +(correctChars / Math.max(input.length, 1) * 100).toFixed(1);
     const minutes = getActiveTime() / 60000;
     const wpm = Math.round(correctChars / 5 / Math.max(minutes, 0.016667));
-    
+
     return { accuracy: Math.max(0, accuracy), wpm };
   }, [getActiveTime]);
 
@@ -106,10 +115,13 @@ export default function useTypingLogic(
       idleState.current.idleStart = null;
     }
     idleState.current.isIdle = isIdle;
-    setMetrics(prev => ({ ...prev, wpm: isIdle ? idleState.current.lastActiveWpm : prev.wpm }));
+    setMetrics(prev => ({ 
+      ...prev, 
+      wpm: isIdle ? idleState.current.lastActiveWpm : prev.wpm 
+    }));
   }, [metrics.wpm]);
 
-  // Timed updates
+  // Regular metric updates
   useInterval(() => {
     if (!sessionActive) return;
     
@@ -122,7 +134,6 @@ export default function useTypingLogic(
       elapsedTime: Math.floor(activeTime / 1000)
     }));
     
-    // Historical data update
     const prevWpm = getPreviousWpm(activeTime, wpmHistory);
     addTempPoints([{ time: activeTime, wpm, prevWpm }]);
   }, sessionActive ? 2000 : null);
@@ -136,18 +147,16 @@ export default function useTypingLogic(
     setUserInput(input);
     setIsError(text.slice(0, input.length) !== input);
     
-    if (input.length === text.length) {
-      handleSessionEnd();
-    }
+    if (input.length === text.length) handleSessionEnd();
     
-    // Idle timer management
-    if (idleTimer.current) clearTimeout(idleTimer.current);
+    // Reset idle timer on input
+    idleTimer.current && clearTimeout(idleTimer.current);
     if (idleState.current.isIdle) handleIdleState(false);
     
     idleTimer.current = setTimeout(() => handleIdleState(true), 4000);
   };
 
-  // Reset functionality
+  // Game reset
   const resetGame = useCallback(() => {
     selectNewText();
     setUserInput("");
@@ -155,7 +164,7 @@ export default function useTypingLogic(
     setState("start");
     setMetrics({ wpm: 0, accuracy: 100, elapsedTime: 0 });
     
-    // Reset ref values
+    // Reset references
     startTime.current = null;
     idleState.current = {
       isIdle: false,
@@ -164,7 +173,7 @@ export default function useTypingLogic(
       idleStart: null,
     };
     
-    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current && clearTimeout(idleTimer.current);
   }, [selectNewText]);
 
   return {
@@ -179,34 +188,4 @@ export default function useTypingLogic(
     errorTimes,
     recordError,
   };
-}
-
-// Helper hooks and utilities
-function useInterval(callback: () => void, delay: number | null) {
-  const savedCallback = useRef<() => void>(null);
-
-  useEffect(() => {
-    savedCallback.current = callback;
-  }, [callback]);
-
-  useEffect(() => {
-    const tick = () => savedCallback.current?.();
-    if (delay !== null) {
-      const id = setInterval(tick, delay);
-      return () => clearInterval(id);
-    }
-  }, [delay]);
-}
-
-function getPreviousWpm(activeTime: number, history: TimePoint[][]) {
-  if (history.length < 1) return 0;
-  
-  const previousSession = history[history.length - 1];
-  const timeInSeconds = Math.floor(activeTime / 1000);
-  
-  return previousSession.reduce((closest, current) => {
-    const currentDiff = Math.abs(Math.floor(current.time / 1000) - timeInSeconds);
-    const closestDiff = Math.abs(Math.floor(closest.time / 1000) - timeInSeconds);
-    return currentDiff < closestDiff ? current : closest;
-  }, previousSession[0]).wpm;
 }
