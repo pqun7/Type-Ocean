@@ -12,7 +12,6 @@ export default function useTypingGame(texts: string[]) {
     accuracy,
     state,
     recordError,
-    resetHistory,
     wpmHistory,
     handleInputChange,
     resetGame,

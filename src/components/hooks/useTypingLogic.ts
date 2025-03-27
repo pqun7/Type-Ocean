@@ -25,8 +25,14 @@ export default function useTypingLogic(
   const textRef = useRef(text);
   const startTimeRef = useRef(startTime);
 
-  const { wpmHistory, errorTimes, addWpmPoint, recordError, resetHistory, startNewSession } =
-    useWpmHistory();
+  const {
+    wpmHistory,
+    errorTimes,
+    startNewSession,
+    addTempPoints,
+    commitSession,
+    recordError,
+  } = useWpmHistory();
 
   useEffect(() => {
     userInputRef.current = userInput;
@@ -87,14 +93,23 @@ export default function useTypingLogic(
 
         // حساب prevWpm من الجلسة السابقة
         let prevWpm = 0;
-        if (wpmHistory.length > 1) {
-          const previousSession = wpmHistory[wpmHistory.length - 2];
+        if (wpmHistory.length >= 1) {
+          // تغيير الشرط هنا
+          const previousSession = wpmHistory[wpmHistory.length - 1]; // استخدام الجلسة الأخيرة
           const timeInSeconds = Math.floor(activeTime / 1000);
-          const prevPoint = previousSession.find(p => Math.floor(p.time / 1000) === timeInSeconds);
-          prevWpm = prevPoint ? prevPoint.wpm : previousSession[previousSession.length - 1]?.wpm || 0;
+
+          // البحث عن أقرب وقت في الجلسة السابقة
+          const prevPoint = previousSession.reduce((closest, current) => {
+            return Math.abs(Math.floor(current.time / 1000) - timeInSeconds) <
+              Math.abs(Math.floor(closest.time / 1000) - timeInSeconds)
+              ? current
+              : closest;
+          }, previousSession[0]);
+
+          prevWpm = prevPoint ? prevPoint.wpm : 0;
         }
 
-        addWpmPoint(activeTime, newWpm, prevWpm);
+        addTempPoints([{ time: activeTime, wpm: newWpm, prevWpm }]);
       }, 2000);
     }
 
@@ -109,7 +124,7 @@ export default function useTypingLogic(
       setStartTime(performance.now());
       setElapsedTime(0);
       startNewSession();
-      addWpmPoint(0, 0, 0); // نقطة البداية عند 0
+      addTempPoints([{ time: 0, wpm: 0, prevWpm: 0 }]);
     }
 
     setUserInput(input);
@@ -124,6 +139,23 @@ export default function useTypingLogic(
       const activeTime =
         performance.now() - startTimeRef.current - pausedDurationRef.current;
       const finalWpm = Math.round(correctChars / 5 / (activeTime / 60000));
+
+      let prevWpm = 0;
+      if (wpmHistory.length >= 1) {
+        const previousSession = wpmHistory[wpmHistory.length - 1];
+        const timeInSeconds = Math.floor(activeTime / 1000);
+
+        const prevPoint = previousSession.reduce((closest, current) => {
+          return Math.abs(Math.floor(current.time / 1000) - timeInSeconds) <
+            Math.abs(Math.floor(closest.time / 1000) - timeInSeconds)
+            ? current
+            : closest;
+        }, previousSession[0]);
+
+        prevWpm = prevPoint ? prevPoint.wpm : 0;
+      }
+      addTempPoints([{ time: activeTime, wpm: finalWpm, prevWpm }]);
+      commitSession();
 
       setWpm(finalWpm);
       setElapsedTime(Math.floor(activeTime / 1000));
@@ -164,7 +196,6 @@ export default function useTypingLogic(
     setIsIdle(false);
     lastActiveWpm.current = 0;
     if (idleTimer.current) clearTimeout(idleTimer.current);
-    // لا نستدعي resetHistory للاحتفاظ بالجلسات السابقة
   };
 
   return {
@@ -180,6 +211,5 @@ export default function useTypingLogic(
     wpmHistory,
     errorTimes,
     recordError,
-    resetHistory,
   };
 }

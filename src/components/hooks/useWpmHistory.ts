@@ -1,45 +1,56 @@
 import { useState, useEffect } from 'react';
 
 export function useWpmHistory() {
-  // تهيئة wpmHistory مع استرجاع البيانات من localStorage إذا كانت موجودة
   const [wpmHistory, setWpmHistory] = useState<{ 
     time: number; 
     wpm: number; 
     prevWpm: number 
   }[][]>(() => {
     const savedHistory = localStorage.getItem('wpmHistory');
-    return savedHistory ? JSON.parse(savedHistory) : [];
+    return savedHistory ? JSON.parse(savedHistory).slice(-2) : [];
   });
-  
+
+  const [tempSession, setTempSession] = useState<{ 
+    time: number; 
+    wpm: number; 
+    prevWpm: number 
+  }[]>([]);
+
   const [errorTimes, setErrorTimes] = useState<number[]>([]);
 
+ 
   useEffect(() => {
-    localStorage.setItem('wpmHistory', JSON.stringify(wpmHistory));
+    localStorage.setItem('wpmHistory', JSON.stringify(wpmHistory.slice(-2)));
   }, [wpmHistory]);
 
   const startNewSession = () => {
-    setWpmHistory(prev => [prev.slice(-1)[0] || [], []]);
+    setTempSession([]); 
   };
-  
-  const addWpmPoint = (time: number, wpm: number, prevWpm: number) => {
-    setWpmHistory(prev => {
-      if (prev.length === 0) {
-        return [[{ time, wpm, prevWpm }]];
-      }
-      const lastSession = prev[prev.length - 1];
-      return [...prev.slice(0, -1), [...lastSession, { time, wpm, prevWpm }]];
-    });
+
+  const addTempPoints = (points: { time: number; wpm: number; prevWpm: number }[]) => {
+    setTempSession(prev => [...prev, ...points]);
+  };
+
+  const commitSession = () => {
+    if (tempSession.length > 0) {
+      setWpmHistory(prev => {
+        const newHistory = [...prev, tempSession];
+        return newHistory.slice(-2);
+      });
+      setTempSession([]);
+    }
   };
 
   const recordError = (time: number) => {
     setErrorTimes(prev => [...prev, time]);
   };
 
-  const resetHistory = () => {
-    setWpmHistory([]);
-    setErrorTimes([]);
-    // localStorage.removeItem('wpmHistory'); // إزالة البيانات من localStorage
+  return { 
+    wpmHistory, 
+    errorTimes, 
+    startNewSession, 
+    addTempPoints, 
+    commitSession, 
+    recordError 
   };
-
-  return { wpmHistory, errorTimes, startNewSession, addWpmPoint, recordError, resetHistory };
 }
