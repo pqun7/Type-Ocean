@@ -1,30 +1,35 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useWpmHistory } from "./useWpmHistory";
 
 type Level = "SHORT" | "MEDIUM" | "LONG";
 type State = "start" | "running" | "end";
+type TimePoint = { time: number; wpm: number; prevWpm: number };
 
 export default function useTypingLogic(
   text: string,
   selectNewText: (level?: Level) => void
 ) {
-  const [userInput, setUserInput] = useState<string>("");
-  const [isError, setIsError] = useState<boolean>(false);
-  const [startTime, setStartTime] = useState<number | null>(null);
-  const [wpm, setWpm] = useState<number>(0);
-  const [accuracy, setAccuracy] = useState<number>(100);
+  // State management
   const [state, setState] = useState<State>("start");
-  const [isIdle, setIsIdle] = useState<boolean>(false);
-  const [elapsedTime, setElapsedTime] = useState<number>(0);
-
+  const [userInput, setUserInput] = useState("");
+  const [isError, setIsError] = useState(false);
+  const [metrics, setMetrics] = useState({
+    wpm: 0,
+    accuracy: 100,
+    elapsedTime: 0,
+  });
+  
+  // Refs for persistent values
+  const startTime = useRef<number | null>(null);
   const idleTimer = useRef<NodeJS.Timeout | null>(null);
-  const lastActiveWpm = useRef(wpm);
-  const pausedDurationRef = useRef<number>(0);
-  const idleStartTimeRef = useRef<number | null>(null);
-  const userInputRef = useRef(userInput);
-  const textRef = useRef(text);
-  const startTimeRef = useRef(startTime);
-
+  const idleState = useRef({
+    isIdle: false,
+    lastActiveWpm: 0,
+    pausedDuration: 0,
+    idleStart: null as number | null,
+  });
+  
+  // Historical data and session management
   const {
     wpmHistory,
     errorTimes,
@@ -34,182 +39,174 @@ export default function useTypingLogic(
     recordError,
   } = useWpmHistory();
 
+  // Derived values and refs
+  const textRef = useRef(text);
+  const userInputRef = useRef(userInput);
+  const sessionActive = state === "running" && !idleState.current.isIdle;
+
+  // Update refs on changes
   useEffect(() => {
-    userInputRef.current = userInput;
     textRef.current = text;
-    startTimeRef.current = startTime;
-  }, [userInput, text, startTime]);
+    userInputRef.current = userInput;
+  }, [text, userInput]);
 
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout;
+  // Time calculation utilities
+  const getActiveTime = useCallback(() => {
+    if (!startTime.current) return 0;
+    return performance.now() - startTime.current - idleState.current.pausedDuration;
+  }, []);
 
-    const updateElapsedTime = () => {
-      if (state === "running" && !isIdle && startTimeRef.current) {
-        const activeTime =
-          performance.now() - startTimeRef.current - pausedDurationRef.current;
-        setElapsedTime(Math.floor(activeTime / 1000));
-      }
-    };
+  const calculateMetrics = useCallback(() => {
+    const currentInput = userInputRef.current;
+    const currentText = textRef.current;
+    
+    // Accuracy calculation
+    const correctChars = currentText
+      .slice(0, currentInput.length)
+      .split("")
+      .filter((char, i) => char === currentInput[i]).length;
+    const accuracy = +(correctChars / Math.max(currentInput.length, 1) * 100).toFixed(1);
+    
+    // WPM calculation
+    const minutes = getActiveTime() / 60000;
+    const wpm = Math.round(correctChars / 5 / Math.max(minutes, 0.016667));
+    
+    return { accuracy: Math.max(0, accuracy), wpm };
+  }, [getActiveTime]);
 
-    if (state === "running" && !isIdle) {
-      updateElapsedTime();
-      intervalId = setInterval(updateElapsedTime, 1000);
+  // Session management
+  const handleSessionStart = useCallback(() => {
+    setState("running");
+    startTime.current = performance.now();
+    startNewSession();
+    addTempPoints([{ time: 0, wpm: 0, prevWpm: 0 }]);
+  }, [startNewSession, addTempPoints]);
+
+  const handleSessionEnd = useCallback(() => {
+    const activeTime = getActiveTime();
+    const { wpm } = calculateMetrics();
+    
+    setMetrics(prev => ({
+      ...prev,
+      wpm,
+      elapsedTime: Math.floor(activeTime / 1000)
+    }));
+    
+    commitSession();
+    setState("end");
+  }, [getActiveTime, calculateMetrics, commitSession]);
+
+  // Idle state management
+  const handleIdleState = useCallback((isIdle: boolean) => {
+    if (isIdle) {
+      idleState.current.idleStart = performance.now();
+      idleState.current.lastActiveWpm = metrics.wpm;
+    } else if (idleState.current.idleStart) {
+      idleState.current.pausedDuration += performance.now() - idleState.current.idleStart;
+      idleState.current.idleStart = null;
     }
+    idleState.current.isIdle = isIdle;
+    setMetrics(prev => ({ ...prev, wpm: isIdle ? idleState.current.lastActiveWpm : prev.wpm }));
+  }, [metrics.wpm]);
 
-    return () => clearInterval(intervalId);
-  }, [state, isIdle]);
+  // Timed updates
+  useInterval(() => {
+    if (!sessionActive) return;
+    
+    const activeTime = getActiveTime();
+    const { wpm, accuracy } = calculateMetrics();
+    
+    setMetrics(prev => ({
+      wpm,
+      accuracy,
+      elapsedTime: Math.floor(activeTime / 1000)
+    }));
+    
+    // Historical data update
+    const prevWpm = getPreviousWpm(activeTime, wpmHistory);
+    addTempPoints([{ time: activeTime, wpm, prevWpm }]);
+  }, sessionActive ? 2000 : null);
 
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout;
-
-    if (state === "running" && !isIdle) {
-      intervalId = setInterval(() => {
-        if (!startTimeRef.current) return;
-
-        const currentInput = userInputRef.current;
-        const currentText = textRef.current;
-
-        const correctChars = currentText
-          .slice(0, currentInput.length)
-          .split("")
-          .filter((char, i) => char === currentInput[i]).length;
-        const newAccuracy = +Math.max(
-          0,
-          (correctChars / Math.max(currentInput.length, 1)) * 100
-        ).toFixed(1);
-        setAccuracy(newAccuracy);
-
-        const activeTime =
-          performance.now() - startTimeRef.current - pausedDurationRef.current;
-        const minutes = activeTime / 60000;
-        const newWpm = Math.round(
-          correctChars / 5 / Math.max(minutes, 0.016667)
-        );
-
-        if (newWpm !== wpm) {
-          setWpm(newWpm);
-          lastActiveWpm.current = newWpm;
-        }
-
-        // حساب prevWpm من الجلسة السابقة
-        let prevWpm = 0;
-        if (wpmHistory.length >= 1) {
-          // تغيير الشرط هنا
-          const previousSession = wpmHistory[wpmHistory.length - 1]; // استخدام الجلسة الأخيرة
-          const timeInSeconds = Math.floor(activeTime / 1000);
-
-          // البحث عن أقرب وقت في الجلسة السابقة
-          const prevPoint = previousSession.reduce((closest, current) => {
-            return Math.abs(Math.floor(current.time / 1000) - timeInSeconds) <
-              Math.abs(Math.floor(closest.time / 1000) - timeInSeconds)
-              ? current
-              : closest;
-          }, previousSession[0]);
-
-          prevWpm = prevPoint ? prevPoint.wpm : 0;
-        }
-
-        addTempPoints([{ time: activeTime, wpm: newWpm, prevWpm }]);
-      }, 2000);
-    }
-
-    return () => intervalId && clearInterval(intervalId);
-  }, [state, isIdle, wpm, wpmHistory]);
-
+  // Input handling
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
-
-    if (state === "start") {
-      setState("running");
-      setStartTime(performance.now());
-      setElapsedTime(0);
-      startNewSession();
-      addTempPoints([{ time: 0, wpm: 0, prevWpm: 0 }]);
-    }
-
+    
+    if (state === "start") handleSessionStart();
+    
     setUserInput(input);
     setIsError(text.slice(0, input.length) !== input);
-
+    
     if (input.length === text.length) {
-      if (!startTimeRef.current) return;
-
-      const correctChars = text
-        .split("")
-        .reduce((acc, char, i) => acc + (input[i] === char ? 1 : 0), 0);
-      const activeTime =
-        performance.now() - startTimeRef.current - pausedDurationRef.current;
-      const finalWpm = Math.round(correctChars / 5 / (activeTime / 60000));
-
-      let prevWpm = 0;
-      if (wpmHistory.length >= 1) {
-        const previousSession = wpmHistory[wpmHistory.length - 1];
-        const timeInSeconds = Math.floor(activeTime / 1000);
-
-        const prevPoint = previousSession.reduce((closest, current) => {
-          return Math.abs(Math.floor(current.time / 1000) - timeInSeconds) <
-            Math.abs(Math.floor(closest.time / 1000) - timeInSeconds)
-            ? current
-            : closest;
-        }, previousSession[0]);
-
-        prevWpm = prevPoint ? prevPoint.wpm : 0;
-      }
-      addTempPoints([{ time: activeTime, wpm: finalWpm, prevWpm }]);
-      commitSession();
-
-      setWpm(finalWpm);
-      setElapsedTime(Math.floor(activeTime / 1000));
-      setState("end");
+      handleSessionEnd();
     }
-
-    if (isIdle) {
-      if (idleStartTimeRef.current) {
-        pausedDurationRef.current +=
-          performance.now() - idleStartTimeRef.current;
-        idleStartTimeRef.current = null;
-      }
-      setIsIdle(false);
-    }
-
+    
+    // Idle timer management
     if (idleTimer.current) clearTimeout(idleTimer.current);
-    idleTimer.current = setTimeout(() => {
-      idleStartTimeRef.current = performance.now();
-      setIsIdle(true);
-    }, 4000);
+    if (idleState.current.isIdle) handleIdleState(false);
+    
+    idleTimer.current = setTimeout(() => handleIdleState(true), 4000);
   };
 
-  useEffect(() => {
-    if (isIdle) setWpm(lastActiveWpm.current);
-  }, [isIdle]);
-
-  const resetGame = () => {
+  // Reset functionality
+  const resetGame = useCallback(() => {
     selectNewText();
     setUserInput("");
     setIsError(false);
-    setStartTime(null);
-    setWpm(0);
-    setAccuracy(100);
     setState("start");
-    setElapsedTime(0);
-    pausedDurationRef.current = 0;
-    idleStartTimeRef.current = null;
-    setIsIdle(false);
-    lastActiveWpm.current = 0;
+    setMetrics({ wpm: 0, accuracy: 100, elapsedTime: 0 });
+    
+    // Reset ref values
+    startTime.current = null;
+    idleState.current = {
+      isIdle: false,
+      lastActiveWpm: 0,
+      pausedDuration: 0,
+      idleStart: null,
+    };
+    
     if (idleTimer.current) clearTimeout(idleTimer.current);
-  };
+  }, [selectNewText]);
 
   return {
     userInput,
     isError,
-    wpm,
-    accuracy,
+    ...metrics,
     state,
     handleInputChange,
     resetGame,
-    isIdle,
-    elapsedTime,
+    isIdle: idleState.current.isIdle,
     wpmHistory,
     errorTimes,
     recordError,
   };
+}
+
+// Helper hooks and utilities
+function useInterval(callback: () => void, delay: number | null) {
+  const savedCallback = useRef<() => void>(null);
+
+  useEffect(() => {
+    savedCallback.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
+    const tick = () => savedCallback.current?.();
+    if (delay !== null) {
+      const id = setInterval(tick, delay);
+      return () => clearInterval(id);
+    }
+  }, [delay]);
+}
+
+function getPreviousWpm(activeTime: number, history: TimePoint[][]) {
+  if (history.length < 1) return 0;
+  
+  const previousSession = history[history.length - 1];
+  const timeInSeconds = Math.floor(activeTime / 1000);
+  
+  return previousSession.reduce((closest, current) => {
+    const currentDiff = Math.abs(Math.floor(current.time / 1000) - timeInSeconds);
+    const closestDiff = Math.abs(Math.floor(closest.time / 1000) - timeInSeconds);
+    return currentDiff < closestDiff ? current : closest;
+  }, previousSession[0]).wpm;
 }
