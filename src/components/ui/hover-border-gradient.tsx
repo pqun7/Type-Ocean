@@ -13,7 +13,7 @@ export function HoverBorderGradient({
   duration = 1,
   clockwise = true,
   bgColor = "bg-black",
-  hideMovingBorder = false, // الخاصية الجديدة
+  hideMovingBorder = false,
   ...props
 }: React.PropsWithChildren<
   {
@@ -65,7 +65,7 @@ export function HoverBorderGradient({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(
-        "relative flex rounded-full border content-center bg-black/10 hover:bg-black/0 transition duration-500 dark:bg-white/20 items-center flex-col flex-nowrap gap-10 h-min justify-center overflow-visible p-px decoration-clone w-fit",
+        "relative flex rounded-full border content-center bg-black/10 hover:bg-black/0 transition duration-500 items-center flex-col flex-nowrap gap-10 h-min justify-center overflow-visible p-px decoration-clone w-fit",
         containerClassName
       )}
       {...props}

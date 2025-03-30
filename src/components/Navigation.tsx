@@ -85,7 +85,9 @@ export const UserMenu: React.FC<UserMenuProps> = ({
       ) : (
         <HoverBorderGradient
           containerClassName="rounded-full"
-          className="px-6 py-2 font-medium bg-white/5 backdrop-blur-sm hover:bg-white/10 h-9 hidden sm:flex items-center justify-center transition-colors text-white"
+          bgColor="bg-transparent"
+          hideMovingBorder={true}
+          className="px-6 py-2 font-medium bg-white/5 backdrop-blur-sm hover:bg-white/[0.06] h-9 hidden sm:flex items-center justify-center transition-colors text-white"
         >
           <Link href="/login" className="h-fit text-sm text-nowrap">Sign In</Link>
         </HoverBorderGradient>
