@@ -6,6 +6,10 @@ export function useWpmHistory() {
     wpm: number; 
     prevWpm: number 
   }[][]>(() => {
+    // Check if window is defined (client-side)
+    if (typeof window === 'undefined') {
+      return [];
+    }
     const savedHistory = localStorage.getItem('wpmHistory');
     return savedHistory ? JSON.parse(savedHistory).slice(-2) : [];
   });
@@ -15,14 +19,12 @@ export function useWpmHistory() {
     wpm: number; 
     prevWpm: number 
   }[]>([]);
-
-  const [errorTimes, setErrorTimes] = useState<number[]>([]);
-
  
   useEffect(() => {
     localStorage.setItem('wpmHistory', JSON.stringify(wpmHistory.slice(-2)));
   }, [wpmHistory]);
 
+  // Rest of the code remains the same
   const startNewSession = () => {
     setTempSession([]); 
   };
@@ -41,16 +43,10 @@ export function useWpmHistory() {
     }
   };
 
-  const recordError = (time: number) => {
-    setErrorTimes(prev => [...prev, time]);
-  };
-
   return { 
     wpmHistory, 
-    errorTimes, 
     startNewSession, 
     addTempPoints, 
     commitSession, 
-    recordError 
   };
 }

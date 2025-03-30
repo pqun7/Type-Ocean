@@ -12,13 +12,14 @@ interface TypingTestProps {
   font?: string;
   caretHeight?: string;
   className?: string;
+  selectedLevel: "SHORT" | "MEDIUM" | "LONG";
   onStateChange: (state: "start" | "running" | "end") => void;
   onWpmChange?: (wpm: number) => void;
   onAccuracyChange?: (accuracy: number) => void;
   onIdleChange?: (isIdle: boolean) => void;
   onElapsedTimeChange?: (time: number) => void;
   onWpmHistoryChange: (history: Array<{ time: number; wpm: number; prevWpm: number }[]>) => void;
-
+  onErrorsChange?: (errors: number) => void;
 }
 
 export default function TypingTest({
@@ -33,8 +34,9 @@ export default function TypingTest({
   onAccuracyChange,
   onIdleChange,
   onElapsedTimeChange,
-  onWpmHistoryChange
-  
+  onWpmHistoryChange,
+  onErrorsChange,
+  selectedLevel,
 }: TypingTestProps) {
   const {
     text,
@@ -49,8 +51,13 @@ export default function TypingTest({
     textRefs,
     isIdle,
     elapsedTime,
-    wpmHistory
-  } = useTypingGame(texts);
+    wpmHistory,
+    totalErrors,
+  } = useTypingGame(selectedLevel);
+
+  // useEffect(() => {
+  //   onErrorsChange?.(totalErrors);
+  // }, [totalErrors, onErrorsChange]);
 
   useEffect(() => {
     onWpmHistoryChange?.(wpmHistory);

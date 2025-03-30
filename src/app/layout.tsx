@@ -34,8 +34,9 @@ export default function RootLayout({
         {/* <ClientBackground /> */}
         <Background className="fixed inset-0 pointer-events-none -z-10" />
 
-
+        
         <Header />
+        {/* <div className="w-screen h-[1px] bg-white/60"></div> */}
 
         <main className="relative z-10 min-h-screen overflow-x-hidden overflow-y-auto pointer-events-auto">
           {children}

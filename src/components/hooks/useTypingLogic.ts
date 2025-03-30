@@ -24,12 +24,13 @@ export default function useTypingLogic(
   const [state, setState] = useState<State>("start");
   const [userInput, setUserInput] = useState("");
   const [isError, setIsError] = useState(false);
+  const [totalErrors, setTotalErrors] = useState(0);
   const [metrics, setMetrics] = useState({
     wpm: 0,
     accuracy: 100,
     elapsedTime: 0,
   });
-
+  
   // Persistent references
   const startTime = useRef<number | null>(null);
   const idleTimer = useRef<NodeJS.Timeout | null>(null);
@@ -43,11 +44,9 @@ export default function useTypingLogic(
   // Historical data management
   const {
     wpmHistory,
-    errorTimes,
     startNewSession,
     addTempPoints,
     commitSession,
-    recordError,
   } = useWpmHistory();
 
   // Derived values
@@ -146,6 +145,7 @@ export default function useTypingLogic(
     
     setUserInput(input);
     setIsError(text.slice(0, input.length) !== input);
+    // if(isError) setTotalErrors((prv) => prv + 1);
     
     if (input.length === text.length) handleSessionEnd();
     
@@ -179,13 +179,12 @@ export default function useTypingLogic(
   return {
     userInput,
     isError,
+    totalErrors,
     ...metrics,
     state,
     handleInputChange,
     resetGame,
     isIdle: idleState.current.isIdle,
     wpmHistory,
-    errorTimes,
-    recordError,
   };
 }

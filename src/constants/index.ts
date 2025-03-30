@@ -25,7 +25,6 @@ type NavigationItem = {
   onlyMobile?: boolean;
   isLoggedIn?: boolean;
 };
-
 export const navigation: NavigationItem[] = [
   { id: "0", title: "Home", url: "#home" },
   { id: "1", title: "Exercises", url: "#exercises" },
@@ -44,8 +43,21 @@ export const navigation: NavigationItem[] = [
     onlyMobile: true,
     isLoggedIn: false,
   },
+  {
+    id: "5",
+    title: "Profile",
+    url: "#profile",
+    onlyMobile: true,
+    isLoggedIn: true,
+  },
+  {
+    id: "6",
+    title: "Settings",
+    url: "#settings",
+    onlyMobile: true,
+    isLoggedIn: true,
+  },
 ];
-
 
 type PricingPlan = {
   id: string;

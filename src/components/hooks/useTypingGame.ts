@@ -2,16 +2,17 @@ import { useRef, useEffect } from "react";
 import useTextManager from "./useTextManager";
 import useTypingLogic from "./useTypingLogic";
 import useCaret from "./useCaret";
+type Level = "SHORT" | "MEDIUM" | "LONG";
 
-export default function useTypingGame(texts: string[]) {
-  const { text, resetText } = useTextManager(texts);
+export default function useTypingGame(selectedLevel: Level) {
+  const { text, resetText } = useTextManager(selectedLevel);
   const {
     userInput,
     isError,
+    totalErrors,
     wpm,
     accuracy,
     state,
-    recordError,
     wpmHistory,
     handleInputChange,
     resetGame,
@@ -41,6 +42,7 @@ export default function useTypingGame(texts: string[]) {
     text,
     userInput,
     isError,
+    totalErrors,
     wpm,
     accuracy,
     state,
@@ -51,7 +53,6 @@ export default function useTypingGame(texts: string[]) {
     textRefs,
     isIdle,
     elapsedTime,
-    recordError,
     wpmHistory,
   };
 }

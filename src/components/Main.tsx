@@ -1,5 +1,7 @@
 "use client";
 import { Button2 } from "@/components/ui/Buttons";
+import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
+
 import { motion, MotionValue } from "framer-motion";
 import { useRef } from "react";
 import { useOptimizedScrollTransform } from "@/components/hooks/scrollHooks";
@@ -12,7 +14,10 @@ const HeroHeading = () => {
   const h1Opacity = useOptimizedScrollTransform(containerRef, [0, 1.6]);
   const h1Scale = useOptimizedScrollTransform(containerRef, [0.8, 1.4]);
   const pScale = useOptimizedScrollTransform(containerRef, [0.8, 1.1]);
-  const buttonTransform = useOptimizedScrollTransform(containerRef, [-160, 130]);
+  const buttonTransform = useOptimizedScrollTransform(
+    containerRef,
+    [-160, 130]
+  );
   const router = useRouter();
 
   return (
@@ -22,33 +27,53 @@ const HeroHeading = () => {
       initial="hidden"
       viewport={{ once: true }}
     >
+
       <motion.h1
-        style={{ y: h1Y, opacity: h1Opacity, scale: h1Scale, willChange: "transform, opacity" }}
+        style={{
+          y: h1Y,
+          opacity: h1Opacity,
+          scale: h1Scale,
+          willChange: "transform, opacity",
+        }}
         className="mb-6 h1 mt-10 px-7"
       >
         Turn<span className="opacity-60 text-purple-200/50"> Your </span>Fingers
-        <span className="opacity-60 text-purple-200/50"> into </span>Speed Machines!
+        <span className="opacity-60 text-purple-200/50"> into </span>Speed
+        Machines!
       </motion.h1>
+
       <motion.p
-        style={{ scale: pScale, opacity: h1Opacity, willChange: "transform, opacity" }}
+        style={{
+          scale: pScale,
+          opacity: h1Opacity,
+          willChange: "transform, opacity",
+        }}
         className="max-w-3xl mx-auto mb-6 font-light body-1 text-n-2 lg:mb-8"
       >
         Type like a pro with easy, step-by-step training that helps you improve
         your speed and accuracy, no matter your starting level!
       </motion.p>
+
       <motion.div
         style={{ y: buttonTransform, willChange: "transform" }}
         whileTap={{ scale: 0.95 }}
         transition={{ duration: 0.2 }}
       >
-        <Button2 onClick={() => router.push("/home")}>Start Now</Button2>
+        <HoverBorderGradient
+          containerClassName="rounded-full"
+          className="text-sm bg-white/5 backdrop-blur-sm hover:bg-white/10 h-9 "
+          onClick={() => router.push("/home")}
+        >
+          Start Now
+        </HoverBorderGradient>
       </motion.div>
     </motion.div>
   );
 };
 
 const STATIC_TEXT = [
-  "Let your fingers move fast and easy on the keyboard! Click 'Start Now' and Enjoy a smooth and easy typing experience!",
+  // "Let your fingers move fast and easy on the keyboard! Click 'Start Now' and Enjoy a smooth and easy typing experience!",
+  "Test",
 ];
 
 const HeroCard = () => {
@@ -74,7 +99,12 @@ const HeroCard = () => {
           }}
           className="rounded-[2.5rem] "
         >
-          <HeaderGame texts={STATIC_TEXT} HomePage={true} className = "max-w-5xl mx-auto" fontSize="text-base md:text-xl"/>
+          <HeaderGame
+            texts={STATIC_TEXT}
+            HomePage={true}
+            className="max-w-5xl mx-auto"
+            fontSize="text-base md:text-xl"
+          />
         </motion.div>
       </div>
     </motion.div>

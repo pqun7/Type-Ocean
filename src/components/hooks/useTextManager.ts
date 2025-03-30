@@ -1,15 +1,42 @@
-import { useState } from "react";
+// hooks/useTextManager.ts
+"use client";
 
-export default function useTextManager(texts: string[]) {
-  const [text, setText] = useState<string>(texts[0]);
+import { useState, useEffect } from "react";
+import short from "@/data/short.json";
+import medium from "@/data/medium.json";
+import long from "@/data/long.json";
 
-  const getRandomText = (): string => {
-    return texts[Math.floor(Math.random() * texts.length)];
+type Level = "SHORT" | "MEDIUM" | "LONG";
+
+export default function useTextManager(selectedLevel: Level) {
+  const [text, setText] = useState<string>("");
+
+  const getTextsByLevel = (level: Level) => {
+    switch (level) {
+      case "SHORT":
+        return short;
+      case "MEDIUM":
+        return medium;
+      case "LONG":
+        return long;
+      default:
+        return medium;
+    }
+  };
+
+  const getRandomText = (level: Level) => {
+    const texts = getTextsByLevel(level);
+    return texts[Math.floor(Math.random() * texts.length)].content;
   };
 
   const resetText = () => {
-    setText(getRandomText());
+    const newText = getRandomText(selectedLevel);
+    setText(newText);
   };
 
-  return { text, setText, resetText };
+  useEffect(() => {
+    resetText();
+  }, [selectedLevel]);
+
+  return { text, resetText };
 }
