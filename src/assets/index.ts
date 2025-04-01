@@ -27,6 +27,8 @@ import github from "./socials/github.svg";
 import linkedin from "./socials/linkedin.svg";
 import reddit from "./socials/reddit.svg";
 
+import LevelIcon from "./Level-Icon.png"
+
 export {
   brainwave,
   brainwaveSymbol,
@@ -53,4 +55,5 @@ export {
   github,
   linkedin,
   reddit,
+  LevelIcon,
 };

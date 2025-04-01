@@ -15,7 +15,7 @@ import {
   UserMenu,
 } from "@/components/Navigation";
 import { brainwaveSymbol } from "@/assets";
-import {SPRING_CONFIG, SCROLL_RANGE} from "@/constants/constants";
+import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
 
 const Header: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(true);
@@ -57,7 +57,7 @@ const Header: React.FC = () => {
         }}
         className="fixed top-0 left-0 right-0 z-50 mx-auto h-16 mt-2 border border-slate-300"
       >
-        <div className="flex items-center justify-between h-full px-2 lg:px-16">
+        <div className="flex items-center justify-between h-full px-4 lg:px-8">
           <motion.div style={{ translateX: logoTranslateX }} className="z-10">
             <Logo />
           </motion.div>
@@ -69,6 +69,9 @@ const Header: React.FC = () => {
               isLoggedIn={isLoggedIn}
               toggleMenu={toggleMenu}
               isMenuOpen={isMenuOpen}
+              userLevel={1}
+              userXP={24}
+              nextLevelXP={100}
             />
           </motion.div>
         </div>
@@ -85,7 +88,7 @@ const Header: React.FC = () => {
 };
 
 const Logo: React.FC = () => (
-  <Link href="/" className="flex items-center">
+  <Link href="/" className="flex items-center w-max">
     <Image
       src={brainwaveSymbol}
       alt="Type Ocean Logo"
@@ -93,7 +96,7 @@ const Logo: React.FC = () => (
       height={30}
       priority
     />
-    <h1 className="hidden pl-2 font-semibold text-center shrink-0 md:flex">
+    <h1 className="hidden pl-2 font-semibold text-center shrink-0 md:flex text-slate-200">
       Type Ocean
     </h1>
   </Link>

@@ -30,6 +30,14 @@
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
+    --sidebar-background: 222 47% 11%;    /* Slate-900 */
+    --sidebar-foreground: 214 32% 91%;    /* Slate-200 */
+    --sidebar-primary: 214 32% 91%;       /* Slate-200 */
+    --sidebar-primary-foreground: 222 47% 11%; /* Slate-900 */
+    --sidebar-accent: 215 25% 27%;        /* Slate-800 */
+    --sidebar-accent-foreground: 214 32% 91%; /* Slate-200 */
+    --sidebar-border: 213 27% 18%;        /* Slate-800 */
+    --sidebar-ring: 214 32% 91%;          /* Slate-200 */
   }
 
   .dark {
@@ -38,18 +46,25 @@
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
 
 @layer base {
   * {
-    @apply border-gray-200 ring-opacity-50;
+    @apply border-gray-900 ring-opacity-50;
   }
   body {
     @apply bg-background text-foreground;
   }
 }
-
 
 * {
   scroll-behavior: smooth;
@@ -167,8 +182,6 @@ body {
   }
 }
 
-
-
 @keyframes slow-move {
   0% {
     transform: translate(0, 0);
@@ -261,5 +274,3 @@ body {
     -webkit-backdrop-filter: blur(12px);
   }
 }
-
-

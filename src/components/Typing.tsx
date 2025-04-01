@@ -36,6 +36,8 @@ const HeaderGame = ({
   >([]);
   const [currentErrors, setCurrentErrors] = useState(0);
 
+  
+
   const handleLevelSelect = (level: Level) => {
     setSelectedLevel(level);
     setTextKey((prev) => prev + 1);

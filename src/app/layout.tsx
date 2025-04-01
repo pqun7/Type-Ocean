@@ -38,7 +38,7 @@ export default function RootLayout({
         <Header />
         {/* <div className="w-screen h-[1px] bg-white/60"></div> */}
 
-        <main className="relative z-10 min-h-screen overflow-x-hidden overflow-y-auto pointer-events-auto">
+        <main className="relative z-10 min-h-screen overflow-hidden pointer-events-auto">
           {children}
         </main>
 
