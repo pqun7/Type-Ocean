@@ -18,7 +18,9 @@ import { getPreviousWpm } from "../utils/getPreviousWpm";
  */
 export default function useTypingLogic(
   text: string,
-  selectNewText: (level?: Level) => void
+  selectNewText: (level?: Level) => void,
+  selectedLevel: Level,
+  useLevel: () => { level: number; userXP: number; nextLevelXP: number; addXP: (amount: number) => void; }
 ) {
   // State management
   const [state, setState] = useState<State>("start");
@@ -54,6 +56,9 @@ export default function useTypingLogic(
   const userInputRef = useRef(userInput);
   const sessionActive = state === "running" && !idleState.current.isIdle;
 
+  const { addXP } = useLevel(); // Destructure addXP from useLevel
+
+
   // Sync refs with current values
   useEffect(() => {
     textRef.current = text;
@@ -82,7 +87,7 @@ export default function useTypingLogic(
     return { accuracy: Math.max(0, accuracy), wpm };
   }, [getActiveTime]);
 
-  // Session management
+  // Session management and adding XP
   const handleSessionStart = useCallback(() => {
     setState("running");
     startTime.current = performance.now();
@@ -102,7 +107,21 @@ export default function useTypingLogic(
     
     commitSession();
     setState("end");
-  }, [getActiveTime, calculateMetrics, commitSession]);
+
+    if (wpm >= 25) {
+      switch (selectedLevel) {
+        case "SHORT":
+          addXP(10);
+          break;
+        case "MEDIUM":
+          addXP(20);
+          break;
+        case "LONG":
+          addXP(30);
+          break;
+      }
+    }
+  }, [getActiveTime, calculateMetrics, commitSession, addXP, selectedLevel]);
 
   // Idle state management
   const handleIdleState = useCallback((isIdle: boolean) => {

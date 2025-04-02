@@ -2,6 +2,8 @@ import { useRef, useEffect } from "react";
 import useTextManager from "./useTextManager";
 import useTypingLogic from "./useTypingLogic";
 import useCaret from "./useCaret";
+import { useLevel } from "@/contexts/LevelContext";
+
 type Level = "SHORT" | "MEDIUM" | "LONG";
 
 export default function useTypingGame(selectedLevel: Level) {
@@ -18,7 +20,7 @@ export default function useTypingGame(selectedLevel: Level) {
     resetGame,
     isIdle,
     elapsedTime,
-  } = useTypingLogic(text, resetText);
+  } = useTypingLogic(text, resetText, selectedLevel, useLevel);
   const { caretPosition, textRefs } = useCaret(userInput, text);
 
   const inputRef = useRef<HTMLInputElement>(null);

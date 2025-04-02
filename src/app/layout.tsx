@@ -1,17 +1,13 @@
-
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Header from "@/components/Header";
+import Header from "@/components/Header/Header";
 import Footer from "@/components/Footer";
-import ClientBackground from "@/components/ui/ClientBackground";
 import Background from "@/components/ui/Background";
-
-
-
+import { LevelProvider } from "@/contexts/LevelContext";
 
 const inter = Inter({
-  subsets: ['latin'], // You can choose another subset if needed
+  subsets: ["latin"], // You can choose another subset if needed
   preload: true,
 });
 
@@ -25,26 +21,22 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-
   return (
     <html lang="en" className="h-full">
       <body
         className={`${inter.className} antialiased bg-n-11 font-sans text-n-1 text-base min-h-full relative`}
       >
-        {/* <ClientBackground /> */}
         <Background className="fixed inset-0 pointer-events-none -z-10" />
 
-        
-        <Header />
-        {/* <div className="w-screen h-[1px] bg-white/60"></div> */}
-
-        <main className="relative z-10 min-h-screen overflow-hidden pointer-events-auto">
-          {children}
-        </main>
+        <LevelProvider>
+          <Header />
+          <main className="relative z-10 min-h-screen overflow-hidden pointer-events-auto">
+            {children}
+          </main>
+        </LevelProvider>
 
         <Footer />
       </body>
     </html>
   );
 }
-

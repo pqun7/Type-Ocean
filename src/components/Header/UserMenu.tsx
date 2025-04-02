@@ -4,7 +4,6 @@ import {
   motion,
   useSpring,
   useTransform,
-  AnimatePresence,
   type MotionValue,
 } from "framer-motion";
 import { HiOutlineMenu, HiX } from "react-icons/hi";
@@ -18,10 +17,8 @@ import Image from "next/image";
 import {
   SPRING_CONFIG,
   SCROLL_RANGE,
-  MOBILE_MENU_TRANSITION,
 } from "@/constants/constants";
 import { SettingsDialog } from "@/components/settings-dialog";
-
 import {
   Dialog,
   DialogContent,
@@ -30,8 +27,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-interface NavigationProps {
-  scrollY: MotionValue<number>;
+interface UserMenuProps {
+  isLoggedIn: boolean;
+  toggleMenu: () => void;
+  isMenuOpen: boolean;
+  userLevel: number;
+  userXP: number;
+  nextLevelXP: number;
 }
 
 interface UserMenuProps {
@@ -43,46 +45,7 @@ interface UserMenuProps {
   nextLevelXP: number;
 }
 
-interface MobileNavigationProps {
-  isMenuOpen: boolean;
-  setIsMenuOpen: (open: boolean) => void;
-  isLoggedIn: boolean;
-  scrollY: MotionValue<number>;
-}
-
-export const DesktopNavigation: React.FC<NavigationProps> = ({ scrollY }) => {
-  const navOpacity = useSpring(
-    useTransform(scrollY, SCROLL_RANGE, [1, 0.95]),
-    SPRING_CONFIG
-  );
-  const filteredNavigation = navigation.filter((item) => !item.onlyMobile);
-
-  return (
-    <motion.nav className="hidden pl-6 lg:space-x-8 space-x-2 sm:flex md:items-center sm:w-full md:px-2 xl:px-16 justify-center">
-      {filteredNavigation.map((item) => (
-        <motion.div key={item.id} whileHover={{ scale: 1.05 }}>
-          <Link
-            href={item.url}
-            className="relative text-sm font-medium text-slate-300 hover:text-white transition-all duration-300 px-1 py-2 rounded-lg hover:bg-white/5"
-          >
-            {item.title}
-          </Link>
-        </motion.div>
-      ))}
-    </motion.nav>
-  );
-};
-
-interface UserMenuProps {
-  isLoggedIn: boolean;
-  toggleMenu: () => void;
-  isMenuOpen: boolean;
-  userLevel: number;
-  userXP: number;
-  nextLevelXP: number;
-}
-
-export const UserMenu: React.FC<UserMenuProps> = ({
+const UserMenu: React.FC<UserMenuProps> = ({
   isLoggedIn,
   toggleMenu,
   isMenuOpen,
@@ -98,7 +61,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
         <div className="hidden sm:flex items-center gap-3">
           {/* مستوى المستخدم المحسن */}
           <div className="relative group">
-            <div className="hidden md:flex items-center gap-2 bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-full px-3 py-1.5 shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 transition-all duration-300">
+            <div className="hidden md:flex items-center gap-2 xl:bg-gradient-to-br from-slate-900 to-slate-800 xl:border border-slate-700 rounded-full px-3 py-1.5 xl:shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 transition-all duration-300">
               {/* <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/20">
                 <FiAward className="w-3 h-3 text-blue-400" />
                 <span
@@ -109,7 +72,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
                 </span>
               </div> */}
 
-              <div className="relative w-6 h-6">
+              <div className="relative w-7 h-7 hidden lg:block">
                 <Image
                   className="w-full h-full"
                   src={LevelIcon}
@@ -119,10 +82,15 @@ export const UserMenu: React.FC<UserMenuProps> = ({
                 />
                 <span
                   className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
-               text-base font-bold bg-gradient-to-b from-cyan-200 to-blue-500 
-               bg-clip-text text-transparent "
+                  text-base font-black bg-gradient-to-b from-blue-300 to-blue-500 
+                  bg-clip-text text-transparent mix-blend-light drop-shadow-[0_0_10px_rgba(30,100,255,0.6)] 
+                  "
+                  style={{
+                    textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
+                    filter: `brightness(1.5) saturate(1.3) drop-shadow(0 0 2px rgba(34,211,238,0.1))`,
+                  }}
                 >
-                  1
+                  {userLevel}
                 </span>
               </div>
 
@@ -160,16 +128,15 @@ export const UserMenu: React.FC<UserMenuProps> = ({
             </div>
           </div>
 
-          {/* أيقونة الملف الشخصي */}
           <Link
             href="/profile"
             className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-slate-200 hover:text-white"
             aria-label="Profile"
           >
             <FaUserCircle className="w-5 h-5" />
+            
           </Link>
-
-          {/* إعدادات */}
+  
           <SettingsDialog />
         </div>
       ) : (
@@ -202,67 +169,6 @@ export const UserMenu: React.FC<UserMenuProps> = ({
   );
 };
 
-export const MobileNavigation: React.FC<MobileNavigationProps> = ({
-  isMenuOpen,
-  setIsMenuOpen,
-  scrollY,
-  isLoggedIn,
-}) => {
-  const marginAdjust = useSpring(
-    useTransform(scrollY, SCROLL_RANGE, [0, -40]),
-    SPRING_CONFIG
-  );
-  const filteredNavigation = navigation.filter(
-    (item) => !(isLoggedIn && item.isLoggedIn === false)
-  );
-
-  return (
-    <>
-      <motion.div
-        className="fixed top-0 right-0 h-screen w-full sm:hidden z-30"
-        initial={{ x: "100%" }}
-        animate={{ x: isMenuOpen ? 0 : "100%" }}
-        style={{ marginLeft: marginAdjust, marginTop: marginAdjust }}
-        transition={MOBILE_MENU_TRANSITION}
-      >
-        <div className="flex items-center justify-center w-full h-full">
-          <motion.nav
-            initial={{ opacity: 0 }}
-            animate={{ opacity: isMenuOpen ? 1 : 0 }}
-            transition={MOBILE_MENU_TRANSITION}
-            className="z-30 flex flex-col items-center justify-center lg:flex-row"
-          >
-            {filteredNavigation.map((item) => (
-              <Link
-                key={item.id}
-                href={item.url}
-                className="block px-6 py-6 text-2xl text-white uppercase transition-colors hover:text-slate-200"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                {item.title}
-              </Link>
-            ))}
-          </motion.nav>
-        </div>
-      </motion.div>
-
-      <AnimatePresence>
-        {isMenuOpen && (
-          <motion.div
-            key="overlay"
-            initial={{ opacity: 0, filter: "blur(0px)" }}
-            animate={{ opacity: 0.7, filter: "blur(24px)" }}
-            exit={{ opacity: 0, filter: "blur(0px)" }}
-            transition={MOBILE_MENU_TRANSITION}
-            className="h-screen w-screen sm:hidden fixed inset-0 bg-black bg-opacity-70 z-20"
-            onClick={() => setIsMenuOpen(false)}
-          />
-        )}
-      </AnimatePresence>
-    </>
-  );
-};
-
 const DialogSettings = () => (
   <Dialog>
     <DialogTrigger asChild>
@@ -284,3 +190,6 @@ const DialogSettings = () => (
     </DialogContent>
   </Dialog>
 );
+
+
+export default UserMenu;

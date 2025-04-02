@@ -9,13 +9,10 @@ import {
   useTransform,
   useMotionTemplate,
 } from "framer-motion";
-import {
-  DesktopNavigation,
-  MobileNavigation,
-  UserMenu,
-} from "@/components/Navigation";
+import { UserMenu, MobileNavigation, DesktopNavigation } from "@/components/Header";
 import { brainwaveSymbol } from "@/assets";
 import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
+import { useLevel } from "@/contexts/LevelContext";
 
 const Header: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(true);
@@ -40,6 +37,8 @@ const Header: React.FC = () => {
   const backdropFilterValue = useMotionTemplate`blur(${backdropBlur}px)`;
   const borderValue = useMotionTemplate`1px solid rgba(148, 163, 184, ${borderOpacity})`;
   const backgroundColorValue = useMotionTemplate`rgba(255, 255, 255, ${backgroundAlpha})`;
+
+  const { level, userXP, nextLevelXP } = useLevel();
 
   return (
     <>
@@ -69,9 +68,9 @@ const Header: React.FC = () => {
               isLoggedIn={isLoggedIn}
               toggleMenu={toggleMenu}
               isMenuOpen={isMenuOpen}
-              userLevel={1}
-              userXP={24}
-              nextLevelXP={100}
+              userLevel={level}
+              userXP={userXP}
+              nextLevelXP={nextLevelXP}
             />
           </motion.div>
         </div>

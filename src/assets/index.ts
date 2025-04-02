@@ -28,6 +28,7 @@ import linkedin from "./socials/linkedin.svg";
 import reddit from "./socials/reddit.svg";
 
 import LevelIcon from "./Level-Icon.png"
+import User from "./User.png"
 
 export {
   brainwave,
