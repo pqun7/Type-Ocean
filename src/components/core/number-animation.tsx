@@ -27,7 +27,7 @@ export const NumberAnimation = ({
 
   return (
     <motion.span
-      className="font-medium underline underline-offset-4"
+      className="font-medium"
       style={{ color: color }}
     >
       <motion.span>{animatedValue}</motion.span>

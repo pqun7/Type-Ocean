@@ -1,23 +1,13 @@
 "use client";
+
+// Core imports
 import Link from "next/link";
-import {
-  motion,
-  useSpring,
-  useTransform,
-  type MotionValue,
-} from "framer-motion";
-import { HiOutlineMenu, HiX } from "react-icons/hi";
-import { GearIcon } from "@radix-ui/react-icons";
-import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
-import { navigation } from "@/constants";
-import { FaUserCircle } from "react-icons/fa";
-import { FiAward } from "react-icons/fi";
-import { LevelIcon } from "@/assets";
 import Image from "next/image";
-import {
-  SPRING_CONFIG,
-  SCROLL_RANGE,
-} from "@/constants/constants";
+import { motion } from "framer-motion";
+import { NumberAnimation } from "../core/number-animation";
+
+// Components
+import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
 import { SettingsDialog } from "@/components/settings-dialog";
 import {
   Dialog,
@@ -27,6 +17,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
+// Icons & Assets
+import { HiOutlineMenu, HiX } from "react-icons/hi";
+import { GearIcon } from "@radix-ui/react-icons";
+import { FaUserCircle } from "react-icons/fa";
+import { LevelIcon } from "@/assets";
+
+// Type definition for component props
 interface UserMenuProps {
   isLoggedIn: boolean;
   toggleMenu: () => void;
@@ -36,14 +33,108 @@ interface UserMenuProps {
   nextLevelXP: number;
 }
 
-interface UserMenuProps {
-  isLoggedIn: boolean;
-  toggleMenu: () => void;
-  isMenuOpen: boolean;
-  userLevel: number;
-  userXP: number;
-  nextLevelXP: number;
-}
+/**
+ * UserLevelDisplay Component
+ * Shows user's level with animated progress bar and tooltip
+ */
+const UserLevelDisplay = ({
+  userLevel,
+  userXP,
+  nextLevelXP,
+}: Pick<UserMenuProps, "userLevel" | "userXP" | "nextLevelXP">) => {
+  const progressPercentage = Math.min((userXP / nextLevelXP) * 100, 100);
+// IDEA: اضافه اشعارات تحت البار عند رفع النقاط او اللفل مثل بونص سرعه فوق 80 او بونص دقه 100 او اكتساب 503 نقطه 
+  return (
+    <div className="relative group">
+      {/* Level container with gradient background */}
+      <div className="hidden w-max md:flex items-center gap-2 xl:bg-gradient-to-br from-slate-900 to-slate-800 xl:border border-slate-700 rounded-full px-3 py-1.5 xl:shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 transition-all duration-300">
+        {/* Level icon with number */}
+        <div className="relative w-7 h-7 hidden lg:block">
+          <Image
+            src={LevelIcon}
+            layout="fill"
+            objectFit="contain"
+            alt="Level Icon"
+          />
+          <span
+            className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
+              ${String(userLevel).length === 3 ? "text-sm" : "text-base"} font-black 
+              bg-gradient-to-b from-blue-300 to-blue-200 bg-clip-text text-transparent mix-blend-light`}
+            style={{
+              textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
+            }}
+          >
+            {userLevel}
+          </span>
+        </div>
+
+        {/* XP Progress section */}
+        <div className="hidden xl:flex flex-col ml-1">
+          <div className="flex justify-between text-xs mb-1">
+            <span className="text-blue-300">
+              {/* <NumberAnimation value={userXP.toLocaleString()} delay={0.2} /> XP */}
+            {userXP.toLocaleString()}
+            </span>
+
+            <span className="text-slate-400">/ {nextLevelXP.toLocaleString()} XP</span>
+          </div>
+
+          {/* Animated progress bar */}
+          <div className="relative w-28 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-400"
+              initial={{ width: 0 }}
+              animate={{ width: `${progressPercentage}%` }}
+              transition={{
+                type: "spring",
+                stiffness: 100,
+                damping: 15,
+                mass: 0.5,
+              }}
+            />
+            <div
+              className="absolute inset-0 bg-gradient-to-r from-blue-500/30 to-blue-400/30"
+              style={{
+                width: `${100 - progressPercentage}%`,
+                left: `${progressPercentage}%`,
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Progress percentage tooltip */}
+      <div className="absolute hidden group-hover:block top-full mt-2 left-1/2 transform -translate-x-1/2 px-3 py-2 bg-slate-800 text-xs text-white rounded-md shadow-lg whitespace-nowrap">
+        Progress: {progressPercentage.toFixed(1)}%
+      </div>
+    </div>
+  );
+};
+
+/**
+ * MobileMenuButton Component
+ * Toggle button for mobile navigation
+ */
+const MobileMenuButton = ({
+  isMenuOpen,
+  toggleMenu,
+}: Pick<UserMenuProps, "isMenuOpen" | "toggleMenu">) => (
+  <button
+    onClick={toggleMenu}
+    aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+    className={`p-2 rounded-lg text-slate-300 transition-all duration-200 sm:hidden ${
+      isMenuOpen
+        ? "hover:text-red-400 bg-slate-800/30"
+        : "hover:text-white hover:bg-slate-800/50"
+    }`}
+  >
+    {isMenuOpen ? (
+      <HiX className="w-6 h-6" />
+    ) : (
+      <HiOutlineMenu className="w-6 h-6" />
+    )}
+  </button>
+);
 
 const UserMenu: React.FC<UserMenuProps> = ({
   isLoggedIn,
@@ -53,93 +144,31 @@ const UserMenu: React.FC<UserMenuProps> = ({
   userXP,
   nextLevelXP,
 }) => {
-  const progressPercentage = Math.min((userXP / nextLevelXP) * 100, 100);
-
   return (
     <div className="flex items-center gap-3">
       {isLoggedIn ? (
+        /* Authenticated User Section */
         <div className="hidden sm:flex items-center gap-3">
-          {/* مستوى المستخدم المحسن */}
-          <div className="relative group">
-            <div className="hidden md:flex items-center gap-2 xl:bg-gradient-to-br from-slate-900 to-slate-800 xl:border border-slate-700 rounded-full px-3 py-1.5 xl:shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 transition-all duration-300">
-              {/* <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/20">
-                <FiAward className="w-3 h-3 text-blue-400" />
-                <span
-                  className="text-base font-bold bg-gradient-to-b from-cyan-300 to-blue-400 
-                     bg-clip-text text-transparent transform"
-                >
-                  1
-                </span>
-              </div> */}
+          <UserLevelDisplay
+            userLevel={userLevel}
+            userXP={userXP}
+            nextLevelXP={nextLevelXP}
+          />
 
-              <div className="relative w-7 h-7 hidden lg:block">
-                <Image
-                  className="w-full h-full"
-                  src={LevelIcon}
-                  layout="fill"
-                  objectFit="contain"
-                  alt="Level Icon"
-                />
-                <span
-                  className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
-                  text-base font-black bg-gradient-to-b from-blue-300 to-blue-500 
-                  bg-clip-text text-transparent mix-blend-light drop-shadow-[0_0_10px_rgba(30,100,255,0.6)] 
-                  "
-                  style={{
-                    textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
-                    filter: `brightness(1.5) saturate(1.3) drop-shadow(0 0 2px rgba(34,211,238,0.1))`,
-                  }}
-                >
-                  {userLevel}
-                </span>
-              </div>
-
-              {/* <span className="text-sm font-bold text-blue-400">
-                Lv.{userLevel}
-              </span> */}
-
-              <div className="hidden xl:flex flex-col ml-1">
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-blue-300">{userXP} XP</span>
-                  <span className="text-slate-400">/ {nextLevelXP} XP</span>
-                </div>
-
-                <div className="relative w-28 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                  <motion.div
-                    className="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-400"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${progressPercentage}%` }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                  />
-                  <div
-                    className="absolute inset-0 bg-gradient-to-r from-blue-500/30 to-blue-400/30"
-                    style={{
-                      width: `${100 - progressPercentage}%`,
-                      left: `${progressPercentage}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* تلميح عند التحويم */}
-            <div className="absolute hidden group-hover:block top-full mt-2 left-1/2 transform -translate-x-1/2 px-3 py-2 bg-slate-800 text-xs text-white rounded-md shadow-lg whitespace-nowrap">
-              Progress: {progressPercentage.toFixed(1)}%
-            </div>
-          </div>
-
+          {/* Profile Link */}
           <Link
             href="/profile"
             className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-slate-200 hover:text-white"
             aria-label="Profile"
           >
             <FaUserCircle className="w-5 h-5" />
-            
           </Link>
-  
+
+          {/* Settings Dialog */}
           <SettingsDialog />
         </div>
       ) : (
+        /* Guest User Section */
         <HoverBorderGradient
           containerClassName="rounded-full"
           bgColor="bg-transparent"
@@ -149,47 +178,10 @@ const UserMenu: React.FC<UserMenuProps> = ({
         </HoverBorderGradient>
       )}
 
-      {/* زر القائمة للجوال */}
-      <button
-        onClick={toggleMenu}
-        aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-        className={`p-2 rounded-lg text-slate-300 transition-all duration-200 sm:hidden ${
-          isMenuOpen
-            ? "hover:text-red-400 bg-slate-800/30"
-            : "hover:text-white hover:bg-slate-800/50"
-        }`}
-      >
-        {isMenuOpen ? (
-          <HiX className="w-6 h-6" />
-        ) : (
-          <HiOutlineMenu className="w-6 h-6" />
-        )}
-      </button>
+      {/* Mobile Menu Toggle */}
+      <MobileMenuButton isMenuOpen={isMenuOpen} toggleMenu={toggleMenu} />
     </div>
   );
 };
-
-const DialogSettings = () => (
-  <Dialog>
-    <DialogTrigger asChild>
-      <button
-        className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-slate-300 hover:text-white"
-        aria-label="Settings"
-      >
-        <GearIcon className="w-6 h-6" />
-      </button>
-    </DialogTrigger>
-    <DialogContent className="sm:max-w-[425px] bg-slate-900 border-slate-700">
-      <DialogHeader>
-        <DialogTitle className="text-white">Settings</DialogTitle>
-      </DialogHeader>
-      <div className="p-6 space-y-4">
-        {/* Your settings content here */}
-        <p className="text-slate-300">Settings content goes here...</p>
-      </div>
-    </DialogContent>
-  </Dialog>
-);
-
 
 export default UserMenu;

@@ -11,7 +11,7 @@ import { getPreviousWpm } from "../utils/getPreviousWpm";
  * - Session lifecycle management
  * - Idle state detection and pause handling
  * - Historical performance tracking
- * 
+ *
  * @param text - Target text for typing test
  * @param selectNewText - Function to generate new test text
  * @returns Object containing state, handlers, and metrics
@@ -20,7 +20,17 @@ export default function useTypingLogic(
   text: string,
   selectNewText: (level?: Level) => void,
   selectedLevel: Level,
-  useLevel: () => { level: number; userXP: number; nextLevelXP: number; addXP: (amount: number) => void; }
+  useLevel: () => {
+    level: number;
+    userXP: number;
+    nextLevelXP: number;
+    addXP: (amount: number) => void;
+    calculateSessionXP: (
+      wpm: number,
+      accuracy: number,
+      textType: Level
+    ) => number;
+  }
 ) {
   // State management
   const [state, setState] = useState<State>("start");
@@ -32,7 +42,7 @@ export default function useTypingLogic(
     accuracy: 100,
     elapsedTime: 0,
   });
-  
+
   // Persistent references
   const startTime = useRef<number | null>(null);
   const idleTimer = useRef<NodeJS.Timeout | null>(null);
@@ -44,20 +54,15 @@ export default function useTypingLogic(
   });
 
   // Historical data management
-  const {
-    wpmHistory,
-    startNewSession,
-    addTempPoints,
-    commitSession,
-  } = useWpmHistory();
+  const { wpmHistory, startNewSession, addTempPoints, commitSession } =
+    useWpmHistory();
 
   // Derived values
   const textRef = useRef(text);
   const userInputRef = useRef(userInput);
   const sessionActive = state === "running" && !idleState.current.isIdle;
 
-  const { addXP } = useLevel(); // Destructure addXP from useLevel
-
+  const { addXP, calculateSessionXP } = useLevel(); // استيراد calculateSessionXP من useLevel
 
   // Sync refs with current values
   useEffect(() => {
@@ -67,7 +72,7 @@ export default function useTypingLogic(
 
   /** Calculate active time accounting for pauses */
   const getActiveTime = useCallback(() => {
-    return startTime.current 
+    return startTime.current
       ? performance.now() - startTime.current - idleState.current.pausedDuration
       : 0;
   }, []);
@@ -76,11 +81,15 @@ export default function useTypingLogic(
   const calculateMetrics = useCallback(() => {
     const input = userInputRef.current;
     const target = textRef.current;
-    const correctChars = target.slice(0, input.length)
+    const correctChars = target
+      .slice(0, input.length)
       .split("")
       .filter((char, i) => char === input[i]).length;
-    
-    const accuracy = +(correctChars / Math.max(input.length, 1) * 100).toFixed(1);
+
+    const accuracy = +(
+      (correctChars / Math.max(input.length, 1)) *
+      100
+    ).toFixed(1);
     const minutes = getActiveTime() / 60000;
     const wpm = Math.round(correctChars / 5 / Math.max(minutes, 0.016667));
 
@@ -97,81 +106,82 @@ export default function useTypingLogic(
 
   const handleSessionEnd = useCallback(() => {
     const activeTime = getActiveTime();
-    const { wpm } = calculateMetrics();
-    
-    setMetrics(prev => ({
+    const { wpm, accuracy } = calculateMetrics();
+
+    setMetrics((prev) => ({
       ...prev,
       wpm,
-      elapsedTime: Math.floor(activeTime / 1000)
+      elapsedTime: Math.floor(activeTime / 1000),
     }));
-    
+
     commitSession();
     setState("end");
 
-    if (wpm >= 25) {
-      switch (selectedLevel) {
-        case "SHORT":
-          addXP(10);
-          break;
-        case "MEDIUM":
-          addXP(20);
-          break;
-        case "LONG":
-          addXP(30);
-          break;
-      }
+    
+    if (wpm >= 35 && selectedLevel === "SHORT" || wpm >= 25 && selectedLevel === "MEDIUM" || wpm >= 15 && selectedLevel === "LONG") {
+      const earnedXP = calculateSessionXP(wpm, accuracy, selectedLevel);
+      addXP(earnedXP);
+    }else {
+      addXP(15);
     }
   }, [getActiveTime, calculateMetrics, commitSession, addXP, selectedLevel]);
 
   // Idle state management
-  const handleIdleState = useCallback((isIdle: boolean) => {
-    if (isIdle) {
-      idleState.current.idleStart = performance.now();
-      idleState.current.lastActiveWpm = metrics.wpm;
-    } else if (idleState.current.idleStart) {
-      idleState.current.pausedDuration += performance.now() - idleState.current.idleStart;
-      idleState.current.idleStart = null;
-    }
-    idleState.current.isIdle = isIdle;
-    setMetrics(prev => ({ 
-      ...prev, 
-      wpm: isIdle ? idleState.current.lastActiveWpm : prev.wpm 
-    }));
-  }, [metrics.wpm]);
+  const handleIdleState = useCallback(
+    (isIdle: boolean) => {
+      if (isIdle) {
+        idleState.current.idleStart = performance.now();
+        idleState.current.lastActiveWpm = metrics.wpm;
+      } else if (idleState.current.idleStart) {
+        idleState.current.pausedDuration +=
+          performance.now() - idleState.current.idleStart;
+        idleState.current.idleStart = null;
+      }
+      idleState.current.isIdle = isIdle;
+      setMetrics((prev) => ({
+        ...prev,
+        wpm: isIdle ? idleState.current.lastActiveWpm : prev.wpm,
+      }));
+    },
+    [metrics.wpm]
+  );
 
   // Regular metric updates
-  useInterval(() => {
-    if (!sessionActive) return;
-    
-    const activeTime = getActiveTime();
-    const { wpm, accuracy } = calculateMetrics();
-    
-    setMetrics(prev => ({
-      wpm,
-      accuracy,
-      elapsedTime: Math.floor(activeTime / 1000)
-    }));
-    
-    const prevWpm = getPreviousWpm(activeTime, wpmHistory);
-    addTempPoints([{ time: activeTime, wpm, prevWpm }]);
-  }, sessionActive ? 2000 : null);
+  useInterval(
+    () => {
+      if (!sessionActive) return;
+
+      const activeTime = getActiveTime();
+      const { wpm, accuracy } = calculateMetrics();
+
+      setMetrics((prev) => ({
+        wpm,
+        accuracy,
+        elapsedTime: Math.floor(activeTime / 1000),
+      }));
+
+      const prevWpm = getPreviousWpm(activeTime, wpmHistory);
+      addTempPoints([{ time: activeTime, wpm, prevWpm }]);
+    },
+    sessionActive ? 2000 : null
+  );
 
   // Input handling
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
-    
+
     if (state === "start") handleSessionStart();
-    
+
     setUserInput(input);
     setIsError(text.slice(0, input.length) !== input);
     // if(isError) setTotalErrors((prv) => prv + 1);
-    
+
     if (input.length === text.length) handleSessionEnd();
-    
+
     // Reset idle timer on input
     idleTimer.current && clearTimeout(idleTimer.current);
     if (idleState.current.isIdle) handleIdleState(false);
-    
+
     idleTimer.current = setTimeout(() => handleIdleState(true), 4000);
   };
 
@@ -182,7 +192,7 @@ export default function useTypingLogic(
     setIsError(false);
     setState("start");
     setMetrics({ wpm: 0, accuracy: 100, elapsedTime: 0 });
-    
+
     // Reset references
     startTime.current = null;
     idleState.current = {
@@ -191,7 +201,7 @@ export default function useTypingLogic(
       pausedDuration: 0,
       idleStart: null,
     };
-    
+
     idleTimer.current && clearTimeout(idleTimer.current);
   }, [selectNewText]);
 

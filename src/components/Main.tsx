@@ -119,7 +119,7 @@ const HeroCard = () => {
             backgroundColor: "rgba(16, 26, 42, 0.95)",
             border: "1px solid rgba(120, 110, 230, 0.15)",
           }}
-          className="rounded-[2.5rem] "
+          className="rounded-[2.5rem]"
         >
           <HeaderGame
             texts={STATIC_TEXT}

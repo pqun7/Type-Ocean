@@ -1,25 +1,55 @@
-// contexts/LevelContext.tsx
 "use client";
 
-import { createContext, useContext, useReducer } from "react";
+import { createContext, useContext, useReducer, useCallback, useMemo } from "react";
 
-const BASE_XP = 100;
+// Constants
+const BASE_XP = 150;
+const EXPONENTIAL_GROWTH_LEVEL = 30;
+const LINEAR_GROWTH_INCREMENT = 2000;
 
+// Types
+type TextType = "SHORT" | "MEDIUM" | "LONG";
 type LevelState = {
   level: number;
   userXP: number;
   nextLevelXP: number;
 };
 
+type XPMessage = {
+  id: number;
+  text: string;
+};
+
+
 type LevelAction = { type: "ADD_XP"; amount: number };
 
-const LevelContext = createContext<{
+type LevelContextType = {
   level: number;
   userXP: number;
   nextLevelXP: number;
   addXP: (amount: number) => void;
-} | null>(null);
+  calculateSessionXP: (
+    wpm: number,
+    accuracy: number,
+    textType: TextType
+  ) => number;
+};
 
+
+// Context
+const LevelContext = createContext<LevelContextType | null>(null);
+
+// XP Calculation Helper
+export const calculateNextLevelXP = (level: number): number => {
+  if (level <= EXPONENTIAL_GROWTH_LEVEL) {
+    return Math.round(BASE_XP * Math.pow(1.08, level - 1));
+  } else {
+    const xpAt30 = BASE_XP * Math.pow(1.1, EXPONENTIAL_GROWTH_LEVEL - 0.8);
+    return Math.round(xpAt30 + LINEAR_GROWTH_INCREMENT * (level - EXPONENTIAL_GROWTH_LEVEL));
+  }
+};
+
+// Reducer
 function levelReducer(state: LevelState, action: LevelAction): LevelState {
   switch (action.type) {
     case "ADD_XP":
@@ -30,7 +60,7 @@ function levelReducer(state: LevelState, action: LevelAction): LevelState {
       while (newXP >= currentNextLevelXP) {
         newXP -= currentNextLevelXP;
         currentLevel++;
-        currentNextLevelXP = Math.round(BASE_XP * Math.pow(1.2, currentLevel - 1));
+        currentNextLevelXP = calculateNextLevelXP(currentLevel);
       }
 
       return {
@@ -43,22 +73,74 @@ function levelReducer(state: LevelState, action: LevelAction): LevelState {
   }
 }
 
+// Provider Component
 export function LevelProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(levelReducer, {
-    level: 1,
+    level: 40,
     userXP: 0,
     nextLevelXP: BASE_XP,
   });
 
-  const addXP = (amount: number) => dispatch({ type: "ADD_XP", amount });
+  const addXP = useCallback((amount: number) => {
+    dispatch({ type: "ADD_XP", amount });
+  }, []);
+
+  const calculateSessionXP = useCallback((
+    wpm: number,
+    accuracy: number,
+    textType: TextType
+  ): number => {
+    const { level, nextLevelXP } = state;
+    
+    const baseXPByType = {
+      SHORT: 20,
+      MEDIUM: 35,
+      LONG: 50,
+    };
+  
+    // Base XP with moderated level scaling
+    const baseXP = baseXPByType[textType] * (1 + level * 0.02);
+    
+    // Speed bonus with adjusted base and scaling
+    const speedBonus = Math.min(wpm * 0.4, 50) * (1 + level * 0.01);
+    
+    // Accuracy bonus with reduced base and scaling
+    const accuracyBonus = (accuracy / 100) * 25 * (1 + level * 0.01);
+    
+    // NextLevel contribution to balance progression
+    const nextLevelContribution = nextLevelXP * 0.015;
+    
+    // Level multiplier with controlled growth
+    const levelMultiplier = Math.min(1 + level * 0.02, 1.5);
+    
+    // Calculate total XP
+    let totalXP = (baseXP + speedBonus + accuracyBonus + nextLevelContribution) * levelMultiplier;
+    
+    // Additive special bonuses for balanced rewards
+    let specialMultiplier = 1.0;
+    if (accuracy === 100) specialMultiplier += 0.1;       // +10% for perfect accuracy
+    if (wpm > 100) specialMultiplier += 0.1;             // +10% for WPM >100
+    else if (wpm > 80) specialMultiplier += 0.05;        // +5% for WPM >80
+  
+    totalXP *= specialMultiplier;
+    
+    return Math.round(totalXP);
+  }, [state]);
+
+  const value = useMemo(() => ({
+    ...state,
+    addXP,
+    calculateSessionXP,
+  }), [state, addXP, calculateSessionXP]);
 
   return (
-    <LevelContext.Provider value={{ ...state, addXP }}>
+    <LevelContext.Provider value={value}>
       {children}
     </LevelContext.Provider>
   );
 }
 
+// Custom Hook
 export function useLevel() {
   const context = useContext(LevelContext);
   if (!context) {
