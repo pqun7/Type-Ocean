@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useContext, useReducer, useCallback, useMemo } from "react";
+import { createContext, useContext, useReducer, useCallback, useMemo,useState } from "react";
+import { v4 as uuidv4 } from 'uuid';
+
 
 // Constants
 const BASE_XP = 150;
@@ -16,7 +18,7 @@ type LevelState = {
 };
 
 type XPMessage = {
-  id: number;
+  id: string;
   text: string;
 };
 
@@ -33,6 +35,8 @@ type LevelContextType = {
     accuracy: number,
     textType: TextType
   ) => number;
+  xpMessages: XPMessage[];
+  addXPMessage: (text: string) => void;
 };
 
 
@@ -75,11 +79,22 @@ function levelReducer(state: LevelState, action: LevelAction): LevelState {
 
 // Provider Component
 export function LevelProvider({ children }: { children: React.ReactNode }) {
+  const [xpMessages, setXPMessages] = useState<XPMessage[]>([]);
+
   const [state, dispatch] = useReducer(levelReducer, {
     level: 40,
     userXP: 0,
     nextLevelXP: BASE_XP,
   });
+
+
+  const addXPMessage = useCallback((text: string) => {
+    const id = uuidv4(); 
+    setXPMessages(prev => [...prev, { id, text }]);
+    setTimeout(() => {
+      setXPMessages(prev => prev.filter(msg => msg.id !== id));
+    }, 3000);
+  }, []);
 
   const addXP = useCallback((amount: number) => {
     dispatch({ type: "ADD_XP", amount });
@@ -131,7 +146,11 @@ export function LevelProvider({ children }: { children: React.ReactNode }) {
     ...state,
     addXP,
     calculateSessionXP,
-  }), [state, addXP, calculateSessionXP]);
+    xpMessages,
+    addXPMessage,
+  }), [state, addXP, calculateSessionXP, xpMessages, addXPMessage]);
+
+ 
 
   return (
     <LevelContext.Provider value={value}>

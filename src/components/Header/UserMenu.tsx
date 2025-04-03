@@ -3,7 +3,7 @@
 // Core imports
 import Link from "next/link";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { NumberAnimation } from "../core/number-animation";
 
 // Components
@@ -23,6 +23,9 @@ import { GearIcon } from "@radix-ui/react-icons";
 import { FaUserCircle } from "react-icons/fa";
 import { LevelIcon } from "@/assets";
 
+// Context
+import { useLevel } from "@/contexts/LevelContext";
+
 // Type definition for component props
 interface UserMenuProps {
   isLoggedIn: boolean;
@@ -37,15 +40,21 @@ interface UserMenuProps {
  * UserLevelDisplay Component
  * Shows user's level with animated progress bar and tooltip
  */
+/**
+ * UserLevelDisplay Component
+ * Shows user's level with animated progress bar, tooltip, and XP messages
+ */
+
 const UserLevelDisplay = ({
   userLevel,
   userXP,
   nextLevelXP,
 }: Pick<UserMenuProps, "userLevel" | "userXP" | "nextLevelXP">) => {
   const progressPercentage = Math.min((userXP / nextLevelXP) * 100, 100);
-// IDEA: اضافه اشعارات تحت البار عند رفع النقاط او اللفل مثل بونص سرعه فوق 80 او بونص دقه 100 او اكتساب 503 نقطه 
+  const { xpMessages } = useLevel();
+
   return (
-    <div className="relative group">
+    <div className="relative group overflow-visible">
       {/* Level container with gradient background */}
       <div className="hidden w-max md:flex items-center gap-2 xl:bg-gradient-to-br from-slate-900 to-slate-800 xl:border border-slate-700 rounded-full px-3 py-1.5 xl:shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 transition-all duration-300">
         {/* Level icon with number */}
@@ -58,7 +67,9 @@ const UserLevelDisplay = ({
           />
           <span
             className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
-              ${String(userLevel).length === 3 ? "text-sm" : "text-base"} font-black 
+              ${
+                String(userLevel).length === 3 ? "text-sm" : "text-base"
+              } font-black 
               bg-gradient-to-b from-blue-300 to-blue-200 bg-clip-text text-transparent mix-blend-light`}
             style={{
               textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
@@ -71,12 +82,10 @@ const UserLevelDisplay = ({
         {/* XP Progress section */}
         <div className="hidden xl:flex flex-col ml-1">
           <div className="flex justify-between text-xs mb-1">
-            <span className="text-blue-300">
-              {/* <NumberAnimation value={userXP.toLocaleString()} delay={0.2} /> XP */}
-            {userXP.toLocaleString()}
+            <span className="text-blue-300">{userXP.toLocaleString()}</span>
+            <span className="text-slate-400">
+              / {nextLevelXP.toLocaleString()} XP
             </span>
-
-            <span className="text-slate-400">/ {nextLevelXP.toLocaleString()} XP</span>
           </div>
 
           {/* Animated progress bar */}
@@ -102,10 +111,68 @@ const UserLevelDisplay = ({
           </div>
         </div>
       </div>
-
       {/* Progress percentage tooltip */}
       <div className="absolute hidden group-hover:block top-full mt-2 left-1/2 transform -translate-x-1/2 px-3 py-2 bg-slate-800 text-xs text-white rounded-md shadow-lg whitespace-nowrap">
         Progress: {progressPercentage.toFixed(1)}%
+      </div>
+      {/* XP Messages container */}
+      <XPMessages />
+    </div>
+  );
+};
+
+const XPMessages = () => {
+  const { xpMessages } = useLevel();
+
+  return (
+    <div className="absolute top-[calc(100%+10px)] left-1/2 -translate-x-1/2 w-[200px] z-50">
+      <div className="flex flex-col-reverse items-center">
+        <AnimatePresence>
+          {xpMessages.map((msg, index) => (
+            <motion.div
+              key={msg.id}
+              layout
+              initial={{ opacity: 0, y: -40, scale: 0.85 }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                transition: {
+                  type: "spring",
+                  stiffness: 250,
+                  damping: 25,
+                  mass: 0.6,
+                },
+              }}
+              exit={{
+                opacity: 0,
+                y: -40,
+                scale: 0.8,
+                transition: {
+                  duration: 0.3,
+                  ease: [0.4, 0, 0.2, 1],
+                },
+              }}
+              transition={{
+                type: "spring",
+                stiffness: 250,
+                damping: 25,
+                mass: 0.6,
+                delay: index * 0.1,
+              }}
+              className="mb-1 px-3 py-2 bg-slate-800/90 backdrop-blur-sm rounded-full text-xs text-blue-300 shadow-lg text-center w-full drop-shadow-messageGlow"
+            >
+              +{msg.text}
+              <motion.span
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="ml-2 text-green-400"
+              >
+                ✓
+              </motion.span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -165,6 +232,9 @@ const UserMenu: React.FC<UserMenuProps> = ({
           </Link>
 
           {/* Settings Dialog */}
+          // IDEA: Added a feature to improve the application       
+          // Future feature: Language change
+
           <SettingsDialog />
         </div>
       ) : (

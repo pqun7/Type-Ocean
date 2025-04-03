@@ -20,7 +20,7 @@ export default function useTypingGame(selectedLevel: Level) {
     resetGame,
     isIdle,
     elapsedTime,
-  } = useTypingLogic(text, resetText, selectedLevel, () => useLevel());
+  } = useTypingLogic(text, resetText, selectedLevel);
   const { caretPosition, textRefs } = useCaret(userInput, text);
 
   const inputRef = useRef<HTMLInputElement>(null);

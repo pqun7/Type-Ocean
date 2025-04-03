@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback } from "react";
 import LevelsDock from "@/components/ui/levels-dock";
 import { motion, AnimatePresence, useSpring } from "framer-motion";
 import ResultsChart from "@/components/TypingTest/ResultsChart";
-import ExplosiveWPM from "./ExplosiveWPM";
 import TypingTest from "@/components/TypingTest/TypingTest";
 
 
@@ -63,7 +62,7 @@ const HeaderGame = ({
 
   return (
     <>
-      {gameState === "end" && !HomePage && (
+      {gameState === "end" && (
         <ResultsChart
           wpm={currentWpm}
           accuracy={currentAccuracy}
@@ -71,10 +70,10 @@ const HeaderGame = ({
           currentTime={currentTime}
           wpmHistory={wpmHistory}
           currentErrors={currentErrors}
+          optimizePerformance = {true}
         />
       )}
 
-      {gameState === "end" && HomePage && <ExplosiveWPM wpm={currentWpm} />}
 
       <div
         className={`relative w-screen h-fit min-h-[350px] px-10 font-grotesk ${className} scale-[0.88]`}

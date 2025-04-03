@@ -26,6 +26,16 @@ import {
   Crosshair2Icon,
 } from "@radix-ui/react-icons";
 
+interface ResultsChartProps {
+  wpm: number;
+  accuracy: number;
+  gameState: "start" | "running" | "end";
+  currentTime: number;
+  wpmHistory: { time: number; wpm: number; prevWpm: number }[][];
+  currentErrors: number;
+  optimizePerformance?: boolean;
+}
+
 const ResultsChart = ({
   wpm,
   accuracy,
@@ -33,28 +43,28 @@ const ResultsChart = ({
   currentTime,
   wpmHistory,
   currentErrors,
-}: {
-  wpm: number;
-  accuracy: number;
-  gameState: "start" | "running" | "end";
-  currentTime: number;
-  wpmHistory: { time: number; wpm: number; prevWpm: number }[][];
-  currentErrors: number;
-}) => {
+  optimizePerformance = false,
+}: ResultsChartProps) => {
   const minutes = Math.floor(currentTime / 60);
   const seconds = currentTime % 60;
+  let chartData: { time: string; wpm: number; prevWpm: number }[] = [];
+  let showPrevWpm = false;
 
-  const currentSession = wpmHistory[wpmHistory.length - 1] || [];
+  if (!optimizePerformance) {
+    const currentSession = wpmHistory[wpmHistory.length - 1] || [];
 
-  const chartData = currentSession.map((point) => {
-    return {
-      time: `${Math.floor(point.time / 1000)}s`,
-      wpm: point.wpm,
-      prevWpm: point.prevWpm,
-    };
-  });
+    chartData = currentSession.map((point) => {
+      return {
+        time: `${Math.floor(point.time / 1000)}s`,
+        wpm: point.wpm,
+        prevWpm: point.prevWpm,
+      };
+    });
 
-  const showPrevWpm = chartData.some((point) => point.prevWpm !== 0);
+    showPrevWpm = chartData.some((point) => point.prevWpm !== 0);
+
+   
+  }
 
   const chartConfig = {
     wpm: {
@@ -66,46 +76,34 @@ const ResultsChart = ({
       color: "hsl(var(--chart-3))",
     },
   } satisfies ChartConfig;
-
   return (
     <AnimatePresence>
       {gameState === "end" && (
         <div className="fixed inset-0 flex items-center justify-center bg-[rgba(10,30,50,0.9)]/30 z-50 backdrop-blur-sm">
-        <div className="max-w-9xl w-full mx-4 my-6">
-          <Card className="bg-[rgba(15,40,70,0.5)] mt-8 rounded-xl border border-[rgba(200,240,255,0.1)]">
-            <CardHeader className="px-6 pt-4 pb-2 border-b border-[rgba(200,240,255,0.1)]">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <h2 className="text-2xl font-bold text-blue-100">Performance Results</h2>
-                <p className="text-sm text-[rgba(200,240,255,0.8)]">Typing analysis</p>
-              </motion.div>
-            </CardHeader>
+          <div className="max-w-9xl w-full mx-4 my-6">
+            <Card className="bg-[rgba(15,40,70,0.5)] mt-8 rounded-xl border border-[rgba(200,240,255,0.1)]">
+              <CardHeader className="px-6 pt-4 pb-2 border-b border-[rgba(200,240,255,0.1)]">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <h2 className="text-2xl font-bold text-blue-100">
+                    Performance Results
+                  </h2>
+                  <p className="text-sm text-[rgba(200,240,255,0.8)]">
+                    Typing analysis
+                  </p>
+                </motion.div>
+              </CardHeader>
 
-            <CardContent className="p-4">
-                <div className="mb-4">
-                  <ChartContainer config={chartConfig} className="h-[180px] w-full">
-                    <AreaChart data={chartData}>
-                      <defs>
-                        <linearGradient
-                          id="fillWpm"
-                          x1="0"
-                          y1="0"
-                          x2="0"
-                          y2="1"
-                        >
-                          <stop
-                            offset="5%"
-                            stopColor="rgba(160,220,255,0.6)"
-                            stopOpacity={0.8}
-                          />
-                          <stop
-                            offset="95%"
-                            stopColor="rgba(160,220,255,0.7)"
-                            stopOpacity={0.1}
-                          />
-                        </linearGradient>
-                        {showPrevWpm && (
+              <CardContent className="p-4">
+                {!optimizePerformance && (
+                  <div className="mb-4">
+                    <ChartContainer
+                      config={chartConfig}
+                      className="h-[180px] w-full"
+                    >
+                      <AreaChart data={chartData}>
+                        <defs>
                           <linearGradient
-                            id="fillPrevWpm"
+                            id="fillWpm"
                             x1="0"
                             y1="0"
                             x2="0"
@@ -113,62 +111,83 @@ const ResultsChart = ({
                           >
                             <stop
                               offset="5%"
-                              stopColor="rgba(220,180,255,0.8)"
+                              stopColor="rgba(160,220,255,0.6)"
                               stopOpacity={0.8}
                             />
                             <stop
                               offset="95%"
-                              stopColor="rgba(220,180,255,0.8)"
+                              stopColor="rgba(160,220,255,0.7)"
                               stopOpacity={0.1}
                             />
                           </linearGradient>
-                        )}
-                      </defs>
-                      <CartesianGrid
-                        vertical={false}
-                        stroke="rgba(200,240,255,0.1)"
-                      />
-                      <XAxis
-                        dataKey="time"
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={8}
-                        minTickGap={16}
-                        stroke="rgba(200,240,255,0.6)"
-                      />
-                      <ChartTooltip
-                        cursor={false}
-                        content={
-                          <ChartTooltipContent
-                            indicator="dot"
-                            labelClassName="text-[rgba(200,240,255,0.9)]"
-                          />
-                        }
-                      />
-                      <Area
-                        dataKey="wpm"
-                        type="natural"
-                        fill="url(#fillWpm)"
-                        stroke="rgba(160,220,255,1)"
-                        strokeWidth={2}
-                      />
-                      {showPrevWpm && (
+                          {showPrevWpm && (
+                            <linearGradient
+                              id="fillPrevWpm"
+                              x1="0"
+                              y1="0"
+                              x2="0"
+                              y2="1"
+                            >
+                              <stop
+                                offset="5%"
+                                stopColor="rgba(220,180,255,0.8)"
+                                stopOpacity={0.8}
+                              />
+                              <stop
+                                offset="95%"
+                                stopColor="rgba(220,180,255,0.8)"
+                                stopOpacity={0.1}
+                              />
+                            </linearGradient>
+                          )}
+                        </defs>
+                        <CartesianGrid
+                          vertical={false}
+                          stroke="rgba(200,240,255,0.1)"
+                        />
+                        <XAxis
+                          dataKey="time"
+                          tickLine={false}
+                          axisLine={false}
+                          tickMargin={8}
+                          minTickGap={16}
+                          stroke="rgba(200,240,255,0.6)"
+                        />
+                        <ChartTooltip
+                          cursor={false}
+                          content={
+                            <ChartTooltipContent
+                              indicator="dot"
+                              labelClassName="text-[rgba(200,240,255,0.9)]"
+                            />
+                          }
+                        />
                         <Area
-                          dataKey="prevWpm"
+                          dataKey="wpm"
                           type="natural"
-                          fill="url(#fillPrevWpm)"
-                          stroke="rgba(220,180,255,1)"
+                          fill="url(#fillWpm)"
+                          stroke="rgba(160,220,255,1)"
                           strokeWidth={2}
                         />
-                      )}
-                      <ChartLegend
-                        content={
-                          <ChartLegendContent className="text-[rgba(200,240,255,0.9)]" />
-                        }
-                      />
-                    </AreaChart>
-                  </ChartContainer>
-                </div>
+                        {showPrevWpm && (
+                          <Area
+                            dataKey="prevWpm"
+                            type="natural"
+                            fill="url(#fillPrevWpm)"
+                            stroke="rgba(220,180,255,1)"
+                            strokeWidth={2}
+                          />
+                        )}
+                        <ChartLegend
+                          content={
+                            <ChartLegendContent className="text-[rgba(200,240,255,0.9)]" />
+                          }
+                        />
+                      </AreaChart>
+                    </ChartContainer>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                   <motion.div
                     initial={{ opacity: 0, x: -20 }}
@@ -245,7 +264,11 @@ const ResultsChart = ({
                 </div>
                 <motion.div className="text-center pt-4 border-t border-[rgba(200,240,255,0.1)]">
                   <p className="text-xs text-[rgba(160,220,255,0.9)]">
-                    Press <kbd className="px-1.5 py-0.5 bg-[rgba(160,220,255,0.1)] rounded">Tab</kbd> to restart
+                    Press{" "}
+                    <kbd className="px-1.5 py-0.5 bg-[rgba(160,220,255,0.1)] rounded">
+                      Tab
+                    </kbd>{" "}
+                    to restart
                   </p>
                 </motion.div>
               </CardContent>
@@ -256,7 +279,5 @@ const ResultsChart = ({
     </AnimatePresence>
   );
 };
-
-
 
 export default ResultsChart;
