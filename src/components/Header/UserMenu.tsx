@@ -232,8 +232,8 @@ const UserMenu: React.FC<UserMenuProps> = ({
           </Link>
 
           {/* Settings Dialog */}
-          // IDEA: Added a feature to improve the application       
-          // Future feature: Language change
+          {/* IDEA: Added a feature to improve the application */}
+          {/* Future feature: Language change */}
 
           <SettingsDialog />
         </div>
