@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { RefObject } from "react";
-import { useOptimizedScrollTransform } from "./hooks/scrollHooks";
+import { useOptimizedScrollTransform } from "../hooks/scrollHooks";
 
 interface PricingCardProps {
   plan: {

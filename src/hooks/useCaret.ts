@@ -5,12 +5,6 @@ export default function useCaret(userInput: string, text: string) {
   const [caretPosition, setCaretPosition] = useState<{ x: number; y: number }>({ x: 16, y: 18 });
 
   const getCaretPosition = useCallback((): { x: number; y: number } => {
-    // if (userInput.length === 0) {
-    //   const firstCharRef = textRefs.current[0];
-    //   return firstCharRef
-    //     ? { x: firstCharRef.offsetLeft, y: firstCharRef.offsetTop + 3 }
-    //     : { x: 0, y: 3 };
-    // }
   
     const caretIndex = Math.min(userInput.length, text.length);
     const currentCharRef = textRefs.current[caretIndex - 1];

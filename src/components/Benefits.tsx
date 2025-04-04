@@ -2,10 +2,10 @@
 
 import { motion } from "framer-motion";
 import { benefits } from "@/constants";
-import Section from "./Section";
+import Section from "./ui/Section";
 import { FlipWords } from "./ui/flip-words";
 import Image, { StaticImageData } from "next/image";
-import { useOptimizedScrollTransform } from "@/components/hooks/scrollHooks";
+import { useOptimizedScrollTransform } from "@/hooks/scrollHooks";
 import { useRef } from "react";
 
 

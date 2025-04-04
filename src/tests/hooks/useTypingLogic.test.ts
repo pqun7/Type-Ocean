@@ -1,6 +1,6 @@
 // hooks/useTypingLogic.test.ts
 import { renderHook, act } from '@testing-library/react-hooks'
-import  useTypingLogic  from '@/components/hooks/useTypingLogic'
+import  useTypingLogic  from '@/hooks/useTypingLogic'
 
 const mockText = 'The quick brown fox'
 const mockSelectNewText = jest.fn()

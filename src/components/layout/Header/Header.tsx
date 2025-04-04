@@ -9,7 +9,7 @@ import {
   useTransform,
   useMotionTemplate,
 } from "framer-motion";
-import { UserMenu, MobileNavigation, DesktopNavigation } from "@/components/Header";
+import { UserMenu, MobileNavigation, DesktopNavigation } from "@/components/layout/Header";
 import { brainwaveSymbol } from "@/assets";
 import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
 import { useLevel } from "@/contexts/LevelContext";

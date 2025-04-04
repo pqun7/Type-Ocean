@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import Section from "./Section";
+import Section from "@/components/ui/Section";
 import { socials } from "@/constants";
 
 const Footer = () => {

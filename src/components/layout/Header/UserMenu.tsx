@@ -4,7 +4,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { NumberAnimation } from "../core/number-animation";
+import { NumberAnimation } from "../../core/number-animation";
 
 // Components
 import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";

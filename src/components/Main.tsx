@@ -4,7 +4,7 @@ import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
 
 import { motion, MotionValue } from "framer-motion";
 import { useRef } from "react";
-import { useOptimizedScrollTransform } from "@/components/hooks/scrollHooks";
+import { useOptimizedScrollTransform } from "@/hooks/scrollHooks";
 import { useRouter } from "next/navigation";
 import HeaderGame from "@/components/Typing";
 

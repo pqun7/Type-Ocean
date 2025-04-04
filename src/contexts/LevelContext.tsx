@@ -82,7 +82,7 @@ export function LevelProvider({ children }: { children: React.ReactNode }) {
   const [xpMessages, setXPMessages] = useState<XPMessage[]>([]);
 
   const [state, dispatch] = useReducer(levelReducer, {
-    level: 40,
+    level: 1,
     userXP: 0,
     nextLevelXP: BASE_XP,
   });
@@ -99,7 +99,7 @@ export function LevelProvider({ children }: { children: React.ReactNode }) {
   const addXP = useCallback((amount: number) => {
     dispatch({ type: "ADD_XP", amount });
   }, []);
-
+// بدل ان يكون بناء على نوع النص اريد ان يكون بناء على طول النص
   const calculateSessionXP = useCallback((
     wpm: number,
     accuracy: number,
@@ -134,8 +134,8 @@ export function LevelProvider({ children }: { children: React.ReactNode }) {
     // Additive special bonuses for balanced rewards
     let specialMultiplier = 1.0;
     if (accuracy === 100) specialMultiplier += 0.1;       // +10% for perfect accuracy
-    if (wpm > 100) specialMultiplier += 0.1;             // +10% for WPM >100
-    else if (wpm > 80) specialMultiplier += 0.05;        // +5% for WPM >80
+    if (wpm > 100) specialMultiplier += 0.4;             // +40% for WPM > 100
+    else if (wpm > 80) specialMultiplier += 0.2;        // +20% for WPM > 80
   
     totalXP *= specialMultiplier;
     

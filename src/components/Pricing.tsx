@@ -2,13 +2,13 @@
 
 import { useRef } from "react";
 import { motion } from "framer-motion";
-import Section from "./Section";
+import Section from "./ui/Section";
 import { pricing } from "@/constants";
 import { Button1 } from "@/components/ui/Buttons";
 import {
   useOptimizedScrollTransform,
   useDelayedScrollTransform,
-} from "@/components/hooks/scrollHooks";
+} from "@/hooks/scrollHooks";
 
 // Define the structure of a pricing plan
 interface PricingPlan {

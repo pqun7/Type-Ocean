@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWpmHistory } from "./useWpmHistory";
-import { Level, State, TimePoint } from "../types";
+import { Level, State, TimePoint } from "../components/types";
 import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
 import { useLevel } from "@/contexts/LevelContext";

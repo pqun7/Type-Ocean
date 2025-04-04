@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Header from "@/components/Header/Header";
-import Footer from "@/components/Footer";
+import Header from "@/components/layout/Header/Header";
+import Footer from "@/components/layout/Footer";
 import Background from "@/components/ui/Background";
 import { LevelProvider } from "@/contexts/LevelContext";
 
