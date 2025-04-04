@@ -1,4 +1,3 @@
-import { TimePoint } from "../types";
 
 /**
  * Finds the closest WPM value from historical data
@@ -6,6 +5,11 @@ import { TimePoint } from "../types";
  * @param history - Array of historical WPM sessions
  * @returns Closest WPM value from previous session
  */
+interface TimePoint {
+  time: number;
+  wpm: number;
+}
+
 export function getPreviousWpm(activeTime: number, history: TimePoint[][]): number {
   if (history.length < 1) return 0;
   

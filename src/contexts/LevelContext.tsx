@@ -2,43 +2,12 @@
 
 import { createContext, useContext, useReducer, useCallback, useMemo,useState } from "react";
 import { v4 as uuidv4 } from 'uuid';
-
+import {TextType, LevelState, XPMessage, LevelAction, LevelContextType} from "@/types/typing";
 
 // Constants
 const BASE_XP = 150;
 const EXPONENTIAL_GROWTH_LEVEL = 30;
 const LINEAR_GROWTH_INCREMENT = 2000;
-
-// Types
-type TextType = "SHORT" | "MEDIUM" | "LONG";
-type LevelState = {
-  level: number;
-  userXP: number;
-  nextLevelXP: number;
-};
-
-type XPMessage = {
-  id: string;
-  text: string;
-};
-
-
-type LevelAction = { type: "ADD_XP"; amount: number };
-
-type LevelContextType = {
-  level: number;
-  userXP: number;
-  nextLevelXP: number;
-  addXP: (amount: number) => void;
-  calculateSessionXP: (
-    wpm: number,
-    accuracy: number,
-    textType: TextType
-  ) => number;
-  xpMessages: XPMessage[];
-  addXPMessage: (text: string) => void;
-};
-
 
 // Context
 const LevelContext = createContext<LevelContextType | null>(null);
