@@ -1,9 +1,14 @@
 import { Achievement, Bonus } from "@/types/level";
 
+export const BASE_XP = 500;
+
 export const EXPONENTIAL_GROWTH_LEVEL = 5;
-export const BASE_XP = 500; 
-export const LINEAR_GROWTH_INCREMENT = 300; 
-export const DAILY_CHALLENGE_BASE_XP = 200; 
+export const LINEAR_GROWTH_INCREMENT = 300;
+export const DAILY_CHALLENGE_BASE_XP = 200;
+
+export const EXP_GROWTH_END_LEVEL = 50;
+export const LINEAR_GROWTH_END_LEVEL = 100;
+export const MAX_XP_MULTIPLIER = 2;
 
 export const ACHIEVEMENTS: Achievement[] = [
   {
@@ -11,9 +16,9 @@ export const ACHIEVEMENTS: Achievement[] = [
     name: "Speed Demon",
     description: "Reach 100 WPM in a session",
     xpReward: 500,
-    condition: (session) => ({ 
+    condition: (session) => ({
       achieved: session.wpm >= 100,
-      current: session.wpm 
+      current: session.wpm,
     }),
   },
   {
@@ -23,16 +28,15 @@ export const ACHIEVEMENTS: Achievement[] = [
     xpReward: 1200,
     progress: { current: 0, target: 5 },
     condition: (session, progress) => {
-      const newProgress = session.accuracy === 100 
-        ? (progress?.current || 0) + 1 
-        : progress?.current || 0;
+      const newProgress =
+        session.accuracy === 100
+          ? (progress?.current || 0) + 1
+          : progress?.current || 0;
       return {
         achieved: newProgress >= 5,
-        current: newProgress
+        current: newProgress,
       };
-      
     },
-    
   },
 ];
 
@@ -67,13 +71,12 @@ export const BONUSES: Bonus[] = [
   },
 ];
 
-
 export const CHALLENGE_MODIFIERS = {
   GLOBAL: ["timePressure", "hiddenText", "shiftingKeyboard"],
   TYPE_SPECIFIC: {
     wpm: ["speedBoost", "penaltySlowdown"],
     accuracy: ["perfectMode", "doublePenalty"],
     length: ["enduranceMode", "progressiveDifficulty"],
-    consistency: ["rhythmKeeper", "fluctuationPenalty"]
-  }
+    consistency: ["rhythmKeeper", "fluctuationPenalty"],
+  },
 };

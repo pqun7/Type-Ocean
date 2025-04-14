@@ -23,7 +23,9 @@ import {
   DAILY_CHALLENGE_BASE_XP,
   BONUSES,
 } from "./constants/level";
-import { stat } from "fs";
+
+import { calculateBousesReward } from "@/contexts/utils/levelUtils";
+import { LINEAR_GROWTH_END_LEVEL } from "./constants/level";
 
 export const LevelContext = createContext<LevelContextType | null>(null);
 
@@ -118,9 +120,10 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
         addedBaseXP = 200; // زيادة من 100
       } else {
         addedBaseXP = 300; // زيادة من 150
-      }
-
-
+      };
+      
+      
+     
       // 1. حساب الحد الأقصى لـ XP حسب المستوى
       const maxBaseXP = Math.min(addedBaseXP + state.level * 10, 1000); // زيادة من 700
 
@@ -226,11 +229,13 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
 
       BONUSES.forEach((bonus) => {
         if (bonus.condition(session)) {
-          totalXP += bonus.xpReward;
+          const calculatedReward = calculateBousesReward(state.level);
+          
+          totalXP += calculatedReward;
           messages.push({
             id: uuidv4(),
             text: `${bonus.name}`,
-            value: bonus.xpReward,
+            value: calculatedReward,
             type: "bonus",
           });
         }

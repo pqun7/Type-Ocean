@@ -20,8 +20,7 @@ export const DailyChallenge = () => {
   return (
     <motion.div
       className="relative flex items-center gap-2"
-      onHoverStart={() => setIsHovered(true)}
-      onHoverEnd={() => setIsHovered(false)}
+      
     >
       <motion.div
         layout
@@ -39,6 +38,8 @@ export const DailyChallenge = () => {
           transition: { type: "spring", stiffness: 200, damping: 30 },
         }}
         style={{ height: 40 }}
+        onHoverStart={() => setIsHovered(true)}
+      onHoverEnd={() => setIsHovered(false)}
       >
         {/* حاوية الأيقونة مع توسيط كامل */}
         <motion.div
@@ -120,7 +121,8 @@ export const DailyChallenge = () => {
             className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 px-4 py-1.5 bg-slate-800 text-xs text-white rounded-md shadow-lg border border-slate-700 font-medium min-w-[120px] text-center whitespace-nowrap z-50"
           >
             {/* السهم */}
-<div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-slate-800 border-l border-t border-slate-700 rotate-45 transform" />            Daily Challenge
+            <div className="absolute -top-[6px] left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-800 border-l border-t border-slate-700 rotate-45 transform" />
+            Daily Challenge
           </motion.div>
         )}
       </AnimatePresence>

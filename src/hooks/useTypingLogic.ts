@@ -5,7 +5,7 @@ import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
 import { useLevel } from "@/contexts/hook/useLevel";
 import { SessionData } from "@/types/level";
-import { v4 as uuidv4 } from "uuid";
+import { calculateNextLevelXP } from "@/contexts/utils/levelUtils";
 
 /**
  * Core typing test logic hook managing:
@@ -94,6 +94,11 @@ export default function useTypingLogic(
     startTime.current = performance.now();
     startNewSession();
     addTempPoints([{ time: 0, wpm: 0, prevWpm: 0 }]);
+
+    for (let i = 0; i < 100; i++) {
+      const nextLevelXP = calculateNextLevelXP(i);
+      console.log(`Level ${i}: XP required -> ${nextLevelXP}`);
+    }
   }, [startNewSession, addTempPoints]);
 
   const handleSessionEnd = useCallback(() => {
@@ -127,7 +132,6 @@ export default function useTypingLogic(
     } else {
       addXP(earnedXP);
     }
-    
   }, [
     getActiveTime,
     calculateMetrics,
@@ -137,6 +141,7 @@ export default function useTypingLogic(
     text.length,
     calculateSessionXP,
   ]);
+
   // Idle state management
   const handleIdleState = useCallback(
     (isIdle: boolean) => {
