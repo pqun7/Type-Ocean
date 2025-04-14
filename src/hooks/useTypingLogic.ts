@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWpmHistory } from "./useWpmHistory";
-import { Level, State, TimePoint } from "../components/types";
+import { TextType, State } from "@/types/typing";
 import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
-import { useLevel } from "@/contexts/LevelContext";
+import { useLevel } from "@/contexts/hook/useLevel";
+import { SessionData } from "@/types/level";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * Core typing test logic hook managing:
@@ -19,8 +21,8 @@ import { useLevel } from "@/contexts/LevelContext";
  */
 export default function useTypingLogic(
   text: string,
-  selectNewText: (level?: Level) => void,
-  selectedLevel: Level
+  selectNewText: (level?: TextType) => void,
+  selectedLevel: TextType
 ) {
   // State management
   const [state, setState] = useState<State>("start");
@@ -98,6 +100,14 @@ export default function useTypingLogic(
     const activeTime = getActiveTime();
     const { wpm, accuracy } = calculateMetrics();
 
+    // Create session data object
+    const sessionData: SessionData = {
+      wpm,
+      accuracy,
+      textLength: text.length,
+      textType: selectedLevel,
+    };
+
     setMetrics((prev) => ({
       ...prev,
       wpm,
@@ -107,32 +117,26 @@ export default function useTypingLogic(
     commitSession();
     setState("end");
 
-    if (
-      (wpm >= 35 && selectedLevel === "SHORT") ||
-      (wpm >= 25 && selectedLevel === "MEDIUM") ||
-      (wpm >= 15 && selectedLevel === "LONG")
-    ) {
-      const earnedXP = calculateSessionXP(wpm, accuracy, selectedLevel);
-      addXP(earnedXP);
+    // Calculate XP based on session data
+    const earnedXP = calculateSessionXP(sessionData);
 
-      // Add XP message
-      addXPMessage(`${earnedXP} XP from ${selectedLevel.toLowerCase()} text`);
-
-      // Add accuracy bonus message
-      if (accuracy === 100) {
-        addXPMessage(`Accuracy Bonus: ${Math.round(earnedXP * 0.1)} XP`);
-      }
-
-      // Add speed bonus message
-      if (wpm > 100) {
-        addXPMessage(`Speed Bonus: ${Math.round(earnedXP * 0.1)} XP`);
-      }
-    } else {
+    // Add XP and participation message if earnedXP is less than 15
+    if (earnedXP < 15) {
       addXP(15);
-      addXPMessage("15 XP for participation");
+      addXPMessage("Participation Reward", 15, "participation");
+    } else {
+      addXP(earnedXP);
     }
-  }, [getActiveTime, calculateMetrics, commitSession, addXP, selectedLevel, addXPMessage]);
-
+    
+  }, [
+    getActiveTime,
+    calculateMetrics,
+    commitSession,
+    addXP,
+    selectedLevel,
+    text.length,
+    calculateSessionXP,
+  ]);
   // Idle state management
   const handleIdleState = useCallback(
     (isIdle: boolean) => {

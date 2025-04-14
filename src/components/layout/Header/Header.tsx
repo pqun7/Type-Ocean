@@ -12,7 +12,7 @@ import {
 import { UserMenu, MobileNavigation, DesktopNavigation } from "@/components/layout/Header";
 import { brainwaveSymbol } from "@/assets";
 import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
-import { useLevel } from "@/contexts/LevelContext";
+import { useLevel } from "@/contexts/hook/useLevel";
 
 const Header: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(true);

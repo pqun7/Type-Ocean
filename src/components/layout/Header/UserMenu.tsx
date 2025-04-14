@@ -4,27 +4,21 @@
 import Link from "next/link";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { NumberAnimation } from "../../core/number-animation";
 
 // Components
 import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
 import { SettingsDialog } from "@/components/settings-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 
 // Icons & Assets
 import { HiOutlineMenu, HiX } from "react-icons/hi";
-import { GearIcon } from "@radix-ui/react-icons";
 import { FaUserCircle } from "react-icons/fa";
 import { LevelIcon } from "@/assets";
 
 // Context
-import { useLevel } from "@/contexts/LevelContext";
+import { useLevel } from "@/contexts/hook/useLevel";
+import { useState } from "react";
+
+import { DailyChallenge } from "./DailyChallenge";
 
 // Type definition for component props
 interface UserMenuProps {
@@ -35,6 +29,7 @@ interface UserMenuProps {
   userXP: number;
   nextLevelXP: number;
 }
+import { XPMessageType } from "@/types/level";
 
 /**
  * UserLevelDisplay Component
@@ -44,85 +39,89 @@ interface UserMenuProps {
  * UserLevelDisplay Component
  * Shows user's level with animated progress bar, tooltip, and XP messages
  */
-
 const UserLevelDisplay = ({
   userLevel,
   userXP,
   nextLevelXP,
 }: Pick<UserMenuProps, "userLevel" | "userXP" | "nextLevelXP">) => {
   const progressPercentage = Math.min((userXP / nextLevelXP) * 100, 100);
-  const { xpMessages } = useLevel();
 
   return (
-    <div className="relative group overflow-visible">
-      {/* Level container with gradient background */}
-      <div className="hidden w-max md:flex items-center gap-2 xl:bg-gradient-to-br from-slate-900 to-slate-800 xl:border border-slate-700 rounded-full px-3 py-1.5 xl:shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 transition-all duration-300">
-        {/* Level icon with number */}
-        <div className="relative w-7 h-7 hidden lg:block">
-          <Image
-            src={LevelIcon}
-            layout="fill"
-            objectFit="contain"
-            alt="Level Icon"
-          />
-          <span
-            className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
-              ${
-                String(userLevel).length === 3 ? "text-sm" : "text-base"
-              } font-black 
-              bg-gradient-to-b from-blue-300 to-blue-200 bg-clip-text text-transparent mix-blend-light`}
-            style={{
-              textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
-            }}
-          >
-            {userLevel}
-          </span>
+    <div className="relative flex items-center gap-4">
+      {/* Daily Challenge - مستقلة عن المجموعة */}
+      <div>
+        <DailyChallenge />
+      </div>
+
+      {/* Level & XP Progress - داخل group فقط لوحده */}
+      <div className="relative group overflow-visible hidden md:flex items-center gap-2 xl:bg-gradient-to-br from-slate-900 to-slate-800 xl:border border-slate-700 rounded-full px-3 py-1.5 xl:shadow-lg transition-all duration-300">
+        {/* Level Icon */}
+        <div className="flex items-center gap-2">
+          <div className="relative w-7 h-7 hidden lg:block">
+            <Image
+              src={LevelIcon}
+              layout="fill"
+              objectFit="contain"
+              alt="Level Icon"
+            />
+            <span
+              className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
+                ${String(userLevel).length === 3 ? "text-sm" : "text-base"}
+                font-black 
+                bg-gradient-to-b from-blue-300 to-blue-200 bg-clip-text text-transparent mix-blend-light`}
+              style={{
+                textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
+              }}
+            >
+              {userLevel}
+            </span>
+          </div>
         </div>
 
-        {/* XP Progress section */}
+        {/* XP Progress */}
         <div className="hidden xl:flex flex-col ml-1">
           <div className="flex justify-between text-xs mb-1">
             <span className="text-blue-300">{userXP.toLocaleString()}</span>
-            <span className="text-slate-400">
-              / {nextLevelXP.toLocaleString()} XP
-            </span>
+            <span className="text-slate-400">/ {nextLevelXP.toLocaleString()} XP</span>
           </div>
-
-          {/* Animated progress bar */}
           <div className="relative w-28 h-1.5 bg-slate-700 rounded-full overflow-hidden">
             <motion.div
               className="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-400"
-              initial={{ width: 0 }}
               animate={{ width: `${progressPercentage}%` }}
-              transition={{
-                type: "spring",
-                stiffness: 100,
-                damping: 15,
-                mass: 0.5,
-              }}
-            />
-            <div
-              className="absolute inset-0 bg-gradient-to-r from-blue-500/30 to-blue-400/30"
-              style={{
-                width: `${100 - progressPercentage}%`,
-                left: `${progressPercentage}%`,
-              }}
+              transition={{ type: "spring", stiffness: 100, damping: 15 }}
             />
           </div>
         </div>
+
+        <div className="absolute hidden group-hover:block top-full mt-2 left-1/2 transform -translate-x-1/2 px-8 py-2 bg-slate-800 text-xs text-white rounded-md shadow-lg ">
+          Progress: {progressPercentage.toFixed(1)}%
+        </div>
       </div>
-      {/* Progress percentage tooltip */}
-      <div className="absolute hidden group-hover:block top-full mt-2 left-1/2 transform -translate-x-1/2 px-3 py-2 bg-slate-800 text-xs text-white rounded-md shadow-lg whitespace-nowrap">
-        Progress: {progressPercentage.toFixed(1)}%
-      </div>
-      {/* XP Messages container */}
+
       <XPMessages />
     </div>
   );
 };
 
+
 const XPMessages = () => {
   const { xpMessages } = useLevel();
+
+  const getMessageStyle = (type: XPMessageType) => {
+    const base =
+      "mb-1 px-3 py-2 bg-slate-800/90 backdrop-blur-sm rounded-full text-xs shadow-lg text-center w-full drop-shadow-messageGlow";
+
+    const styles: Record<XPMessageType, string> = {
+      base: `${base} text-blue-300 `,
+      "daily-challenge": `${base} text-emerald-200`,
+      achievement: `${base} text-purple-200`,
+      bonus: `${base} text-emerald-200`,
+      "level-up": `${base} text-emerald-200 `,
+      participation: `${base} text-slate-200`,
+    };
+
+    return styles[type] || `${base} bg-slate-800 text-slate-200`;
+  };
 
   return (
     <div className="absolute top-[calc(100%+10px)] left-1/2 -translate-x-1/2 w-[200px] z-50">
@@ -160,16 +159,13 @@ const XPMessages = () => {
                 mass: 0.6,
                 delay: index * 0.1,
               }}
-              className="mb-1 px-3 py-2 bg-slate-800/90 backdrop-blur-sm rounded-full text-xs text-blue-300 shadow-lg text-center w-full drop-shadow-messageGlow"
+              className={getMessageStyle(msg.type)}
             >
-              +{msg.text}
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="ml-2 text-green-400"
-              >
-                ✓
-              </motion.span>
+              {msg.text}
+              <span className="font-mono text-sm">
+                {" "}
+                +{msg.value.toLocaleString()}
+              </span>
             </motion.div>
           ))}
         </AnimatePresence>

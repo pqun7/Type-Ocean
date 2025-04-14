@@ -4,9 +4,10 @@ import LevelsDock from "@/components/ui/levels-dock";
 import { motion, AnimatePresence, useSpring } from "framer-motion";
 import ResultsChart from "@/components/TypingTest/ResultsChart";
 import TypingTest from "@/components/TypingTest/TypingTest";
+import { TextType } from "@/types/typing";
 
+export type Mode = "course" | "game" | "practice" | "online";
 
-type Level = "SHORT" | "MEDIUM" | "LONG";
 
 const HeaderGame = ({
   texts,
@@ -19,7 +20,7 @@ const HeaderGame = ({
   className?: string;
   fontSize?: string;
 }) => {
-  const [selectedLevel, setSelectedLevel] = useState<Level>("SHORT");
+  const [selectedLevel, setSelectedLevel] = useState<TextType>("SHORT");
   const [gameState, setGameState] = useState<"start" | "running" | "end">(
     "start"
   );
@@ -37,7 +38,7 @@ const HeaderGame = ({
 
   
 
-  const handleLevelSelect = (level: Level) => {
+  const handleLevelSelect = (level: TextType) => {
     setSelectedLevel(level);
     setTextKey((prev) => prev + 1);
     setGameState("start");
@@ -118,7 +119,6 @@ const HeaderGame = ({
               onWpmHistoryChange={setWpmHistory}
               onErrorsChange={setCurrentErrors}
               selectedLevel={selectedLevel}
-
             />
           </div>
         </div>

@@ -1,5 +1,7 @@
 // types/typing.d.ts
-export type Level = "SHORT" | "MEDIUM" | "LONG";
+export type TextType = "SHORT" | "MEDIUM" | "LONG";
+export type State = "start" | "running" | "end";
+export type Mode = "course" | "game" | "practice" | "online";
 
 export type GameState = {
   userInput: string;
@@ -15,30 +17,8 @@ export type WpmHistoryPoint = {
   prevWpm: number;
 };
 
-export type TextType = "SHORT" | "MEDIUM" | "LONG";
-export type LevelState = {
-  level: number;
-  userXP: number;
-  nextLevelXP: number;
-};
-
-export type XPMessage = {
-  id: string;
-  text: string;
-};
-
-export type LevelAction = { type: "ADD_XP"; amount: number };
-
-export type LevelContextType = {
-  level: number;
-  userXP: number;
-  nextLevelXP: number;
-  addXP: (amount: number) => void;
-  calculateSessionXP: (
-    wpm: number,
-    accuracy: number,
-    textType: TextType
-  ) => number;
-  xpMessages: XPMessage[];
-  addXPMessage: (text: string) => void;
+export type TimePoint = { 
+  time: number;   // Timestamp in milliseconds
+  wpm: number;    // Words per minute at this time
+  prevWpm: number // Previous recorded WPM
 };
