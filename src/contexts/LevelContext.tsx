@@ -17,15 +17,16 @@ import {
   XPMessageType,
 } from "@/types/level";
 import { levelReducer } from "./reducers/levelReducer";
-import { checkDailyChallenge, calculateNextLevelXP } from "./utils/levelUtils";
+import {
+  checkDailyChallenge,
+  calculateNextLevelXP,
+  getChallengeXP,
+} from "./utils/levelUtils";
 import {
   ACHIEVEMENTS,
   DAILY_CHALLENGE_BASE_XP,
   BONUSES,
 } from "./constants/level";
-
-import { calculateBousesReward } from "@/contexts/utils/levelUtils";
-import { LINEAR_GROWTH_END_LEVEL } from "./constants/level";
 
 export const LevelContext = createContext<LevelContextType | null>(null);
 
@@ -79,38 +80,94 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
     []
   );
 
-  const handleDailyChallenge = (
-    messages: XPMessage[],
-    session: SessionData,
-    totalXP: number
-  ) => {
-    if (typeof window === "undefined") return false;
+  const calculateDailyAverage = useCallback(
+    (newWpm: number, newAcc: number) => {
+      const today = new Date().toISOString().split("T")[0];
+      const storedData = localStorage.getItem("dailyStats");
+      const prevData = storedData
+        ? JSON.parse(storedData)
+        : {
+            n: 0,
+            avgWpm: 0,
+            avgAcc: 0,
+            date: today,
+          };
 
+      // إذا كان يوم جديد: تحديث المتوسطات مع الاحتفاظ بقيمة n
+      if (prevData.date !== today) {
+        const newAvgWpm = newWpm; // ابدأ بمتوسط اليوم الجديد
+        const newAvgAcc = newAcc;
+
+        const newData = {
+          n: prevData.n + 1, // زيادة n التراكمية
+          avgWpm: newAvgWpm,
+          avgAcc: newAvgAcc,
+          date: today,
+        };
+
+        localStorage.setItem("dailyStats", JSON.stringify(newData));
+
+        return {
+          dailyAvgWpm: newAvgWpm,
+          dailyAvgAcc: newAvgAcc,
+          sessionsCount: newData.n,
+        };
+      }
+
+      // إذا كان نفس اليوم: تحديث المتوسطات
+      const newN = prevData.n + 1;
+      const newAvgWpm = (prevData.avgWpm * prevData.n + newWpm) / newN;
+      const newAvgAcc = (prevData.avgAcc * prevData.n + newAcc) / newN;
+
+      const updatedData = {
+        n: newN,
+        avgWpm: newAvgWpm,
+        avgAcc: newAvgAcc,
+        date: today,
+      };
+
+      localStorage.setItem("dailyStats", JSON.stringify(updatedData));
+
+      return {
+        dailyAvgWpm: newAvgWpm,
+        dailyAvgAcc: newAvgAcc,
+        sessionsCount: newN,
+      };
+    },
+    []
+  );
+
+  const handleDailyChallenge = useCallback((
+    session: SessionData
+  ) => {
     const today = new Date().toISOString().split("T")[0];
     const lastCompleted = localStorage.getItem("dailyChallengeCompleted");
-
-    if (!lastCompleted || lastCompleted !== today) {
-      if (checkDailyChallenge(dailyChallenge, session)) {
-        const challengeXP = DAILY_CHALLENGE_BASE_XP * (1 + state.level / 100);
-        totalXP += challengeXP;
-        messages.push({
-          id: uuidv4(),
-          text: `Daily Challenge`,
-          value: challengeXP,
-          type: "daily-challenge",
-        });
-        localStorage.setItem("dailyChallengeCompleted", today);
-        return true;
-      }
+    const challengeCompleted = checkDailyChallenge(dailyChallenge, session);
+  
+    if (challengeCompleted && lastCompleted !== today) {
+      const challengeXP = DAILY_CHALLENGE_BASE_XP * (1 + state.level / 100);
+      localStorage.setItem("dailyChallenge", "1"); // تم إكمال التحدي
+      return {
+        completed: true,
+        xp: challengeXP
+      };
     }
-    return false;
-  };
+    
+    if (!challengeCompleted && lastCompleted === today) {
+      localStorage.setItem("dailyChallenge", "0"); // لم يكمل التحدي
+    }
+    
+    return {
+      completed: false,
+      xp: 0
+    };
+  }, [dailyChallenge, state.level]);
 
   const calculateSessionXP = useCallback(
     (session: SessionData) => {
       const messages: XPMessage[] = [];
       let totalXP = 0;
-      
+
       let addedBaseXP: number;
       if (state.level <= 5) {
         addedBaseXP = 100; // زيادة من 50
@@ -120,10 +177,8 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
         addedBaseXP = 200; // زيادة من 100
       } else {
         addedBaseXP = 300; // زيادة من 150
-      };
-      
-      
-     
+      }
+
       // 1. حساب الحد الأقصى لـ XP حسب المستوى
       const maxBaseXP = Math.min(addedBaseXP + state.level * 10, 1000); // زيادة من 700
 
@@ -166,7 +221,6 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
         type: "base",
       });
 
-     
       const streakBonus = Math.log1p(streak) * 30; // زيادة من 15
       const levelModifier = 1 + state.level / 40; // زيادة التأثير من 80 إلى 40
       const performanceXP = Math.round(
@@ -180,9 +234,14 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
         type: "bonus",
       });
 
-      if (handleDailyChallenge(messages, session, totalXP)) {
-        // تحديث التحدي اليومي تلقائيًا في الاستخدام التالي
-      }
+      // if (handleDailyChallenge(messages, session, totalXP)) {
+      //   // Ensure proper handling of daily challenge completion
+      //   addXPMessage(
+      //     "Daily Challenge Completed",
+      //     DAILY_CHALLENGE_BASE_XP,
+      //     "daily-challenge"
+      //   );
+      // }
 
       ACHIEVEMENTS.forEach((achievement) => {
         const existing = state.achievements.find(
@@ -229,8 +288,8 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
 
       BONUSES.forEach((bonus) => {
         if (bonus.condition(session)) {
-          const calculatedReward = calculateBousesReward(state.level);
-          
+          const calculatedReward = getChallengeXP(state.level);
+
           totalXP += calculatedReward;
           messages.push({
             id: uuidv4(),
@@ -264,6 +323,8 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
       calculateSessionXP,
       xpMessages,
       addXPMessage,
+      calculateDailyAverage,
+      handleDailyChallenge: handleDailyChallenge,
     }),
     [state, streak, dailyChallenge, xpMessages, calculateSessionXP]
   );

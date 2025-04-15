@@ -78,5 +78,22 @@ export const CHALLENGE_MODIFIERS = {
     accuracy: ["perfectMode", "doublePenalty"],
     length: ["enduranceMode", "progressiveDifficulty"],
     consistency: ["rhythmKeeper", "fluctuationPenalty"],
+    DIFFICULTY_SCALING: {
+      speedCombo: 1.15,
+      marathon: 1.3,
+      precisionMaster: 1.2,
+      timeAttack: 0.9,
+      consistency: 1.1,
+    },
+    STREAK_MULTIPLIER: 0.05,
   },
+};
+
+
+export const CHALLENGE_TYPE_WEIGHTS = {
+  speedCombo: 25,
+  marathon: 20,
+  precisionMaster: 22,
+  timeAttack: 18,
+  consistency: 15,
 };

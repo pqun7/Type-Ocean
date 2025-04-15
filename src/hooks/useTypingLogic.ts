@@ -5,7 +5,11 @@ import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
 import { useLevel } from "@/contexts/hook/useLevel";
 import { SessionData } from "@/types/level";
-import { calculateNextLevelXP } from "@/contexts/utils/levelUtils";
+import {
+  calculateNextLevelXP,
+  getChallengeXP,
+  checkDailyChallenge,
+} from "@/contexts/utils/levelUtils";
 
 /**
  * Core typing test logic hook managing:
@@ -54,13 +58,37 @@ export default function useTypingLogic(
   const userInputRef = useRef(userInput);
   const sessionActive = state === "running" && !idleState.current.isIdle;
 
-  const { addXP, calculateSessionXP, addXPMessage } = useLevel();
+  const {
+    addXP,
+    calculateSessionXP,
+    addXPMessage,
+    calculateDailyAverage,
+    handleDailyChallenge,
+    level,
+  } = useLevel();
 
   // Sync refs with current values
   useEffect(() => {
     textRef.current = text;
     userInputRef.current = userInput;
   }, [text, userInput]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && !localStorage.getItem("dailyStats")) {
+      localStorage.setItem(
+        "dailyStats",
+        JSON.stringify({
+          n: 0,
+          avgWpm: 0,
+          avgAcc: 0,
+          newWpm: 0,
+          newAcc: 0,
+          prevAvgWpm: 0,
+          prevAvgAcc: 0,
+        })
+      );
+    }
+  }, []);
 
   /** Calculate active time accounting for pauses */
   const getActiveTime = useCallback(() => {
@@ -105,12 +133,22 @@ export default function useTypingLogic(
     const activeTime = getActiveTime();
     const { wpm, accuracy } = calculateMetrics();
 
+    const { dailyAvgWpm, dailyAvgAcc, sessionsCount } = calculateDailyAverage(
+      wpm,
+      accuracy
+    );
+
     // Create session data object
     const sessionData: SessionData = {
       wpm,
       accuracy,
       textLength: text.length,
       textType: selectedLevel,
+      timeSpent: Math.floor(activeTime / 1000),
+      errors: totalErrors,
+      dailyAvgWpm,
+      dailyAvgAcc,
+      sessionsCount,
     };
 
     setMetrics((prev) => ({
@@ -123,14 +161,24 @@ export default function useTypingLogic(
     setState("end");
 
     // Calculate XP based on session data
-    const earnedXP = calculateSessionXP(sessionData);
+    const baseXP = calculateSessionXP(sessionData);
+    const bonusXP = getChallengeXP(level);
+    const totalXP = baseXP + bonusXP;
+
+    const { completed, xp } = handleDailyChallenge(sessionData);
+
+    if (completed) {
+      addXP(xp);
+      addXPMessage("Daily Challenge Completed", xp, "daily-challenge");
+    }
 
     // Add XP and participation message if earnedXP is less than 15
-    if (earnedXP < 15) {
+    if (totalXP < 15) {
       addXP(15);
       addXPMessage("Participation Reward", 15, "participation");
     } else {
-      addXP(earnedXP);
+      addXP(totalXP);
+      // addXPMessage("Session Completed", totalXP, "level-up");
     }
   }, [
     getActiveTime,
@@ -140,6 +188,8 @@ export default function useTypingLogic(
     selectedLevel,
     text.length,
     calculateSessionXP,
+    calculateDailyAverage,
+    handleDailyChallenge,
   ]);
 
   // Idle state management

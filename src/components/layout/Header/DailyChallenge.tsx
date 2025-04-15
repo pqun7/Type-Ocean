@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { IoCheckmarkCircle } from "react-icons/io5";
 import { IoCheckmarkOutline } from "react-icons/io5";
 
+
+
 export const DailyChallenge = () => {
   const { level } = useLevel();
   const dailyChallenge = useDailyChallenge(level);
@@ -17,40 +19,50 @@ export const DailyChallenge = () => {
     setIsCompleted(lastCompleted === today);
   }, []);
 
+  const getChallengeDescription = () => {
+    if (!dailyChallenge) return "";
+    
+    switch (dailyChallenge.type) {
+      case "speedCombo":
+        return `${dailyChallenge.target.wpm} WPM & ${dailyChallenge.target.accuracy}%`;
+      case "marathon":
+        return `${dailyChallenge.target} chars`;
+      case "precisionMaster":
+        return `${dailyChallenge.target.accuracy}% & ≤${dailyChallenge.target.maxErrors} errors`;
+      case "timeAttack":
+        return `${Math.floor(dailyChallenge.target / 60)}min`;
+      case "consistency":
+        return `${dailyChallenge.target.sessions} days`;
+      default:
+        return "";
+    }
+  };
+
   return (
-    <motion.div
-      className="relative flex items-center gap-2"
-      
-    >
+    <motion.div className="relative flex items-center gap-2">
       <motion.div
-        layout
         className={`flex items-center justify-start cursor-pointer
-        ${
-          isCompleted
-            ? "bg-blue-500/90 border-blue-400"
-            : "bg-slate-800/70 border-blue-500/30"
-        }
-        border-2 rounded-full 
-        overflow-hidden`}
-        initial={{ width: 40 }}
+          ${isCompleted ? "bg-blue-500/90" : "bg-slate-800/70"}
+          border-2 rounded-full overflow-hidden`}
+        initial={{ width: 30 }}
         animate={{
-          width: isHovered ? 200 : 40,
+          width: isHovered ? 150 : 30,
           transition: { type: "spring", stiffness: 200, damping: 30 },
         }}
-        style={{ height: 40 }}
+        style={{ height: 30 }}
         onHoverStart={() => setIsHovered(true)}
-      onHoverEnd={() => setIsHovered(false)}
+        onHoverEnd={() => setIsHovered(false)}
       >
         {/* حاوية الأيقونة مع توسيط كامل */}
         <motion.div
-          className="w-[40px] h-full flex items-center justify-center absolute right-0"
+          className="w-[30px] h-full flex items-center justify-center absolute right-0"
           whileHover={!isCompleted || isHovered ? { scale: 1.05 } : {}}
         >
           {isCompleted ? (
             <motion.span
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
-              className="text-white text-lg font-bold"
+              className="text-white text-sm font-bold"
               transition={{ type: "spring", bounce: 0.5 }}
             >
               ✓
@@ -71,7 +83,7 @@ export const DailyChallenge = () => {
               />
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6 text-blue-400 relative z-10"
+                className="h-5 w-5 text-blue-400 relative z-10"
                 viewBox="0 0 24 24"
                 fill="currentColor"
               >
@@ -84,30 +96,11 @@ export const DailyChallenge = () => {
         {/* Challenge text animation */}
         {dailyChallenge && (
           <motion.div
-            initial={{ opacity: 1, x: 20 }}
-            animate={{
-              x: isHovered ? 0 : 20,
-
-              transition: {
-                type: "spring",
-                stiffness: 200,
-                damping: 30,
-                delay: 0.1,
-              },
-            }}
-            transition={{
-              type: "tween",
-              duration: 0.3,
-              ease: "easeOut",
-            }}
-            className="pr-14 pl-5 whitespace-nowrap text-sm font-medium w-full text-right"
+            className={`pr-10 pl-4 whitespace-nowrap text-xs font-medium w-full
+              ${isHovered ? "text-center" : "text-right"}`}
             style={{ color: isCompleted ? "#fff" : "#93c5fd" }}
           >
-            {dailyChallenge.type === "wpm" && `${dailyChallenge.target} WPM`}
-            {dailyChallenge.type === "accuracy" &&
-              `${dailyChallenge.target}% accuracy`}
-            {dailyChallenge.type === "length" &&
-              `${dailyChallenge.target} characters`}
+            {getChallengeDescription()}
           </motion.div>
         )}
       </motion.div>
