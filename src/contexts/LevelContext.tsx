@@ -9,18 +9,18 @@ import {
   useEffect,
 } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { useDailyChallenge } from "@/hooks/useDailyChallenge";
 import {
   LevelContextType,
   XPMessage,
   SessionData,
   XPMessageType,
+  DailyChallenge,
 } from "@/types/level";
 import { levelReducer } from "./reducers/levelReducer";
 import {
-  checkDailyChallenge,
   calculateNextLevelXP,
   getChallengeXP,
+  generateDailyChallenge,
 } from "./utils/levelUtils";
 import {
   ACHIEVEMENTS,
@@ -31,28 +31,39 @@ import {
 export const LevelContext = createContext<LevelContextType | null>(null);
 
 export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
-  const [xpMessages, setXPMessages] = useState<XPMessage[]>([]);
-  const [streak, setStreak] = useState(0);
-
   const [state, dispatch] = useReducer(levelReducer, {
     level: 1,
     userXP: 0,
     achievements: [],
     nextLevelXP: calculateNextLevelXP(1),
   });
-
-  const dailyChallenge = useDailyChallenge(state.level);
-
-  useEffect(() => {
-    const savedStreak = localStorage.getItem("typing-streak");
-    setStreak(savedStreak ? parseInt(savedStreak) : 0);
-  }, []);
+  const [xpMessages, setXPMessages] = useState<XPMessage[]>([]);
+  const [streak, setStreak] = useState(0);
+  const [dailyChallenge, setDailyChallenge] = useState<DailyChallenge | null>(null);
 
   useEffect(() => {
-    if (streak > 0) {
-      localStorage.setItem("typing-streak", streak.toString());
-    }
-  }, [streak]);
+    const loadDailyChallenge = async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const storedChallenge = localStorage.getItem('dailyChallenge');
+      let challenge: DailyChallenge | null = null;
+
+      // Check existing challenge
+      if (storedChallenge) {
+        const parsed = JSON.parse(storedChallenge);
+        if (parsed.date === today) challenge = parsed;
+      }
+
+      // Generate new if none exists
+      if (!challenge) {
+        challenge = await generateDailyChallenge(state.level);
+        localStorage.setItem('dailyChallenge', JSON.stringify(challenge));
+      }
+
+      setDailyChallenge(challenge);
+    };
+
+    loadDailyChallenge();
+  }, [state.level]);
 
   const addXPMessage = useCallback(
     (text: string, value: number, type: XPMessageType) => {
@@ -137,31 +148,60 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
     []
   );
 
-  const handleDailyChallenge = useCallback((
-    session: SessionData
-  ) => {
-    const today = new Date().toISOString().split("T")[0];
-    const lastCompleted = localStorage.getItem("dailyChallengeCompleted");
-    const challengeCompleted = checkDailyChallenge(dailyChallenge, session);
+  const handleDailyChallenge = useCallback(
+    (session: SessionData) => {
+      const today = new Date().toISOString().split('T')[0];
+      const stored = localStorage.getItem('dailyChallenge');
+      if (!stored) return { completed: false, xp: 0 };
   
-    if (challengeCompleted && lastCompleted !== today) {
-      const challengeXP = DAILY_CHALLENGE_BASE_XP * (1 + state.level / 100);
-      localStorage.setItem("dailyChallenge", "1"); // تم إكمال التحدي
-      return {
-        completed: true,
-        xp: challengeXP
-      };
-    }
-    
-    if (!challengeCompleted && lastCompleted === today) {
-      localStorage.setItem("dailyChallenge", "0"); // لم يكمل التحدي
-    }
-    
-    return {
-      completed: false,
-      xp: 0
-    };
-  }, [dailyChallenge, state.level]);
+      const challenge: DailyChallenge = JSON.parse(stored);
+      if (challenge.date !== today || challenge.status === 1) {
+        return { completed: false, xp: 0 };
+      }
+  
+      const updated: DailyChallenge = { ...challenge };
+      let completed = false;
+  
+      switch (updated.type) {
+        case 'marathon':
+          updated.data = updated.data || {};
+          updated.data.charactersTyped = (updated.data.charactersTyped || 0) + session.textLength;
+          if (updated.data.charactersTyped >= (updated.target as number)) {
+            updated.status = 1;
+            completed = true;
+          }
+          break;
+        
+        case 'timeAttack':
+          updated.data = updated.data || {};
+          updated.data.timeSpent = (updated.data.timeSpent || 0) + session.timeSpent;
+          if (updated.data.timeSpent >= (updated.target as number)) {
+            updated.status = 1;
+            completed = true;
+          }
+          break;
+        
+        case 'speedCombo':
+          const target = updated.target as { wpm: number; accuracy: number };
+          if (session.wpm >= target.wpm && session.accuracy >= target.accuracy) {
+            updated.status = 1;
+            completed = true;
+          }
+          break;
+      }
+  
+      if (completed) {
+        localStorage.setItem('dailyChallenge', JSON.stringify(updated));
+        setDailyChallenge(updated);
+        return { completed: true, xp: updated.xp };
+      } else {
+        localStorage.setItem('dailyChallenge', JSON.stringify(updated));
+        setDailyChallenge(updated);
+        return { completed: false, xp: 0 };
+      }
+    },
+    [state.level, addXPMessage]
+  );
 
   const calculateSessionXP = useCallback(
     (session: SessionData) => {
@@ -308,9 +348,9 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
 
       return totalXP;
     },
-    [state.level, streak, dailyChallenge, state.achievements, addXPMessage]
+    [state.level, streak, state.achievements, addXPMessage]
   );
-
+  
   const contextValue = useMemo(
     () => ({
       level: state.level,
@@ -324,9 +364,15 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
       xpMessages,
       addXPMessage,
       calculateDailyAverage,
-      handleDailyChallenge: handleDailyChallenge,
+      handleDailyChallenge,
     }),
-    [state, streak, dailyChallenge, xpMessages, calculateSessionXP]
+    [
+      state,
+      streak,
+      xpMessages,
+      calculateSessionXP,
+      dailyChallenge,
+    ]
   );
 
   return (

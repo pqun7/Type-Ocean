@@ -93,9 +93,9 @@ const UserLevelDisplay = ({
           </div>
         </div>
 
-        <div className="absolute hidden group-hover:block top-full mt-2 left-1/2 transform -translate-x-1/2 px-8 py-2 bg-slate-800 text-xs text-white rounded-md shadow-lg ">
+        {/* <div className="absolute hidden group-hover:block top-full mt-2 left-1/2 transform -translate-x-1/2 px-8 py-2 bg-slate-800 text-xs text-white rounded-md shadow-lg ">
           Progress: {progressPercentage.toFixed(1)}%
-        </div>
+        </div> */}
       </div>
 
       <XPMessages />

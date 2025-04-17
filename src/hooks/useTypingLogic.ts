@@ -8,7 +8,6 @@ import { SessionData } from "@/types/level";
 import {
   calculateNextLevelXP,
   getChallengeXP,
-  checkDailyChallenge,
 } from "@/contexts/utils/levelUtils";
 
 /**
@@ -62,9 +61,9 @@ export default function useTypingLogic(
     addXP,
     calculateSessionXP,
     addXPMessage,
+    level,
     calculateDailyAverage,
     handleDailyChallenge,
-    level,
   } = useLevel();
 
   // Sync refs with current values
@@ -160,13 +159,15 @@ export default function useTypingLogic(
     commitSession();
     setState("end");
 
-    // Calculate XP based on session data
+    // Calculate XP first
     const baseXP = calculateSessionXP(sessionData);
     const bonusXP = getChallengeXP(level);
     const totalXP = baseXP + bonusXP;
 
+    // Handle daily challenge - this will automatically update local storage
     const { completed, xp } = handleDailyChallenge(sessionData);
 
+    // Add challenge XP if completed
     if (completed) {
       addXP(xp);
       addXPMessage("Daily Challenge Completed", xp, "daily-challenge");

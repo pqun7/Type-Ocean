@@ -24,14 +24,13 @@ export const calculateNextLevelXP = (level: number): number => {
 
 export const generateDailyChallenge = async (level: number): Promise<DailyChallenge> => {
   await connection();
-
   const today = new Date().toISOString().split('T')[0];
-  
+
   const challengeConfig = {
-    baseWPM: Math.min(100, 50 + level * 0.8),
-    baseAccuracy: Math.min(98, 85 + level * 0.2),
+    baseWPM: Math.min(70, 50 + level * 0.8),
+    baseAccuracy: Math.min(100, 85 + level * 0.2),
     baseLength: Math.min(800, 300 + level * 3),
-    baseTime: Math.min(1800, 600 + level * 15), // بالثواني
+    baseTime: Math.min(1800, 600 + level * 15), 
   };
 
   const challengeTypes: Array<Omit<DailyChallenge, 'date' | 'difficulty'> & { weight: number }> = [
@@ -42,45 +41,29 @@ export const generateDailyChallenge = async (level: number): Promise<DailyChalle
           accuracy: Math.round(challengeConfig.baseAccuracy * (1.05 + Math.random() * 0.05)),
         },
         xp: getChallengeXP(level),
+        status: 0,
         weight: CHALLENGE_TYPE_WEIGHTS.speedCombo,
       },
       {
         type: "marathon" as const,
         target: Math.round(challengeConfig.baseLength * (1.3 + Math.random() * 0.4)),
         xp: getChallengeXP(level),
+        status: 0,
         weight: CHALLENGE_TYPE_WEIGHTS.marathon,
-      },
-      {
-        type: "precisionMaster" as const,
-        target: {
-          accuracy: Math.min(100, Math.round(challengeConfig.baseAccuracy + 3 + Math.random() * 2)),
-          maxErrors: Math.max(1, Math.round(5 - level * 0.1)),
-        },
-        xp: getChallengeXP(level),
-        weight: CHALLENGE_TYPE_WEIGHTS.precisionMaster,
       },
       {
         type: "timeAttack" as const,
         target: Math.round(challengeConfig.baseTime * (0.8 + Math.random() * 0.4)),
         xp: getChallengeXP(level),
+        status: 0,
         weight: CHALLENGE_TYPE_WEIGHTS.timeAttack,
       },
-      {
-        type: "consistency" as const,
-        target: {
-          sessions: 3 + Math.floor(level * 0.1),
-          minWPM: Math.round(challengeConfig.baseWPM * 0.8),
-        },
-        xp: getChallengeXP(level),
-        weight: CHALLENGE_TYPE_WEIGHTS.consistency,
-      },
     ];
-    
 
   // اختيار عشوائي مرجح
   const totalWeight = challengeTypes.reduce((sum, c) => sum + c.weight, 0);
   let random = Math.random() * totalWeight;
-  
+
   const selectedChallenge = challengeTypes.find(challenge => {
     random -= challenge.weight;
     return random <= 0;
@@ -88,48 +71,54 @@ export const generateDailyChallenge = async (level: number): Promise<DailyChalle
 
   const { weight, ...challengeWithoutWeight } = selectedChallenge;
 
-
-
-  return {
-    ...challengeWithoutWeight,
+  const baseChallenge = {
+    ...selectedChallenge,
     date: today,
     difficulty: level,
-    type: selectedChallenge.type,
-    target: selectedChallenge.target,
-    xp: selectedChallenge.xp,
-  } as DailyChallenge;
-};
+    status: 0 as 0,
+  };
 
-export const checkDailyChallenge = (
-  challenge: DailyChallenge,
-  session: SessionData
-): boolean => {
-  switch (challenge.type) {
-    case "speedCombo":
-      return session.wpm >= challenge.target.wpm && 
-             session.accuracy >= challenge.target.accuracy;
-    
-    case "marathon":
-      return session.textLength >= challenge.target;
-    
-    case "precisionMaster":
-      return session.accuracy >= challenge.target.accuracy && 
-             session.errors <= challenge.target.maxErrors;
-    
-    case "timeAttack":
-      const baseWPM = Math.min(100, 50 + challenge.difficulty * 0.8);
-      return session.timeSpent >= challenge.target &&
-             session.wpm >= baseWPM * 0.7;
-    
-    case "consistency":
-      return session.sessionsCount >= challenge.target.sessions &&
-             session.dailyAvgWpm >= challenge.target.minWPM;
-    
+  // Initialize data based on challenge type
+  switch (selectedChallenge.type) {
+    case 'marathon':
+      return { ...baseChallenge, data: { charactersTyped: 0 } };
+    case 'timeAttack':
+      return { ...baseChallenge, data: { timeSpent: 0 } };
+    case 'speedCombo':
+      return { ...baseChallenge, data: {} }; // No data needed
     default:
-      return false;
+      return baseChallenge;
   }
+
+  // return {
+  //   ...challengeWithoutWeight,
+  //   date: today,
+  //   difficulty: level,
+  //   type: selectedChallenge.type,
+  //   target: selectedChallenge.target,
+  //   xp: selectedChallenge.xp,
+  // } as DailyChallenge;
 };
 
+// export const checkDailyChallenge = (
+//   challenge: DailyChallenge,
+//   session: SessionData
+// ): boolean => {
+//   if (!challenge) return false;
+
+//   switch (challenge.type) {
+//     case "speedCombo":
+//       return session.wpm >= challenge.target.wpm && 
+//              session.accuracy >= challenge.target.accuracy;
+//     case "marathon":
+//       return session.textLength >= challenge.target;
+      
+//     case "timeAttack":
+//       return session.timeSpent >= challenge.target;
+//     default:
+//       return false;
+//   }
+// };
 
 export function getChallengeXP(level: number): number {
   if (level < 1) return 0;

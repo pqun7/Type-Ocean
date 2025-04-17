@@ -16,42 +16,17 @@ export type XPMessage = {
   style?: React.CSSProperties;
 };
 
-// types/level.d.ts
-export type DailyChallenge =
-  | {
-      type: "speedCombo";
-      target: { wpm: number; accuracy: number };
-      xp: number;
-      date: string;
-      difficulty: number;
-    }
-  | {
-      type: "marathon";
-      target: number;
-      xp: number;
-      date: string;
-      difficulty: number;
-    }
-  | {
-      type: "precisionMaster";
-      target: { accuracy: number; maxErrors: number };
-      xp: number;
-      date: string;
-      difficulty: number;
-    }
-  | {
-      type: "timeAttack";
-      target: number;
-      xp: number;
-      date: string;
-      difficulty: number;
-    }
-  | {
-      type: "consistency";
-      target: { sessions: number; minWPM: number };
-      xp: number;
-      date: string;
-      difficulty: number;
+type DailyChallenge = {
+  type: 'marathon' | 'timeAttack' | 'speedCombo';
+  target: number | { wpm: number; accuracy: number };
+  xp: number;
+  date: string;
+  difficulty: number;
+  status: 0 | 1;
+  data?: {
+    charactersTyped?: number;
+    timeSpent?: number;
+  };
 };
 
 export type SessionData = {
@@ -110,17 +85,17 @@ export type LevelAction =
   | { type: "UNLOCK_ACHIEVEMENT"; achievement: Achievement }
   | { type: "UPDATE_ACHIEVEMENT"; achievement: Achievement };
 
-export type LevelContextType = {
+export interface LevelContextType {
   level: number;
   userXP: number;
   nextLevelXP: number;
-  dailyChallenge: DailyChallenge;
+  streak: number;
+  dailyChallenge: DailyChallenge | null;
   achievements: Achievement[];
   addXP: (amount: number) => void;
   calculateSessionXP: (session: SessionData) => number;
   xpMessages: XPMessage[];
   addXPMessage: (text: string, value: number, type: XPMessageType) => void;
-  streak: number;
   calculateDailyAverage: (
     newWpm: number,
     newAcc: number
@@ -129,16 +104,6 @@ export type LevelContextType = {
     dailyAvgAcc: number;
     sessionsCount: number;
   };
-  handleDailyChallenge: (session: SessionData) => {
-    completed: boolean;
-    xp: number;
-  };
-};
-
-export type Bonus = {
-  id: string;
-  name: string;
-  description: string;
-  xpReward: number;
-  condition: (session: SessionData) => boolean;
-};
+  dailyChallenge: DailyChallenge | null;
+  handleDailyChallenge: (session: SessionData) => { completed: boolean; xp: number };
+}
