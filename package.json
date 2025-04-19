@@ -10,6 +10,7 @@
     "test": "jest --watch"
   },
   "dependencies": {
+    "@auth/prisma-adapter": "^2.8.0",
     "@heroui/progress": "^2.2.12",
     "@heroui/system": "^2.4.12",
     "@heroui/theme": "^2.4.12",
@@ -17,9 +18,10 @@
     "@prisma/extension-accelerate": "^1.2.2",
     "@radix-ui/react-dialog": "^1.1.6",
     "@radix-ui/react-icons": "^1.3.2",
+    "@radix-ui/react-label": "^2.1.3",
     "@radix-ui/react-select": "^2.1.6",
     "@radix-ui/react-separator": "^1.1.2",
-    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-slot": "^1.2.0",
     "@radix-ui/react-tooltip": "^1.1.8",
     "@radix-ui/themes": "^3.2.1",
     "@tabler/icons-react": "^3.31.0",
@@ -30,8 +32,9 @@
     "framer-motion": "^12.5.0",
     "lodash": "^4.17.21",
     "lucide-react": "^0.483.0",
-    "motion": "^12.5.0",
-    "next": "^15.3.0-canary.17",
+    "motion": "^12.7.4",
+    "next": "^15.3.1-canary.13",
+    "next-auth": "^5.0.0-beta.25",
     "node-fetch": "^3.3.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -43,6 +46,7 @@
     "tailwind-merge": "^3.0.2",
     "tsparticles-engine": "^2.12.0",
     "uuid": "^11.1.0",
+    "zod": "^3.24.3",
     "zustand": "^5.0.3"
   },
   "devDependencies": {

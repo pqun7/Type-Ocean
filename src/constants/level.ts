@@ -1,4 +1,4 @@
-import { Achievement, Bonus } from "@/types/level";
+import { Achievement, Bonus, Session } from "@/types/level";
 
 export const BASE_XP = 500;
 
@@ -40,34 +40,36 @@ export const ACHIEVEMENTS: Achievement[] = [
   },
 ];
 
+
+
 export const BONUSES: Bonus[] = [
   {
     id: "perfect_accuracy",
     name: "Perfect Accuracy",
     description: "Achieve 100% accuracy in a session",
     xpReward: 200,
-    condition: (session) => session.accuracy === 100,
+    condition: (session: Session) => session.accuracy === 100,
   },
   {
     id: "speed_60",
     name: "Speed Racer",
     description: "Reach 60+ WPM in a session",
     xpReward: 300,
-    condition: (session) => session.wpm >= 60,
+    condition: (session: Session) => session.wpm >= 60,
   },
   {
     id: "speed_80",
     name: "Lightning Speed",
     description: "Reach 80+ WPM in a session",
     xpReward: 500,
-    condition: (session) => session.wpm >= 80,
+    condition: (session: Session) => session.wpm >= 80,
   },
   {
     id: "long_session",
     name: "Marathon Typist",
     description: "Complete a session with 500+ characters",
     xpReward: 150,
-    condition: (session) => session.textLength >= 500,
+    condition: (session: Session) => session.textLength >= 500,
   },
 ];
 

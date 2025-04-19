@@ -1,5 +1,5 @@
 import { LevelState, LevelAction } from "@/types/level";
-import { calculateNextLevelXP } from "../utils/levelUtils";
+import { calculateNextLevelXP } from "@/utils/levelUtils";
 
 export const levelReducer = (state: LevelState, action: LevelAction): LevelState => {
   switch (action.type) {

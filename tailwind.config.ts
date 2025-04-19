@@ -143,6 +143,7 @@ export default {
         }
       },
       colors: {
+        primary: 'oklch(0.55 0.22 263)',
         background: '#0f172a',
         foreground: '#e2e8f0',
         color: {

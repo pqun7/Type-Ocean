@@ -14,7 +14,7 @@
   --font-fira: "Fira Code", monospace;
   --font-jetbrains: "JetBrains Mono", monospace;
   color-scheme: dark;
-  --color-primary: #AC6AFF;
+  --color-primary: oklch(0.55 0.22 263);
   --color-background-dark-start: #1E2A44;
   --color-background-dark-end: #2C3E50;
   --color-text-primary: #f2eded;

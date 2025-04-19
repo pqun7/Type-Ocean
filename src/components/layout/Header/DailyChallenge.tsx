@@ -1,8 +1,7 @@
-import { useLevel } from "@/contexts/hook/useLevel";
+import { useLevel } from "@/hooks/useLevel";
 import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { IoCheckmarkCircle } from "react-icons/io5";
-import { IoCheckmarkOutline } from "react-icons/io5";
+import { IoCheckmarkCircle, IoStar, IoStarOutline } from "react-icons/io5";
 
 export const DailyChallenge = () => {
   const { dailyChallenge } = useLevel();
@@ -23,13 +22,14 @@ export const DailyChallenge = () => {
       setShowSuccess(true);
       const exitTimer = setTimeout(() => {
         setIsVisible(false);
-      }, 1000);
+      }, 800); // تقليل وقت التأخير ليتناسب مع مدة الـ animation
 
       return () => {
         clearTimeout(exitTimer);
       };
     }
   }, [dailyChallenge?.status]);
+
 
   const getChallengeDescription = () => {
     if (!dailyChallenge) return "";
@@ -91,64 +91,68 @@ export const DailyChallenge = () => {
 
   return (
     <AnimatePresence>
- 
-      {isVisible && (
+    {isVisible && (
+      <motion.div
+        className="relative flex items-center gap-2"
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{
+          opacity: 0,
+          scale: 0, // تغيير من 0.5 إلى 0 للتصغير الكامل
+          transition: { duration: 0.4 } // إزالة التأخير وتعديل المدة
+        }}
+      >
         <motion.div
-          className="relative flex items-center gap-2"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{
-            opacity: 0,
-            scale: 0.5,
-            transition: { duration: 0.3, delay: 0.2 },
-          }}
-        >
-          <motion.div
-            className={`flex items-center justify-start cursor-pointer
+          className={`flex items-center justify-start cursor-pointer
             ${showSuccess ? "bg-emerald-500/90" : "bg-slate-800/70"}
             border-2 border-blue-400/30 rounded-full overflow-hidden`}
-            initial={{ width: 30 }}
-            animate={{
-              width: showSuccess ? 30 : isHovered ? 150 : 30,
-              transition: { type: "spring", stiffness: 200, damping: 30 },
-            }}
-            style={{ height: 30 }}
-            onHoverStart={() => !showSuccess && setIsHovered(true)}
-            onHoverEnd={() => !showSuccess && setIsHovered(false)}
-          >
-            <motion.div className="w-[30px] h-full flex items-center justify-center absolute right-0">
+          initial={{ width: 30 }}
+          animate={{
+            width: showSuccess ? 30 : isHovered ? 150 : 30,
+            transition: { type: "spring", stiffness: 200, damping: 30 },
+          }}
+          style={{ height: 30 }}
+          onHoverStart={() => !showSuccess && setIsHovered(true)}
+          onHoverEnd={() => !showSuccess && setIsHovered(false)}
+        >
+          <motion.div className="w-[30px] h-full flex items-center justify-center absolute right-0">
             {showSuccess ? (
-                <motion.svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="text-emerald-100"
-                  initial={{ rotate: -45, scale: 0 }}
-                  animate={{ rotate: 0, scale: 1 }}
-                  exit={{ scale: 0 }}
-                >
-                  <motion.path
-                    ref={pathRef}
-                    d="M6 12L10.5 16.5L18 7.5"
-                    initial={{
-                      strokeDasharray: pathLength,
-                      strokeDashoffset: pathLength,
-                    }}
-                    animate={{
-                      strokeDashoffset: 0,
-                      transition: { duration: 0.5 }
-                    }}
-                    exit={{
-                      strokeDashoffset: pathLength,
-                      transition: { duration: 0.3 }
-                    }}
-                    strokeLinecap="round"
-                  />
-                </motion.svg>
-              ) : (
+              <motion.svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="text-emerald-100"
+                initial={{ rotate: -45, scale: 0 }}
+                animate={{ 
+                  rotate: 0, 
+                  scale: 1,
+                  transition: { 
+                    type: "spring",
+                    stiffness: 500,
+                    damping: 20,
+                    delay: 0.1 
+                  } 
+                }}
+                exit={{ scale: 0 }}
+              >
+                <motion.path
+                  ref={pathRef}
+                  d="M6 12L10.5 16.5L18 7.5"
+                  initial={{
+                    strokeDasharray: pathLength,
+                    strokeDashoffset: pathLength,
+                  }}
+                  animate={{
+                    strokeDashoffset: 0,
+                    transition: { duration: 0.6, ease: "easeOut" },
+                  }}
+                  strokeLinecap="round"
+                />
+              </motion.svg>
+            ) : (
                 <>
                   <motion.span
                     className="absolute inset-0 bg-blue-500/20 rounded-full"

@@ -107,3 +107,18 @@ export interface LevelContextType {
   dailyChallenge: DailyChallenge | null;
   handleDailyChallenge: (session: SessionData) => { completed: boolean; xp: number };
 }
+
+
+export interface Session {
+  accuracy: number;
+  wpm: number;
+  textLength: number;
+}
+
+export interface Bonus {
+  id: string;
+  name: string;
+  description: string;
+  xpReward: number;
+  condition: (session: Session) => boolean;
+}

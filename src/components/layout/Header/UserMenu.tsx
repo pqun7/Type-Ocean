@@ -15,10 +15,13 @@ import { FaUserCircle } from "react-icons/fa";
 import { LevelIcon } from "@/assets";
 
 // Context
-import { useLevel } from "@/contexts/hook/useLevel";
+import { useLevel } from "@/hooks/useLevel";
 import { useState } from "react";
 
 import { DailyChallenge } from "./DailyChallenge";
+
+import { ProgressBar } from "@/components/ui/ProgressBar";
+
 
 // Type definition for component props
 interface UserMenuProps {
@@ -85,11 +88,12 @@ const UserLevelDisplay = ({
             <span className="text-slate-400">/ {nextLevelXP.toLocaleString()} XP</span>
           </div>
           <div className="relative w-28 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-            <motion.div
+            <ProgressBar progress={progressPercentage}/>
+            {/* <motion.div
               className="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-400"
               animate={{ width: `${progressPercentage}%` }}
               transition={{ type: "spring", stiffness: 100, damping: 15 }}
-            />
+            /> */}
           </div>
         </div>
 

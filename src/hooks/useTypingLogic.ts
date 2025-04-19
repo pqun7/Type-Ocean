@@ -3,12 +3,12 @@ import { useWpmHistory } from "./useWpmHistory";
 import { TextType, State } from "@/types/typing";
 import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
-import { useLevel } from "@/contexts/hook/useLevel";
+import { useLevel } from "@/hooks/useLevel";
 import { SessionData } from "@/types/level";
 import {
   calculateNextLevelXP,
   getChallengeXP,
-} from "@/contexts/utils/levelUtils";
+} from "@/utils/levelUtils";
 
 /**
  * Core typing test logic hook managing:

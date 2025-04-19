@@ -16,17 +16,17 @@ import {
   XPMessageType,
   DailyChallenge,
 } from "@/types/level";
-import { levelReducer } from "./reducers/levelReducer";
+import { levelReducer } from "@/reducers/levelReducer";
 import {
   calculateNextLevelXP,
   getChallengeXP,
   generateDailyChallenge,
-} from "./utils/levelUtils";
+} from "@/utils/levelUtils";
 import {
   ACHIEVEMENTS,
   DAILY_CHALLENGE_BASE_XP,
   BONUSES,
-} from "./constants/level";
+} from "@/constants/level";
 
 export const LevelContext = createContext<LevelContextType | null>(null);
 

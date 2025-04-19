@@ -9,9 +9,6 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  experimental: {
-    dynamicIO: true,  // ⬅️ تفعيل `dynamicIO` لاستخدام "use cache"
-  },
 };
 
 export default nextConfig;

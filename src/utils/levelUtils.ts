@@ -1,9 +1,8 @@
-import { DailyChallenge, SessionData } from "@/types/level";
+import { DailyChallenge } from "@/types/level";
 import {
   BASE_XP,
   EXPONENTIAL_GROWTH_LEVEL,
   LINEAR_GROWTH_INCREMENT,
-  DAILY_CHALLENGE_BASE_XP,
   LINEAR_GROWTH_END_LEVEL,
   EXP_GROWTH_END_LEVEL,
   MAX_XP_MULTIPLIER,
