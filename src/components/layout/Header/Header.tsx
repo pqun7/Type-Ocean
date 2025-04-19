@@ -9,7 +9,11 @@ import {
   useTransform,
   useMotionTemplate,
 } from "framer-motion";
-import { UserMenu, MobileNavigation, DesktopNavigation } from "@/components/layout/Header";
+import {
+  UserMenu,
+  MobileNavigation,
+  DesktopNavigation,
+} from "@/components/layout/Header";
 import { brainwaveSymbol } from "@/assets";
 import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
 import { useLevel } from "@/hooks/useLevel";
@@ -23,7 +27,7 @@ const Header: React.FC = () => {
   const createAnimatedValue = (outputRange: [any, any]) =>
     useSpring(useTransform(scrollY, SCROLL_RANGE, outputRange), SPRING_CONFIG);
 
-  const headerWidth = createAnimatedValue(["100%", "70%"]);
+  const headerWidth = createAnimatedValue(["100%", "75%"]);
   const headerBorderRadius = createAnimatedValue([0, 9999]);
   const headerOpacity = createAnimatedValue([1, 0.95]);
   const backdropBlur = createAnimatedValue([0, 4]);
@@ -56,14 +60,22 @@ const Header: React.FC = () => {
         }}
         className="fixed top-0 left-0 right-0 z-50 mx-auto h-16 mt-2 border border-slate-300"
       >
-        <div className="flex items-center justify-between h-full px-4 lg:px-8">
-          <motion.div style={{ translateX: logoTranslateX }} className="z-10">
+        <div className="flex items-center h-full px-2 lg:px-4">
+          <motion.div
+            style={{ translateX: logoTranslateX }}
+            className="z-10 flex items-center"
+          >
             <Logo />
           </motion.div>
 
-          <DesktopNavigation scrollY={scrollY} />
+          <div className="hidden md:flex">
+            <DesktopNavigation scrollY={scrollY} />
+          </div>
 
-          <motion.div style={{ translateX: userMenuTranslateX }}>
+          <motion.div
+            style={{ translateX: userMenuTranslateX }}
+            className="ml-auto"
+          >
             <UserMenu
               isLoggedIn={isLoggedIn}
               toggleMenu={toggleMenu}
@@ -95,7 +107,7 @@ const Logo: React.FC = () => (
       height={30}
       priority
     />
-    <h1 className="hidden pl-2 font-semibold text-center shrink-0 md:flex text-slate-200">
+    <h1 className="hidden pl-2 font-semibold text-center shrink-0 sm:flex text-slate-200">
       Type Ocean
     </h1>
   </Link>

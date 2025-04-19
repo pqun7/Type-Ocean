@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { IoCheckmarkCircle, IoStar, IoStarOutline } from "react-icons/io5";
 
-export const DailyChallenge = () => {
+export const DailyChallenge = ({ className }: { className?: string }) => {
   const { dailyChallenge } = useLevel();
   const [isHovered, setIsHovered] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
@@ -93,7 +93,7 @@ export const DailyChallenge = () => {
     <AnimatePresence>
     {isVisible && (
       <motion.div
-        className="relative flex items-center gap-2"
+        className={`${className}`}
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{

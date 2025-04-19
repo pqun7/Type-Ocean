@@ -22,7 +22,6 @@ import { DailyChallenge } from "./DailyChallenge";
 
 import { ProgressBar } from "@/components/ui/ProgressBar";
 
-
 // Type definition for component props
 interface UserMenuProps {
   isLoggedIn: boolean;
@@ -51,62 +50,47 @@ const UserLevelDisplay = ({
 
   return (
     <div className="relative flex items-center gap-4">
-      {/* Daily Challenge - مستقلة عن المجموعة */}
-      <div>
-        <DailyChallenge />
+      <div className="hidden lg:flex">
+        <DailyChallenge className="relative items-center gap-2" />
       </div>
 
-      {/* Level & XP Progress - داخل group فقط لوحده */}
-      <div className="relative group overflow-visible hidden md:flex items-center gap-2 xl:bg-gradient-to-br from-slate-900 to-slate-800 xl:border border-slate-700 rounded-full px-3 py-1.5 xl:shadow-lg transition-all duration-300">
-        {/* Level Icon */}
-        <div className="flex items-center gap-2">
-          <div className="relative w-7 h-7 hidden lg:block">
-            <Image
-              src={LevelIcon}
-              layout="fill"
-              objectFit="contain"
-              alt="Level Icon"
-            />
-            <span
-              className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
-                ${String(userLevel).length === 3 ? "text-sm" : "text-base"}
-                font-black 
-                bg-gradient-to-b from-blue-300 to-blue-200 bg-clip-text text-transparent mix-blend-light`}
-              style={{
-                textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
-              }}
-            >
-              {userLevel}
-            </span>
-          </div>
+      <div className="hidden md:flex items-center gap-2 xl:bg-gradient-to-br xl:border xl:shadow-lg xl:px-3 xl:py-1.5 from-slate-900 to-slate-800 border-slate-700 rounded-full transition-all duration-300">
+        <div className="hidden lg:block relative w-7 h-7">
+          <Image
+            src={LevelIcon}
+            layout="fill"
+            objectFit="contain"
+            alt="Level Icon"
+          />
+          <span
+            className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
+              ${String(userLevel).length === 3 ? "text-sm" : "text-base"}
+              font-extrabold
+              bg-gradient-to-b from-blue-300 to-blue-200 bg-clip-text text-transparent`}
+            style={{
+              textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
+            }}
+          >
+            {userLevel}
+          </span>
         </div>
 
         {/* XP Progress */}
-        <div className="hidden xl:flex flex-col ml-1">
+        <div className="hidden xl:flex flex-col ml-1.5">
           <div className="flex justify-between text-xs mb-1">
             <span className="text-blue-300">{userXP.toLocaleString()}</span>
-            <span className="text-slate-400">/ {nextLevelXP.toLocaleString()} XP</span>
+            <span className="text-slate-400 pl-1">/ {nextLevelXP.toLocaleString()} XP</span>
           </div>
           <div className="relative w-28 h-1.5 bg-slate-700 rounded-full overflow-hidden">
             <ProgressBar progress={progressPercentage}/>
-            {/* <motion.div
-              className="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-400"
-              animate={{ width: `${progressPercentage}%` }}
-              transition={{ type: "spring", stiffness: 100, damping: 15 }}
-            /> */}
           </div>
         </div>
-
-        {/* <div className="absolute hidden group-hover:block top-full mt-2 left-1/2 transform -translate-x-1/2 px-8 py-2 bg-slate-800 text-xs text-white rounded-md shadow-lg ">
-          Progress: {progressPercentage.toFixed(1)}%
-        </div> */}
       </div>
 
       <XPMessages />
     </div>
   );
 };
-
 
 const XPMessages = () => {
   const { xpMessages } = useLevel();
@@ -187,13 +171,10 @@ const MobileMenuButton = ({
   toggleMenu,
 }: Pick<UserMenuProps, "isMenuOpen" | "toggleMenu">) => (
   <button
-    onClick={toggleMenu}
-    aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-    className={`p-2 rounded-lg text-slate-300 transition-all duration-200 sm:hidden ${
-      isMenuOpen
-        ? "hover:text-red-400 bg-slate-800/30"
-        : "hover:text-white hover:bg-slate-800/50"
-    }`}
+  onClick={toggleMenu}
+  aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+  className={`p-2 rounded-lg text-slate-300 transition-colors duration-200 sm:hidden
+    ${isMenuOpen ? "bg-slate-800/30 hover:text-red-400" : "hover:bg-slate-800/50 hover:text-white"}`}
   >
     {isMenuOpen ? (
       <HiX className="w-6 h-6" />
@@ -215,7 +196,7 @@ const UserMenu: React.FC<UserMenuProps> = ({
     <div className="flex items-center gap-3">
       {isLoggedIn ? (
         /* Authenticated User Section */
-        <div className="hidden sm:flex items-center gap-3">
+        <div className="hidden sm:flex items-center gap-4">
           <UserLevelDisplay
             userLevel={userLevel}
             userXP={userXP}
@@ -225,7 +206,7 @@ const UserMenu: React.FC<UserMenuProps> = ({
           {/* Profile Link */}
           <Link
             href="/profile"
-            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-slate-200 hover:text-white"
+            className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-200 hover:text-white"
             aria-label="Profile"
           >
             <FaUserCircle className="w-5 h-5" />
@@ -241,8 +222,8 @@ const UserMenu: React.FC<UserMenuProps> = ({
         /* Guest User Section */
         <HoverBorderGradient
           containerClassName="rounded-full"
-          bgColor="bg-transparent"
-          className="px-5 py-2 text-sm font-medium text-white bg-slate-900/50 hover:bg-slate-800/70 transition-all duration-300 hidden sm:flex items-center justify-center"
+          className="hidden sm:flex px-4 py-2 text-sm font-medium text-white 
+          bg-slate-900/50 hover:bg-slate-800/70 transition-colors duration-300"
         >
           <Link href="/login">Sign In</Link>
         </HoverBorderGradient>
