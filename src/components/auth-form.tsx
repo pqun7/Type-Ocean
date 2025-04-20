@@ -1,7 +1,7 @@
 "use client"; // Next.js client component directive
 
 // Import core React and animation libraries
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth-context";
 
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
@@ -41,6 +41,17 @@ export function AuthForm() {
   const searchParams = useSearchParams();
   const formParam = searchParams.get("form");
   const [isLogin, setIsLogin] = useState(formParam === 'signup' ? false : true);
+
+  // const { formType, toggleForm } = useAuth();
+  // const isLogin = formType === "login";
+
+  // const searchParams = useSearchParams();
+  // useEffect(() => {
+  //   const formParam = searchParams.get("form");
+  //   if (formParam === "signup" && formType !== "signup") {
+  //     toggleForm();
+  //   }
+  // }, [searchParams, formType, toggleForm]);
   
 
 
@@ -245,8 +256,11 @@ export function AuthForm() {
 
                     <button
                       type="button"
-                      onClick={handleToggle} 
-                      className="text-[#69d0ff] hover:text-[#8A6BFF] underline underline-offset-4 cursor-pointer"
+                      onClick={() => {
+                        handleToggle();
+                        setIsTransitioning(false); // Reset transition state
+                      }}
+                      className="text-[#69d0ff] hover:text-[#8A6BFF]  underline underline-offset-4 cursor-pointer"
                     >
                       {isLogin ? "Sign up" : "Login"}
                     </button>

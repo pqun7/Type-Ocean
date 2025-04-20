@@ -5,6 +5,7 @@ import Header from "@/components/layout/Header/Header";
 import Footer from "@/components/layout/Footer";
 import Background from "@/components/ui/Background";
 import { LevelProvider } from "@/contexts/LevelContext";
+import { AuthProvider } from "@/contexts/auth-context";
 
 const inter = Inter({
   subsets: ["latin"], // You can choose another subset if needed
@@ -29,10 +30,12 @@ export default function RootLayout({
         <Background className="fixed inset-0 pointer-events-none -z-10" />
 
         <LevelProvider>
-          <Header />
-          <main className="relative z-10 min-h-screen overflow-hidden pointer-events-auto">
-            {children}
-          </main>
+          <AuthProvider>
+            <Header />
+            <main className="relative z-10 min-h-screen overflow-hidden pointer-events-auto">
+              {children}
+            </main>
+          </AuthProvider>
         </LevelProvider>
 
         <Footer />

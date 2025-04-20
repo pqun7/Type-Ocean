@@ -18,8 +18,8 @@ import { LevelIcon } from "@/assets";
 
 // hooks
 import { useLevel } from "@/hooks/useLevel";
-import { useRouter } from "next/navigation";
-
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/auth-context";
 
 import { DailyChallenge } from "./DailyChallenge";
 
@@ -201,6 +201,16 @@ const UserMenu: React.FC<UserMenuProps> = ({
   nextLevelXP,
 }) => {
   const router = useRouter();
+  const pathname = usePathname();
+  const { setFormType } = useAuth();
+  
+  const handleAuthNavigation = (formType: "login" | "signup") => {
+    if (pathname === "/auth") {
+      setFormType(formType);
+    } else {
+      router.push(`/auth?form=${formType}`);
+    }
+  };
 
   return (
     <div className="flex items-center gap-3">
@@ -242,25 +252,28 @@ const UserMenu: React.FC<UserMenuProps> = ({
               "transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
               "focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a1f]/50"
             )}
+            onClick={() => handleAuthNavigation("login")}
+
           >
-          <Link href="/auth?form=login">Login</Link>
+            Login
           </Button>
 
           {/* Sign Up Button */}
           <Button
             variant="outline"
             className={cn(
-
               "rounded-full px-6 py-2 font-medium hidden sm:flex",
-              "border border-blue-400/40 hover:border-blue-400/70",
+              "border border-[#69d0ff]/60 hover:border-[#69d0ff]",
               "bg-blue-900/20 hover:bg-blue-900/30", // تم تعديل الخلفية هنا
-              "text-blue-400 hover:text-blue-300",
+              "text-[#69d0ff] hover:text-[#b3e9ff]",
               "backdrop-blur-sm",
               "transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
               "focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a1f]/50"
             )}
+            onClick={() => handleAuthNavigation("signup")}
+
           >
-          <Link href="/auth?form=sign-up">Sign up</Link>
+            Sign up
           </Button>
         </div>
       )}

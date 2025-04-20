@@ -17,7 +17,6 @@ import {
 import { brainwaveSymbol } from "@/assets";
 import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
 import { useLevel } from "@/hooks/useLevel";
-import { AuthProvider } from "@/contexts/auth-context";
 
 const Header: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -77,7 +76,6 @@ const Header: React.FC = () => {
             style={{ translateX: userMenuTranslateX }}
             className="ml-auto"
           >
-            <AuthProvider>
               <UserMenu
                 isLoggedIn={isLoggedIn}
                 toggleMenu={toggleMenu}
@@ -86,7 +84,6 @@ const Header: React.FC = () => {
                 userXP={userXP}
                 nextLevelXP={nextLevelXP}
               />
-            </AuthProvider>
           </motion.div>
         </div>
       </motion.header>
