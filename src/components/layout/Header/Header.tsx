@@ -17,9 +17,10 @@ import {
 import { brainwaveSymbol } from "@/assets";
 import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
 import { useLevel } from "@/hooks/useLevel";
+import { AuthProvider } from "@/contexts/auth-context";
 
 const Header: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll();
@@ -30,11 +31,11 @@ const Header: React.FC = () => {
   const headerWidth = createAnimatedValue(["100%", "75%"]);
   const headerBorderRadius = createAnimatedValue([0, 9999]);
   const headerOpacity = createAnimatedValue([1, 0.95]);
-  const backdropBlur = createAnimatedValue([0, 4]);
+  const backdropBlur = createAnimatedValue([0, 2]);
   const borderOpacity = createAnimatedValue([0, 0.3]);
   const logoTranslateX = createAnimatedValue([0, 10]);
   const userMenuTranslateX = createAnimatedValue([0, -5]);
-  const backgroundAlpha = createAnimatedValue([0, 0.1]);
+  const backgroundAlpha = createAnimatedValue([0, 0.05]);
 
   const toggleMenu = useCallback(() => setIsMenuOpen((prev) => !prev), []);
 
@@ -76,14 +77,16 @@ const Header: React.FC = () => {
             style={{ translateX: userMenuTranslateX }}
             className="ml-auto"
           >
-            <UserMenu
-              isLoggedIn={isLoggedIn}
-              toggleMenu={toggleMenu}
-              isMenuOpen={isMenuOpen}
-              userLevel={level}
-              userXP={userXP}
-              nextLevelXP={nextLevelXP}
-            />
+            <AuthProvider>
+              <UserMenu
+                isLoggedIn={isLoggedIn}
+                toggleMenu={toggleMenu}
+                isMenuOpen={isMenuOpen}
+                userLevel={level}
+                userXP={userXP}
+                nextLevelXP={nextLevelXP}
+              />
+            </AuthProvider>
           </motion.div>
         </div>
       </motion.header>

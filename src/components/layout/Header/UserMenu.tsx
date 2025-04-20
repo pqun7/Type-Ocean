@@ -4,6 +4,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 // Components
 import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
@@ -14,9 +16,10 @@ import { HiOutlineMenu, HiX } from "react-icons/hi";
 import { FaUserCircle } from "react-icons/fa";
 import { LevelIcon } from "@/assets";
 
-// Context
+// hooks
 import { useLevel } from "@/hooks/useLevel";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+
 
 import { DailyChallenge } from "./DailyChallenge";
 
@@ -79,10 +82,12 @@ const UserLevelDisplay = ({
         <div className="hidden xl:flex flex-col ml-1.5">
           <div className="flex justify-between text-xs mb-1">
             <span className="text-blue-300">{userXP.toLocaleString()}</span>
-            <span className="text-slate-400 pl-1">/ {nextLevelXP.toLocaleString()} XP</span>
+            <span className="text-slate-400 pl-1">
+              / {nextLevelXP.toLocaleString()} XP
+            </span>
           </div>
           <div className="relative w-28 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-            <ProgressBar progress={progressPercentage}/>
+            <ProgressBar progress={progressPercentage} />
           </div>
         </div>
       </div>
@@ -171,10 +176,14 @@ const MobileMenuButton = ({
   toggleMenu,
 }: Pick<UserMenuProps, "isMenuOpen" | "toggleMenu">) => (
   <button
-  onClick={toggleMenu}
-  aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-  className={`p-2 rounded-lg text-slate-300 transition-colors duration-200 sm:hidden
-    ${isMenuOpen ? "bg-slate-800/30 hover:text-red-400" : "hover:bg-slate-800/50 hover:text-white"}`}
+    onClick={toggleMenu}
+    aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+    className={`p-2 rounded-lg text-slate-300 transition-colors duration-200 sm:hidden
+    ${
+      isMenuOpen
+        ? "bg-slate-800/30 hover:text-red-400"
+        : "hover:bg-slate-800/50 hover:text-white"
+    }`}
   >
     {isMenuOpen ? (
       <HiX className="w-6 h-6" />
@@ -183,7 +192,6 @@ const MobileMenuButton = ({
     )}
   </button>
 );
-
 const UserMenu: React.FC<UserMenuProps> = ({
   isLoggedIn,
   toggleMenu,
@@ -192,6 +200,8 @@ const UserMenu: React.FC<UserMenuProps> = ({
   userXP,
   nextLevelXP,
 }) => {
+  const router = useRouter();
+
   return (
     <div className="flex items-center gap-3">
       {isLoggedIn ? (
@@ -219,14 +229,40 @@ const UserMenu: React.FC<UserMenuProps> = ({
           <SettingsDialog />
         </div>
       ) : (
-        /* Guest User Section */
-        <HoverBorderGradient
-          containerClassName="rounded-full"
-          className="hidden sm:flex px-4 py-2 text-sm font-medium text-white 
-          bg-slate-900/50 hover:bg-slate-800/70 transition-colors duration-300"
-        >
-          <Link href="/login">Sign In</Link>
-        </HoverBorderGradient>
+        <div className="flex gap-4">
+          {/* Sign In Button */}
+          <Button
+            variant="outline"
+            className={cn(
+              "hidden sm:flex font-medium rounded-full px-6 py-2",
+              "border border-indigo-300/40 hover:border-indigo-300/70",
+              "bg-white/5 hover:bg-indigo-300/10",
+              "text-indigo-300 hover:text-indigo-200",
+              "backdrop-blur-sm",
+              "transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
+              "focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a1f]/50"
+            )}
+          >
+          <Link href="/auth?form=login">Login</Link>
+          </Button>
+
+          {/* Sign Up Button */}
+          <Button
+            variant="outline"
+            className={cn(
+
+              "rounded-full px-6 py-2 font-medium hidden sm:flex",
+              "border border-blue-400/40 hover:border-blue-400/70",
+              "bg-blue-900/20 hover:bg-blue-900/30", // تم تعديل الخلفية هنا
+              "text-blue-400 hover:text-blue-300",
+              "backdrop-blur-sm",
+              "transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
+              "focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a1f]/50"
+            )}
+          >
+          <Link href="/auth?form=sign-up">Sign up</Link>
+          </Button>
+        </div>
       )}
 
       {/* Mobile Menu Toggle */}

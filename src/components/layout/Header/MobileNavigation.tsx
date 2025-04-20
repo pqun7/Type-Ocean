@@ -45,7 +45,7 @@ const MobileNavigation: React.FC<MobileNavigationProps> = ({
           style={{ marginLeft: marginAdjust, marginTop: marginAdjust }}
           transition={MOBILE_MENU_TRANSITION}
         >
-          <div className="flex items-center justify-center w-full h-full">
+          <div className="flex items-center justify-center w-full h-full mt-2">
             <motion.nav
               initial={{ opacity: 0 }}
               animate={{ opacity: isMenuOpen ? 1 : 0 }}
@@ -56,7 +56,7 @@ const MobileNavigation: React.FC<MobileNavigationProps> = ({
                 <Link
                   key={item.id}
                   href={item.url}
-                  className="block px-6 py-6 text-2xl text-white uppercase transition-colors hover:text-slate-200"
+                  className="block px-6 py-5 text-xl text-white uppercase transition-colors hover:text-slate-200"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   {item.title}

@@ -1,6 +1,6 @@
 'use client';
 import { cn } from '@/lib/utils';
-import { AnimatePresence, motion, Transition, Variants } from 'motion/react';
+import { AnimatePresence, motion, Transition, Variants } from 'framer-motion';
 import { useMemo, useId } from 'react';
 
 export type TextMorphProps = {
@@ -10,6 +10,7 @@ export type TextMorphProps = {
   style?: React.CSSProperties;
   variants?: Variants;
   transition?: Transition;
+  blurAmount?: number;
 };
 
 export function TextMorph({
@@ -19,6 +20,7 @@ export function TextMorph({
   style,
   variants,
   transition,
+  blurAmount = 3,
 }: TextMorphProps) {
   const uniqueId = useId();
 
@@ -37,16 +39,30 @@ export function TextMorph({
   }, [children, uniqueId]);
 
   const defaultVariants: Variants = {
-    initial: { opacity: 0 },
-    animate: { opacity: 1 },
-    exit: { opacity: 0 },
+    initial: { 
+      opacity: 0,
+      filter: `blur(${blurAmount}px)`,
+      scale: 0.8
+    },
+    animate: { 
+      opacity: 1,
+      filter: 'blur(0px)',
+      scale: 1,
+      transition: { duration: 0.3 } 
+    },
+    exit: { 
+      opacity: 0,
+      filter: `blur(${blurAmount}px)`,
+      scale: 0.8,
+      transition: { duration: 0.2 } 
+    },
   };
 
   const defaultTransition: Transition = {
     type: 'spring',
-    stiffness: 280,
-    damping: 18,
-    mass: 0.3,
+    stiffness: 260,
+    damping: 20,
+    mass: 0.5,
   };
 
   return (
@@ -63,6 +79,10 @@ export function TextMorph({
             exit='exit'
             variants={variants || defaultVariants}
             transition={transition || defaultTransition}
+            style={{
+              transformOrigin: 'center bottom',
+              willChange: 'transform, opacity, filter',
+            }}
           >
             {character.label}
           </motion.span>
