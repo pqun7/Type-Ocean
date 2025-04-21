@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
 type AuthFormType = "login" | "signup";
@@ -20,11 +20,12 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [formType, setFormType] = useState<AuthFormType>(() => {
-    // التهيئة الأولية من query params
+  // Default to login on server; read actual query on client
+  const [formType, setFormType] = useState<AuthFormType>("login");
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get("form") === "signup" ? "signup" : "login";
-  });
+    setFormType(params.get("form") === "signup" ? "signup" : "login");
+  }, []);
 
   const handleSetForm = useCallback(
     (type: AuthFormType) => {

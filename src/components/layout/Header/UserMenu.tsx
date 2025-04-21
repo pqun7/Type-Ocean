@@ -244,7 +244,7 @@ const UserMenu: React.FC<UserMenuProps> = ({
           <Button
             variant="outline"
             className={cn(
-              "hidden sm:flex font-medium rounded-full px-6 py-2",
+              "hidden lg:flex font-medium rounded-full px-6 py-2",
               "border border-indigo-300/40 hover:border-indigo-300/70",
               "bg-white/5 hover:bg-indigo-300/10",
               "text-indigo-300 hover:text-indigo-200",
