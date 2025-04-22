@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 
 const AuthPage = async () => {
   const session = await auth();
+  console.log("SESSION:", session);
   if (session) redirect("/chack-auth"); // Redirect to the authenticated page if already logged in
   
   return (

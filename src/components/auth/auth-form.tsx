@@ -97,17 +97,17 @@ export function AuthForm() {
                   if (isLogin) {
                     const res = await signIn("credentials", {
                       redirect: false,
-                      email: formData.get("email"),
+                      username: formData.get("username"),
                       password: formData.get("password"),
                     });
 
                     if (res?.ok) {
-                      router.push("/chack-auth"); 
+                      router.push("/chack-auth");
                     } else {
                       console.error("Login failed");
                     }
                   } else {
-                    await handleSignup(formData); 
+                    await handleSignup(formData);
                   }
                 }}
                 action={
@@ -120,44 +120,43 @@ export function AuthForm() {
               >
                 <div className="grid gap-6">
                   <div className="grid gap-6">
-                    <AnimatePresence mode="popLayout">
-                      {!isLogin && (
-                        <motion.div
-                          key="username"
-                          {...exclusiveAnim}
-                          className="grid gap-2"
-                        >
-                          <Label htmlFor="username" className="text-[#E0E7FF]">
-                            Username
-                          </Label>
-                          <Input
-                            id="username"
-                            name="username"
-                            type="text"
-                            placeholder="john_doe"
-                            className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
-                            required
-                            autoComplete="username"
-                          />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    <motion.div layout className="grid gap-2">
-                      <Label htmlFor="email" className="text-[#E0E7FF]">
-                        Email
+                    <motion.div key="username" className="grid gap-2">
+                      <Label htmlFor="username" className="text-[#E0E7FF]">
+                        Username
                       </Label>
                       <Input
-                        id="email"
-                        name="email"
-                        type="email"
-                        placeholder="m@example.com"
+                        id="username"
+                        name="username"
+                        type="text"
+                        placeholder="john_doe"
                         className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
                         required
-                        autoComplete="email"
+                        autoComplete="username"
                       />
                     </motion.div>
-
+                    {!isLogin && (
+                      <AnimatePresence mode="popLayout">
+                        <motion.div
+                          layout
+                          className="grid gap-2"
+                          key="email"
+                          {...exclusiveAnim}
+                        >
+                          <Label htmlFor="email" className="text-[#E0E7FF]">
+                            Email
+                          </Label>
+                          <Input
+                            id="email"
+                            name="email"
+                            type="email"
+                            placeholder="m@example.com"
+                            className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
+                            required
+                            autoComplete="email"
+                          />
+                        </motion.div>
+                      </AnimatePresence>
+                    )}
                     <motion.div layout className="grid gap-2">
                       <div className="flex items-center">
                         <Label htmlFor="password" className="text-[#E0E7FF]">
