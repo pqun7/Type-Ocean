@@ -77,11 +77,14 @@ export function TextMorph({
             initial='initial'
             animate='animate'
             exit='exit'
+            layout="position" 
+
             variants={variants || defaultVariants}
             transition={transition || defaultTransition}
             style={{
               transformOrigin: 'center bottom',
-              willChange: 'transform, opacity, filter',
+              willChange: 'transform, opacity, filter, contents',
+              backfaceVisibility: 'hidden',
             }}
           >
             {character.label}

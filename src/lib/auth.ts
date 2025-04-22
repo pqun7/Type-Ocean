@@ -1,3 +1,4 @@
+// lib/auth.ts
 import { getServerSession } from "next-auth";
 import { type NextAuthOptions } from "next-auth";
 import GitHub from "next-auth/providers/github";
@@ -37,9 +38,15 @@ export const authOptions: NextAuthOptions = {
         username: { label: "Username", type: "text" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         const { username, password } = await loginSchema.parseAsync(credentials);
-        return getUserFromDb(username, password);
+        const result = await getUserFromDb(username, password);
+      
+        if (result.success && result.user) {
+          return result.user;
+        }
+      
+        throw new Error(result.error || "LoginFailed");
       },
     }),
   ],

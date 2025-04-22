@@ -19,7 +19,7 @@ import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
 import { useLevel } from "@/hooks/useLevel";
 
 const Header: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll();

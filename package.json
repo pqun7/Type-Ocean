@@ -32,6 +32,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.5.0",
     "lodash": "^4.17.21",
+    "lottie-react": "^2.4.1",
     "lucide-react": "^0.483.0",
     "motion": "^12.7.4",
     "next": "^15.3.1-canary.13",

@@ -2,11 +2,13 @@
 "use client"; // Next.js client component directive
 
 // Import core React and animation libraries
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/auth-context";
 
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { useSearchParams, useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 // Import custom UI components and styles
 import {
@@ -18,6 +20,9 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Loader } from "@/assets";
+import { Button } from "@/components/ui/button"; 
+
 
 // Import icons and assets
 import { GithubAuth } from "@/components/auth/github-button";
@@ -43,24 +48,90 @@ export function AuthForm() {
   const formParam = searchParams.get("form");
   const [isLogin, setIsLogin] = useState(formParam === "signup" ? false : true);
   const [error, setError] = useState<string>("");
+  const formRef = useRef<HTMLFormElement>(null);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isTransitioning) {
+      const timer = setTimeout(() => {
+        setIsTransitioning(false);
+      }, 5000); // تغيير الوقت إلى 500 مللي ثانية
+      return () => clearTimeout(timer);
+    }
+  }, [isTransitioning]);
 
   // Toggle between login/signup views with animation handling
   const handleToggle = () => {
     setIsTransitioning(true);
     setIsLogin(!isLogin);
+    setFieldErrors({});
+    setError("");
+    setSuccessMessage("");
   };
 
+  // في دالة handleSignup
   const handleSignup = async (formData: FormData) => {
     try {
       const result = await signUp(formData);
+
       if (result?.success) {
-        setIsLogin(true); // تبديل إلى وضع تسجيل الدخول
+        formRef.current?.reset();
+        setIsLogin(true);
         setError("");
+        setSuccessMessage("Account created successfully.");
+        setFieldErrors({});
       } else {
-        setError(result?.error || "error occurred during signup");
+        if (result?.details?.fieldErrors) {
+          setFieldErrors(
+            result.details.fieldErrors as Record<string, string[]>
+          );
+          setError("");
+        } else {
+          setError(result?.error || "An error occurred during signup");
+          setFieldErrors({});
+        }
       }
     } catch (err) {
-      setError("An error occurred ");
+      setError("An unexpected error occurred");
+      setFieldErrors({});
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    const formData = new FormData(e.currentTarget);
+
+    e.preventDefault();
+    setIsSubmitting(true);
+    setFieldErrors({}); // Reset field errors on submit
+    try {
+      if (isLogin && formData.get("username") && formData.get("password")) {
+        const res = await signIn("credentials", {
+          redirect: false,
+          username: formData.get("username"),
+          password: formData.get("password"),
+        });
+
+        if (res?.ok) {
+          router.push("/chack-auth");
+        } else {
+          let message = "Invalid username or password.";
+          if (res?.error === "NoPasswordSet") {
+            message =
+              "This account does not have a password. Try signing in with GitHub or Google.";
+          }
+          setError(message);
+          console.error("[AuthForm] Login error:", res?.error);
+        }
+      } else {
+        await handleSignup(formData);
+      }
+    } catch (err) {
+      setError("An unexpected error occurred");
+      console.error("[AuthForm] Submission error:", err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -83,41 +154,37 @@ export function AuthForm() {
                   {isLogin ? "Welcome back" : "Create an account"}
                 </CardTitle>
                 <CardDescription className="text-[#8A8FB5]">
-                  {isLogin
+                  {/* {isLogin
                     ? "Enter your credentials to login"
-                    : "Create a new account"}
+                    : "Create a new account"} */}
+                  {successMessage && (
+                    <p className="text-green-400 text-sm mt-2">
+                      {successMessage}
+                    </p>
+                  )}
+
+                  {error && (
+                    <p className="text-red-400 text-sm mt-2">{error}</p>
+                  )}
                 </CardDescription>
               </motion.div>
             </CardHeader>
             <CardContent>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  if (isLogin) {
-                    const res = await signIn("credentials", {
-                      redirect: false,
-                      username: formData.get("username"),
-                      password: formData.get("password"),
-                    });
+              <motion.div layout className="flex flex-col gap-4">
+                <GithubAuth isLogin={isLogin} />
+                <GoogleAuth isLogin={isLogin} />
+              </motion.div>
 
-                    if (res?.ok) {
-                      router.push("/chack-auth");
-                    } else {
-                      console.error("Login failed");
-                    }
-                  } else {
-                    await handleSignup(formData);
-                  }
-                }}
-                action={
-                  isLogin
-                    ? undefined
-                    : async (formData: FormData) => {
-                        await signUp(formData);
-                      }
-                } // Use server action for signup
+              <motion.div
+                layout
+                className="relative my-6 text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-[#69d0ff]/30"
               >
+                <span className="relative z-10 bg-[#1d1d37] rounded-md px-2 text-blue-200 font-semibold">
+                  Or continue with
+                </span>
+              </motion.div>
+
+              <form ref={formRef} onSubmit={handleSubmit}>
                 <div className="grid gap-6">
                   <div className="grid gap-6">
                     <motion.div key="username" className="grid gap-2">
@@ -133,6 +200,11 @@ export function AuthForm() {
                         required
                         autoComplete="username"
                       />
+                      {fieldErrors.username?.map((msg, i) => (
+                        <p key={i} className="text-red-400 text-sm mt-1">
+                          {msg}
+                        </p>
+                      ))}
                     </motion.div>
                     {!isLogin && (
                       <AnimatePresence mode="popLayout">
@@ -154,6 +226,11 @@ export function AuthForm() {
                             required
                             autoComplete="email"
                           />
+                          {fieldErrors.email?.map((msg, i) => (
+                            <p key={i} className="text-red-400 text-sm mt-1">
+                              {msg}
+                            </p>
+                          ))}
                         </motion.div>
                       </AnimatePresence>
                     )}
@@ -181,6 +258,11 @@ export function AuthForm() {
                           isLogin ? "current-password" : "new-password"
                         }
                       />
+                      {fieldErrors.password?.map((msg, i) => (
+                        <p key={i} className="text-red-400 text-sm mt-1">
+                          {msg}
+                        </p>
+                      ))}
                     </motion.div>
 
                     <AnimatePresence mode="popLayout">
@@ -204,17 +286,32 @@ export function AuthForm() {
                             required
                             autoComplete="new-password"
                           />
+                          {fieldErrors.confirmPassword?.map((msg, i) => (
+                            <p key={i} className="text-red-400 text-sm mt-1">
+                              {msg}
+                            </p>
+                          ))}
                         </motion.div>
                       )}
                     </AnimatePresence>
 
                     <motion.div layout>
-                      <TextMorphButton
-                        from={isLogin ? "Login" : "Sign up"}
-                        to="Confirm"
-                        disableMorph={isTransitioning}
+                      <Button
+                        disabled={isSubmitting}
                         className="font-medium rounded-lg py-5 w-full border-2 border-[#69d0ff]/60 hover:border-[#69d0ff] bg-[#69d0ff]/10 hover:bg-[#69d0ff]/20 text-[#69d0ff] hover:text-[#b3e9ff] transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#69d0ff] focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a0a1f]/50"
-                      />
+                      >
+                        {isSubmitting ? (
+                          <Lottie
+                            animationData={Loader}
+                            loop
+                            className="w-15 h-15"
+                          />
+                        ) : isLogin ? (
+                          "Login"
+                        ) : (
+                          "Sign up"
+                        )}
+                      </Button>
                     </motion.div>
                   </div>
 
@@ -238,20 +335,6 @@ export function AuthForm() {
                   </motion.div>
                 </div>
               </form>
-
-              <motion.div
-                layout
-                className="relative my-6 text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-[#69d0ff]/30"
-              >
-                <span className="relative z-10 bg-[#1d1d37] rounded-md px-2 text-blue-200 font-semibold">
-                  Or continue with
-                </span>
-              </motion.div>
-
-              <motion.div layout className="flex flex-col gap-4">
-                <GithubAuth isLogin={isLogin} />
-                <GoogleAuth isLogin={isLogin} />
-              </motion.div>
             </CardContent>
           </LayoutGroup>
         </Card>

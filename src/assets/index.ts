@@ -31,7 +31,12 @@ import google from "./socials/google.svg";
 import LevelIcon from "./Level-Icon.png"
 import User from "./User.png"
 
+import Loader from "@/assets/animated-icon/Loader-dot-opacity.json";
+import Hambuger  from "@/assets/animated-icon/Hamburger-menu.json";
+
 export {
+  Hambuger,
+  Loader,
   brainwave,
   brainwaveSymbol,
   brainwaveWhiteSymbol,

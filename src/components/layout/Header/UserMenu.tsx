@@ -61,10 +61,11 @@ const UserLevelDisplay = ({
         <div className="hidden lg:block relative w-7 h-7">
           <Image
             src={LevelIcon}
-            layout="fill"
-            objectFit="contain"
+            fill
             alt="Level Icon"
+            className="object-contain"
           />
+
           <span
             className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
               ${String(userLevel).length === 3 ? "text-sm" : "text-base"}
@@ -203,7 +204,7 @@ const UserMenu: React.FC<UserMenuProps> = ({
   const router = useRouter();
   const pathname = usePathname();
   const { setFormType } = useAuth();
-  
+
   const handleAuthNavigation = (formType: "login" | "signup") => {
     if (pathname === "/auth") {
       setFormType(formType);
@@ -253,7 +254,6 @@ const UserMenu: React.FC<UserMenuProps> = ({
               "focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a1f]/50"
             )}
             onClick={() => handleAuthNavigation("login")}
-
           >
             Login
           </Button>
@@ -271,7 +271,6 @@ const UserMenu: React.FC<UserMenuProps> = ({
               "focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a1f]/50"
             )}
             onClick={() => handleAuthNavigation("signup")}
-
           >
             Sign up
           </Button>

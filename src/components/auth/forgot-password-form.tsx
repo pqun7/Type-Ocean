@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { HiOutlineMail } from "react-icons/hi";
+import Link from "next/link";
 
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState('')
@@ -104,12 +105,12 @@ export function ForgotPasswordForm() {
           transition={{ delay: 0.4 }}
         >
           Remember your password?{' '}
-          <a
-            href="#"
+          <Link
+            href="/auth?form=login"
             className="text-[#69d0ff] hover:text-[#8A6BFF] underline underline-offset-4"
           >
             Back to Login
-          </a>
+          </Link>
         </motion.div>
       </div>
     </div>

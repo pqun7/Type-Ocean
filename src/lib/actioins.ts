@@ -8,35 +8,51 @@ import { ZodError } from "zod";
 
 export const signUp = async (formData: FormData) => {
   try {
-    const email = formData.get("email");
-    const username = formData.get("username") as string;
-    const password = formData.get("password");
-    const confirmPassword = formData.get("confirmPassword");
+    const rawData = {
+      email: formData.get("email"),
+      username: formData.get("username"),
+      password: formData.get("password"),
+      confirmPassword: formData.get("confirmPassword"),
+    };
 
-    console.log("[signUp] Received form data:", {
-      email,
-      username,
-      passwordExists: !!password,
-      confirmPasswordExists: !!confirmPassword,
-    });
+    console.log("[signUp] Received form data:", rawData);
 
-    // التحقق من تطابق كلمات المرور
-    if (password !== confirmPassword) {
-      console.log("[signUp] Passwords do not match");
-      return { success: false, error: "Passwords do not match" };
-    }
-
-    // التحقق من صحة البيانات باستخدام Zod
-    const validatedData = signUpSchema.parse({ email, username, password });
+    // Validate data
+    const validatedData = signUpSchema.parse(rawData);
     console.log("[signUp] Validated data:", validatedData);
 
-    const hashedPassword = await saltAndHashPassword(validatedData.password);
-    console.log("[signUp] Password hashed");
+    // Check if user already exists
+    const existingUser = await db.user.findFirst({
+      where: {
+        OR: [
+          { email: validatedData.email.toLowerCase() },
+          { username: validatedData.username.toLowerCase() }
+        ]
+      }
+    });
 
+    if (existingUser) {
+      const conflictField = existingUser.email === validatedData.email.toLowerCase() 
+        ? "email" 
+        : "username";
+        return {
+          success: false,
+          error: "Conflict",
+          details: {
+            fieldErrors: {
+              [conflictField]: [`This ${conflictField} is already taken.`],
+            },
+          },
+        };
+        
+    }
+
+    // Create user
+    const hashedPassword = await saltAndHashPassword(validatedData.password);
     const createdUser = await db.user.create({
       data: {
         email: validatedData.email.toLowerCase(),
-        username: username.toLowerCase(),
+        username: validatedData.username.toLowerCase(),
         passwordHash: hashedPassword,
       },
     });
@@ -45,15 +61,24 @@ export const signUp = async (formData: FormData) => {
       id: createdUser.id,
       email: createdUser.email,
       username: createdUser.username,
+      createdAt: createdUser.createdAt // Good practice to log timestamps
     });
 
     return { success: true };
   } catch (error) {
     if (error instanceof ZodError) {
-      console.log("[signUp] Zod validation error:", error.errors);
-      return { success: false, error: error.errors[0].message };
+      console.log("[signUp] Validation errors:", error.flatten());
+      return { 
+        success: false, 
+        error: "Validation failed",
+        details: error.flatten() // Provides structured error info
+      };
     }
-    console.error("[signUp] Unknown error:", error);
-    return { success: false, error: "Sing up failed. Try again later." };
+    
+    console.error("[signUp] Error:", error);
+    return { 
+      success: false, 
+      error: "Registration failed. Please try again later." 
+    };
   }
 };

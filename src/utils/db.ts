@@ -8,22 +8,29 @@ export async function getUserFromDb(username: string, plainPassword: string) {
 
   if (!user) {
     console.log("[getUserFromDb] User not found");
-    return null;
+    return { success: false, error: "UserNotFound" };
   }
 
   if (!user.passwordHash) {
     console.log("[getUserFromDb] User has no password hash");
-    return null;
+    return { success: false, error: "NoPasswordSet" };
   }
+
 
   const passwordMatches = await bcrypt.compare(plainPassword, user.passwordHash);
   console.log("[getUserFromDb] Password match:", passwordMatches);
 
-  if (!passwordMatches) return null;
+  if (!passwordMatches) {
+    return { success: false, error: "IncorrectPassword" };
+  }
+
 
   return {
-    id: user.id,
-    username: user.username,
-    email: user.email,
+    success: true,
+    user: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+    },
   };
 }
