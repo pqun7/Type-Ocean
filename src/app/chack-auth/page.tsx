@@ -11,7 +11,7 @@ const Page = async () => {
         <p className="text-gray-600">Signed in as:</p>
         <div className="flex flex-col gap-5">
           <p className="font-medium text-cyan-950">
-            {session?.user.name || "No name found"}
+            {session?.user.username || "No name found"}
           </p>
           <p className="font-medium text-cyan-950">
             {session?.user.email || "No email found"}

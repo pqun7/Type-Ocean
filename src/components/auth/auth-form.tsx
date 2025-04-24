@@ -1,5 +1,5 @@
 // components/auth/auth-form.tsx
-"use client"; // Next.js client component directive
+"use client";
 
 // Import core React and animation libraries
 import { useState, useRef, useEffect } from "react";
@@ -21,8 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader } from "@/assets";
-import { Button } from "@/components/ui/button"; 
-
+import { Button } from "@/components/ui/button";
 
 // Import icons and assets
 import { GithubAuth } from "@/components/auth/github-button";
@@ -71,7 +70,6 @@ export function AuthForm() {
     setSuccessMessage("");
   };
 
-  // في دالة handleSignup
   const handleSignup = async (formData: FormData) => {
     try {
       const result = await signUp(formData);
@@ -105,6 +103,15 @@ export function AuthForm() {
     e.preventDefault();
     setIsSubmitting(true);
     setFieldErrors({}); // Reset field errors on submit
+    setError(""); // Reset error message on submit
+    setSuccessMessage(""); // Reset success message on submit
+
+    // Validate required fields
+    if (!formData.get("username") || !formData.get("password")) {
+      setError("Please fill in all fields");
+      return;
+    }
+
     try {
       if (isLogin && formData.get("username") && formData.get("password")) {
         const res = await signIn("credentials", {
@@ -112,17 +119,25 @@ export function AuthForm() {
           username: formData.get("username"),
           password: formData.get("password"),
         });
-
-        if (res?.ok) {
-          router.push("/chack-auth");
-        } else {
-          let message = "Invalid username or password.";
-          if (res?.error === "NoPasswordSet") {
-            message =
-              "This account does not have a password. Try signing in with GitHub or Google.";
+  
+        console.log("SIGN IN RESPONSE:", res);
+  
+        if (res?.error) {
+          switch (res.error) {
+            case "USER_NOT_FOUND":
+            case "INCORRECT_PASSWORD":
+              setError("Invalid username or password.");
+              break;
+            case "NO_PASSWORD_SET":
+              setError("This account does not have a password. Try signing in with GitHub or Google.");
+              break;
+            default:
+              setError("Login failed");
           }
-          setError(message);
-          console.error("[AuthForm] Login error:", res?.error);
+          console.error("[AuthForm] Login error:", res.error);
+        } else {
+          console.log("Login successful, redirecting...");
+          router.push("/auth");
         }
       } else {
         await handleSignup(formData);

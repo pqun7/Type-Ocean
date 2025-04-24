@@ -8,7 +8,7 @@ import { github } from "@/assets";
 
 const GithubAuth = ({ isLogin = true }: { isLogin?: boolean }) => {
   const handleGithubSignIn = async () => {
-    await signIn("github", { callbackUrl: "/chack-auth" });
+    await signIn("github");
   };
 
   return (

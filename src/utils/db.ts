@@ -3,34 +3,21 @@ import db from "@/lib/db"
 import bcrypt from "bcryptjs"
 
 export async function getUserFromDb(username: string, plainPassword: string) {
-  console.log("[getUserFromDb] Looking up user:", username);
-  const user = await db.user.findUnique({ where: { username: username.toLowerCase() } });
+  const normalizedUsername = username.toLowerCase().trim();
+  
+  const user = await db.user.findUnique({ 
+    where: { username: normalizedUsername } 
+  });
 
-  if (!user) {
-    console.log("[getUserFromDb] User not found");
-    return { success: false, error: "UserNotFound" };
-  }
-
-  if (!user.passwordHash) {
-    console.log("[getUserFromDb] User has no password hash");
-    return { success: false, error: "NoPasswordSet" };
-  }
-
-
-  const passwordMatches = await bcrypt.compare(plainPassword, user.passwordHash);
-  console.log("[getUserFromDb] Password match:", passwordMatches);
-
-  if (!passwordMatches) {
-    return { success: false, error: "IncorrectPassword" };
-  }
-
+  if (!user) throw new Error("USER_NOT_FOUND");
+  if (!user.passwordHash) throw new Error("NO_PASSWORD_SET");
+  
+  const isValid = await bcrypt.compare(plainPassword, user.passwordHash);
+  if (!isValid) throw new Error("INCORRECT_PASSWORD");
 
   return {
-    success: true,
-    user: {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-    },
+    id: user.id,
+    username: user.username,
+    email: user.email,
   };
 }
