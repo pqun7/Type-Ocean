@@ -111,32 +111,20 @@ export function AuthForm() {
       setError("Please fill in all fields");
       return;
     }
-
     try {
-      if (isLogin && formData.get("username") && formData.get("password")) {
+      if (isLogin) {
         const res = await signIn("credentials", {
           redirect: false,
           username: formData.get("username"),
           password: formData.get("password"),
         });
   
-        console.log("SIGN IN RESPONSE:", res);
-  
         if (res?.error) {
-          switch (res.error) {
-            case "USER_NOT_FOUND":
-            case "INCORRECT_PASSWORD":
-              setError("Invalid username or password.");
-              break;
-            case "NO_PASSWORD_SET":
-              setError("This account does not have a password. Try signing in with GitHub or Google.");
-              break;
-            default:
-              setError("Login failed");
-          }
-          console.error("[AuthForm] Login error:", res.error);
+          const errorMessage = res.error === "NO_PASSWORD_SET"
+            ? "This account doesn't have a password. Please use social login."
+            : "Invalid username or password.";
+          setError(errorMessage);
         } else {
-          console.log("Login successful, redirecting...");
           router.push("/auth");
         }
       } else {
@@ -184,8 +172,8 @@ export function AuthForm() {
                 </CardDescription>
               </motion.div>
             </CardHeader>
-            <CardContent>
-              <motion.div layout className="flex flex-col gap-4">
+            <CardContent className="space-y-4"> {/* تقليل المسافات */}
+            <motion.div layout className="flex flex-col gap-4">
                 <GithubAuth isLogin={isLogin} />
                 <GoogleAuth isLogin={isLogin} />
               </motion.div>
@@ -202,15 +190,16 @@ export function AuthForm() {
               <form ref={formRef} onSubmit={handleSubmit}>
                 <div className="grid gap-6">
                   <div className="grid gap-6">
+                    
                     <motion.div key="username" className="grid gap-2">
-                      <Label htmlFor="username" className="text-[#E0E7FF]">
+                      {/* <Label htmlFor="username" className="text-[#E0E7FF]">
                         Username
-                      </Label>
+                      </Label> */}
                       <Input
                         id="username"
                         name="username"
                         type="text"
-                        placeholder="john_doe"
+                        placeholder="Username"
                         className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
                         required
                         autoComplete="username"
@@ -229,14 +218,14 @@ export function AuthForm() {
                           key="email"
                           {...exclusiveAnim}
                         >
-                          <Label htmlFor="email" className="text-[#E0E7FF]">
+                          {/* <Label htmlFor="email" className="text-[#E0E7FF]">
                             Email
-                          </Label>
+                          </Label> */}
                           <Input
                             id="email"
                             name="email"
                             type="email"
-                            placeholder="m@example.com"
+                            placeholder="Email"
                             className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
                             required
                             autoComplete="email"
@@ -251,9 +240,9 @@ export function AuthForm() {
                     )}
                     <motion.div layout className="grid gap-2">
                       <div className="flex items-center">
-                        <Label htmlFor="password" className="text-[#E0E7FF]">
+                        {/* <Label htmlFor="password" className="text-[#E0E7FF]">
                           Password
-                        </Label>
+                        </Label> */}
                         {isLogin && (
                           <a
                             href="/password"
@@ -269,6 +258,7 @@ export function AuthForm() {
                         type="password"
                         className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
                         required
+                        placeholder="Password"
                         autoComplete={
                           isLogin ? "current-password" : "new-password"
                         }
@@ -287,15 +277,16 @@ export function AuthForm() {
                           {...exclusiveAnim}
                           className="grid gap-2"
                         >
-                          <Label
+                          {/* <Label
                             htmlFor="confirmPassword"
                             className="text-[#E0E7FF]"
                           >
                             Confirm Password
-                          </Label>
+                          </Label> */}
                           <Input
                             id="confirmPassword"
                             name="confirmPassword"
+                            placeholder="Confirm Password"
                             type="password"
                             className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
                             required

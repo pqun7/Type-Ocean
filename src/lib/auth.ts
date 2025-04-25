@@ -56,14 +56,20 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           const user = await getUserFromDb(username, password);
           return {
             id: user.id,
-            name: user.username,
+            username: user.username,
             email: user.email,
           };
-        } catch (error) {
-          if (error instanceof Error) {
-            throw new Error(error.message);
+        }  catch (error) {
+          if (error instanceof ZodError) {
+            throw new Error("Invalid credentials format");
           }
-          throw new Error("Unknown error occurred");
+          
+          let errorMessage = "Authentication failed";
+          if (error instanceof Error) {
+            errorMessage = error.message;
+          }
+          
+          throw new Error(errorMessage);
         }
       },
     }),
