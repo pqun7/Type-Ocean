@@ -45,7 +45,24 @@ const signUpSchema = z
     path: ["confirmPassword"],
   });
 
+  
+const resetPasswordSchema = z
+.object({
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[A-Z]/, "Must contain at least one uppercase letter")
+    .regex(/[0-9]/, "Must contain at least one number"),
+  confirmPassword: z.string(),
+  token: z.string(),
+})
+.refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
+
 type LoginSchema = z.infer<typeof loginSchema>;
 type SignUpSchema = z.infer<typeof signUpSchema>;
 
-export { loginSchema, type LoginSchema, signUpSchema, type SignUpSchema };
+export { loginSchema, type LoginSchema, signUpSchema, type SignUpSchema, resetPasswordSchema};

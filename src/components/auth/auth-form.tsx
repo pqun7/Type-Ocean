@@ -8,7 +8,8 @@ import { useAuth } from "@/contexts/auth-context";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { useSearchParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
+import { AuthButton } from "@/components/ui/Buttons";
+// const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 // Import custom UI components and styles
 import {
@@ -31,7 +32,7 @@ import { GoogleAuth } from "@/components/auth/google-button";
 import { TextMorphButton } from "@/components/ui/text-morph-button";
 
 // Import server actions
-import { signUp } from "@/lib/actioins";
+import { signUp } from "@/lib/actions";
 import { signIn } from "next-auth/react";
 
 /**
@@ -118,11 +119,12 @@ export function AuthForm() {
           username: formData.get("username"),
           password: formData.get("password"),
         });
-  
+
         if (res?.error) {
-          const errorMessage = res.error === "NO_PASSWORD_SET"
-            ? "This account doesn't have a password. Please use social login."
-            : "Invalid username or password.";
+          const errorMessage =
+            res.error === "NO_PASSWORD_SET"
+              ? "This account doesn't have a password. Please use social login."
+              : "Invalid username or password.";
           setError(errorMessage);
         } else {
           router.push("/auth");
@@ -172,12 +174,13 @@ export function AuthForm() {
                 </CardDescription>
               </motion.div>
             </CardHeader>
-            <CardContent className="space-y-4"> {/* تقليل المسافات */}
-            <motion.div layout className="flex flex-col gap-4">
+            <CardContent className="space-y-4">
+              {" "}
+              {/* تقليل المسافات */}
+              <motion.div layout className="flex flex-col gap-4">
                 <GithubAuth isLogin={isLogin} />
                 <GoogleAuth isLogin={isLogin} />
               </motion.div>
-
               <motion.div
                 layout
                 className="relative my-6 text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-[#69d0ff]/30"
@@ -186,11 +189,9 @@ export function AuthForm() {
                   Or continue with
                 </span>
               </motion.div>
-
               <form ref={formRef} onSubmit={handleSubmit}>
                 <div className="grid gap-6">
                   <div className="grid gap-6">
-                    
                     <motion.div key="username" className="grid gap-2">
                       {/* <Label htmlFor="username" className="text-[#E0E7FF]">
                         Username
@@ -245,7 +246,7 @@ export function AuthForm() {
                         </Label> */}
                         {isLogin && (
                           <a
-                            href="/password"
+                            href="/forgot-password"
                             className="ml-auto text-sm text-[#69d0ff] hover:text-[#8A6BFF] underline-offset-4"
                           >
                             Forgot password?
@@ -277,12 +278,6 @@ export function AuthForm() {
                           {...exclusiveAnim}
                           className="grid gap-2"
                         >
-                          {/* <Label
-                            htmlFor="confirmPassword"
-                            className="text-[#E0E7FF]"
-                          >
-                            Confirm Password
-                          </Label> */}
                           <Input
                             id="confirmPassword"
                             name="confirmPassword"
@@ -302,7 +297,7 @@ export function AuthForm() {
                     </AnimatePresence>
 
                     <motion.div layout>
-                      <Button
+                      {/* <Button
                         disabled={isSubmitting}
                         className="font-medium rounded-lg py-5 w-full border-2 border-[#69d0ff]/60 hover:border-[#69d0ff] bg-[#69d0ff]/10 hover:bg-[#69d0ff]/20 text-[#69d0ff] hover:text-[#b3e9ff] transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#69d0ff] focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a0a1f]/50"
                       >
@@ -317,7 +312,15 @@ export function AuthForm() {
                         ) : (
                           "Sign up"
                         )}
-                      </Button>
+                      </Button> */}
+
+                      <AuthButton
+                        color1="primary"
+                        color2="secondary"
+                        isLoading={isSubmitting}
+                      >
+                        {isLogin ? "Login" : "Sign up"}
+                      </AuthButton>
                     </motion.div>
                   </div>
 

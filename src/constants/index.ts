@@ -179,3 +179,4 @@ export const socials: {
   },
   { id: 5, title: "GitHub", icon: github, iconUrl: "https://github.com/pqun7" },
 ];
+

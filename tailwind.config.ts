@@ -146,6 +146,9 @@ export default {
         primary: 'oklch(0.55 0.22 263)',
         background: '#0f172a',
         foreground: '#e2e8f0',
+        'btn-primary': '#69d0ff',    
+        'btn-secondary': '#b3e9ff',   
+        'btn-accent': '#8A6BFF',     
         color: {
           Primary: '#9B51E0',
           Secondary: '#FFAA64'
