@@ -21,13 +21,13 @@ import dynamic from "next/dynamic";
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 export function ForgotPasswordForm() {
-  const [state, formAction, isPending] = useActionState<PasswordState, FormData>(
-    resetPassword,
-    {
-      success: false,
-      error: null,
-    }
-  );
+  const [state, formAction, isPending] = useActionState<
+    PasswordState,
+    FormData
+  >(resetPassword, {
+    success: false,
+    error: null,
+  });
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
@@ -142,11 +142,7 @@ function SubmitButton({ isPending }: { isPending: boolean }) {
   const pending = isPending;
 
   return (
-    <Button
-      type="submit"
-      className="w-full bg-gradient-to-r from-[#8A6BFF] to-[#69d0ff] hover:from-[#7554FF] hover:to-[#4DA6FF] text-white gap-2"
-      disabled={pending}
-    >
+    <Button type="submit" className="py-5 btn-main" disabled={pending}>
       {pending ? (
         <Lottie animationData={Loader} loop className="w-6 h-6" />
       ) : (

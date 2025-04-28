@@ -21,6 +21,8 @@ model User {
 
   resetToken       String?
   resetTokenExpiry DateTime?
+  passwordResetRequests Int @default(0) 
+
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

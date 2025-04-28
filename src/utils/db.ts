@@ -5,9 +5,15 @@ import bcrypt from "bcryptjs"
 export async function getUserFromDb(username: string, plainPassword: string) {
   const normalizedUsername = username.toLowerCase().trim();
   
-  const user = await db.user.findUnique({ 
+  let user = await db.user.findUnique({ 
     where: { username: normalizedUsername } 
   });
+
+  if (!user) {
+    user = await db.user.findUnique({
+      where: { email: normalizedUsername },
+    });
+  }
 
   if (!user) throw new Error("USER_NOT_FOUND");
   if (!user.passwordHash) throw new Error("NO_PASSWORD_SET");

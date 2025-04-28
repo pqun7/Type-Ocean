@@ -1,16 +1,19 @@
 // api/cron/route.ts
 import { NextResponse } from "next/server";
-import { cleanupRateLimits } from "@/lib/cleanup-rate-limits";
+import { cleanupRateLimits } from "@/lib/cron/cleanup-rate-limits";
+import { cleanupExpiredTokens } from "@/lib/cron/cleanup-tokens";
 import { prisma } from "@/lib/db";
 
-// api/cron/route.ts
 export async function GET() {
   try {
+    await cleanupExpiredTokens();
     await cleanupRateLimits();
-    await prisma.$executeRaw`VACUUM FULL;`; // تحسين قاعدة البيانات
+    
+    await prisma.$executeRaw`VACUUM;`;
+    
     return NextResponse.json({ 
       success: true,
-      message: 'Rate limits cleaned successfully'
+      message: 'Cron jobs executed successfully'
     });
   } catch (error) {
     console.error('Cron job error:', error);

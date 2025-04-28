@@ -2,14 +2,13 @@
 "use server";
 
 import { headers } from "next/headers";
-import { SecureUniqueForge } from "unique-forge";
 import { prisma } from "@/lib/db";
 import { saltAndHashPassword } from "@/utils/password";
+import bcrypt from "bcrypt";
 import { resetPasswordSchema } from "@/lib/schema";
 import { Resend } from "resend";
 import { cacheRequest } from "@/lib/cache";
-import { randomBytes } from 'crypto';
-
+import { randomBytes, createHash } from "crypto";
 
 export type PasswordState = {
   success: boolean;
@@ -37,22 +36,31 @@ export async function generateResetToken(email: string) {
   // const forge = new SecureUniqueForge();
 
   // const resetToken = await forge.generate();
-  const resetToken = randomBytes(32).toString('hex');
+  // const resetToken = randomBytes(32).toString('hex');
+  const rawToken = randomBytes(32).toString("hex");
+  const hashedToken = createHash("sha256").update(rawToken).digest("hex");
+  console.log("Raw Token:", rawToken);
+  console.log("Hashed Token:", hashedToken);
 
-  
   const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
 
   await prisma.user.update({
     where: { email },
-    data: { resetToken, resetTokenExpiry },
+    data: {
+      resetToken: hashedToken,
+      resetTokenExpiry,
+      // إبطال أي توكنات سابقة
+      passwordResetRequests: { increment: 1 },
+    },
   });
 
-  return resetToken;
+  return rawToken; // إرجاع التوكن الأصلي للإرسال
 }
 
 const RATE_LIMIT = {
+  // 3 requests every 2 minutes
   REQUESTS_PER_PERIOD: 3,
-  PERIOD_MS: 60 * 1000, // 1 دقيقة
+  PERIOD_MS: 60 * 2000,
 };
 
 async function checkRateLimit(ip: string): Promise<boolean> {
@@ -64,46 +72,59 @@ async function checkRateLimit(ip: string): Promise<boolean> {
   try {
     console.log(`Checking rate limit for IP: ${ip}`);
 
-    // Using UPSERT to optimize performance
-    const result = await prisma.rateLimit.upsert({
+    let rateLimit = await prisma.rateLimit.findUnique({
       where: { ip },
-      update: {
-        count: { increment: 1 },
-        lastUpdated: new Date(),
-      },
-      create: {
-        ip,
-        count: 1,
-        lastUpdated: new Date(),
-      },
     });
 
-    console.log(`Fetched or created rate limit record for IP: ${ip}. Current count: ${result.count}`);
+    const now = new Date();
+    const currentTime = now.getTime();
 
-    // Reset the counter if the period has passed
-    if (Date.now() - result.lastUpdated.getTime() > RATE_LIMIT.PERIOD_MS) {
-      console.log(`Rate limit period expired for IP: ${ip}. Resetting count.`);
-
-      await prisma.rateLimit.update({
-        where: { ip },
+    if (rateLimit) {
+      const timeSinceLastUpdate = currentTime - rateLimit.lastUpdated.getTime();
+      if (timeSinceLastUpdate > RATE_LIMIT.PERIOD_MS) {
+        console.log(
+          `Rate limit period expired for IP: ${ip}. Resetting count.`
+        );
+        rateLimit = await prisma.rateLimit.update({
+          where: { ip },
+          data: {
+            count: 1,
+            lastUpdated: now,
+          },
+        });
+      } else {
+        rateLimit = await prisma.rateLimit.update({
+          where: { ip },
+          data: {
+            count: { increment: 1 },
+          },
+        });
+      }
+    } else {
+      rateLimit = await prisma.rateLimit.create({
         data: {
+          ip,
           count: 1,
-          lastUpdated: new Date(),
+          lastUpdated: now,
         },
       });
-      return true;
     }
 
-    const allowed = result.count <= RATE_LIMIT.REQUESTS_PER_PERIOD;
-    console.log(`IP: ${ip} is ${allowed ? "within" : "over"} the rate limit.`);
+    console.log(
+      `Fetched or created rate limit record for IP: ${ip}. Current count: ${rateLimit.count}`
+    );
+
+    const allowed = rateLimit.count <= RATE_LIMIT.REQUESTS_PER_PERIOD;
+    console.log(
+      `IP: ${ip} is ${allowed ? "within" : "over"} the rate limit. ${rateLimit.count} requests in the current window.`
+    );
 
     return allowed;
   } catch (error) {
     console.error(`Rate limit check failed for IP: ${ip}`, error);
-    return true; // Allowing the request in case of error
+    return true; // Allow the request in case of error
   }
 }
-
 
 export async function resetPassword(
   prevState: PasswordState,
@@ -121,12 +142,10 @@ export async function resetPassword(
   const allowed = await checkRateLimit(ip);
   console.log("Rate Limit Allowed:", allowed);
 
-  // if (!allowed) {
-  //   console.log("Rate Limit Exceeded!");
-  //   return { success: false, error: errorMessages["TOO_MANY_REQUESTS"] };
-  // }
-
-  
+  if (!allowed) {
+    console.log("Rate Limit Exceeded!");
+    return { success: false, error: errorMessages["TOO_MANY_REQUESTS"] };
+  }
 
   try {
     const email = formData.get("email") as string;
@@ -177,15 +196,26 @@ export async function resetPassword(
   }
 }
 
+export async function validateNewPassword(
+  newPassword: string,
+  currentPasswordHash: string
+): Promise<boolean> {
+  const isSame = await bcrypt.compare(newPassword, currentPasswordHash);
+  return !isSame; // نرجع true لو مختلفين
+}
+
 export async function updatePassword(
   prevState: PasswordState,
   formData: FormData
 ): Promise<PasswordState> {
   try {
     const token = formData.get("token") as string;
+    console.log("Received Raw Token:", token); // ← طباعة التوكن الخام
 
-    // تحقق من وجود التوكن قبل كل شيء
     if (!token) throw new Error("INVALID_OR_EXPIRED_TOKEN");
+
+    const hashedToken = createHash("sha256").update(token).digest("hex");
+    console.log("Hashed Token for Lookup:", hashedToken); // ← طباعة التوكن المشفر قبل البحث
 
     const result = resetPasswordSchema.safeParse({
       password: formData.get("password"),
@@ -205,13 +235,26 @@ export async function updatePassword(
 
     const user = await prisma.user.findFirst({
       where: {
-        resetToken: token,
+        resetToken: hashedToken,
         resetTokenExpiry: { gt: new Date() },
       },
     });
 
     if (!user) throw new Error("INVALID_OR_EXPIRED_TOKEN");
     if (!user.passwordHash) throw new Error("SOCIAL_AUTH_ACCOUNT");
+
+    // check if password is same as old password using bcrypt comparison
+    const isValidNewPassword = await validateNewPassword(
+      password,
+      user.passwordHash
+    );
+
+    if (!isValidNewPassword) {
+      return {
+        success: false,
+        error: "The new password must be different from the current password.",
+      };
+    }
 
     const hashedPassword = await saltAndHashPassword(password);
 
@@ -221,6 +264,7 @@ export async function updatePassword(
         passwordHash: hashedPassword,
         resetToken: null,
         resetTokenExpiry: null,
+        passwordResetRequests: { increment: 1 },
       },
     });
 

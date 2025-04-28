@@ -8,8 +8,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { useSearchParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { AuthButton } from "@/components/ui/Buttons";
-// const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
+const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 // Import custom UI components and styles
 import {
@@ -178,8 +177,14 @@ export function AuthForm() {
               {" "}
               {/* تقليل المسافات */}
               <motion.div layout className="flex flex-col gap-4">
-                <GithubAuth isLogin={isLogin} />
-                <GoogleAuth isLogin={isLogin} />
+                <GithubAuth
+                  isLogin={isLogin}
+                  isSubmitting={isSubmitting} // إضافة الخاصية
+                />
+                <GoogleAuth
+                  isLogin={isLogin}
+                  isSubmitting={isSubmitting} // إضافة الخاصية
+                />
               </motion.div>
               <motion.div
                 layout
@@ -297,9 +302,10 @@ export function AuthForm() {
                     </AnimatePresence>
 
                     <motion.div layout>
-                      {/* <Button
+                      <Button
                         disabled={isSubmitting}
-                        className="font-medium rounded-lg py-5 w-full border-2 border-[#69d0ff]/60 hover:border-[#69d0ff] bg-[#69d0ff]/10 hover:bg-[#69d0ff]/20 text-[#69d0ff] hover:text-[#b3e9ff] transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#69d0ff] focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a0a1f]/50"
+                        // className="font-medium rounded-lg py-5 w-full border-2 border-[#69d0ff]/60 hover:border-[#69d0ff] bg-[#69d0ff]/10 hover:bg-[#69d0ff]/20 text-[#69d0ff] hover:text-[#b3e9ff] transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#69d0ff] focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a0a1f]/50"
+                        className="py-5 btn-main"
                       >
                         {isSubmitting ? (
                           <Lottie
@@ -312,15 +318,7 @@ export function AuthForm() {
                         ) : (
                           "Sign up"
                         )}
-                      </Button> */}
-
-                      <AuthButton
-                        color1="primary"
-                        color2="secondary"
-                        isLoading={isSubmitting}
-                      >
-                        {isLogin ? "Login" : "Sign up"}
-                      </AuthButton>
+                      </Button>
                     </motion.div>
                   </div>
 
