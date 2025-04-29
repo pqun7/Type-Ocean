@@ -5,6 +5,7 @@ import { signUpSchema } from "@/lib/schema";
 import db from "@/lib/db";
 import { saltAndHashPassword } from "@/utils/password";
 import { ZodError } from "zod";
+import { resendVerificationEmail } from "@/actions/email-verification";
 
 export const signUp = async (formData: FormData) => {
   try {
@@ -63,6 +64,17 @@ export const signUp = async (formData: FormData) => {
       username: createdUser.username,
       createdAt: createdUser.createdAt // Good practice to log timestamps
     });
+
+    const verificationResult = await resendVerificationEmail(createdUser.email);
+    
+    if (!verificationResult.success) {
+      console.error("Failed to send verification email:", verificationResult.error);
+      return {
+        success: false,
+        error: "USER_CREATED_BUT_EMAIL_NOT_SENT",
+        details: { error: verificationResult.error }
+      };
+    }
 
     return { success: true };
   } catch (error) {

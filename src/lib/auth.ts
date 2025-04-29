@@ -14,13 +14,14 @@ declare module "next-auth" {
     user: {
       id: string;
       username?: string | null;
-      // name?: string | null;
       email?: string | null;
       image?: string | null;
+      emailVerified?: Date | null;
     };
   }
   interface User {
     username?: string | null;
+    emailVerified?: Date | null;
   }
 }
 
@@ -79,6 +80,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         token.id = user.id;
         token.username = user.username;
         token.email = user.email;
+        token.emailVerified = user.emailVerified; 
       }
       return token;
     },
@@ -87,6 +89,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         session.user.id = token.id as string;
         session.user.username = token.username as string;
         session.user.email = token.email as string;
+        session.user.emailVerified = token.emailVerified as Date;
       }
       return session;
     },

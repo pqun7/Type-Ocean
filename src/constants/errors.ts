@@ -7,7 +7,8 @@ export const errorMap: Record<string, string> = {
     
     // Email verification
     EMAIL_ALREADY_VERIFIED: "Email already verified",
-    
+    USER_CREATED_BUT_EMAIL_NOT_SENT: "User created but email not sent",
+
     // Password reset
     INVALID_OR_EXPIRED_TOKEN: "Reset link is invalid or has expired",
     EMAIL_REQUIRED: "Please enter your email",
