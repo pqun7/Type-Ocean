@@ -3,6 +3,10 @@ import { randomBytes, createHash } from "crypto";
 
 
 export async function generateResetToken(email: string) {
+  if (!email || typeof email !== "string") {
+    throw new Error("INVALID_EMAIL");
+  }
+  
   const user = await prisma.user.findUnique({ where: { email } });
 
   if (!user) throw new Error("USER_NOT_FOUND");

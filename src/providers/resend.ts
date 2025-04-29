@@ -14,10 +14,6 @@ type EmailTemplateType =
   | {
       type: "EMAIL_VERIFICATION";
       data: { token: string };
-    }
-  | {
-      type: "PASSWORD_CHANGED";
-      data: {};
     };
 
 /**
@@ -68,7 +64,7 @@ async function generateEmailContent(
       return {
         subject: `Password Reset - ${commonData.appName}`,
         html: `
-          <div dir="rtl">
+          <div dir="ltr">
             <h1>Password Reset</h1>
             <p>To reset your password, please click the link below:</p>
             <a href="${baseUrl}/reset-password/${(data as { token: string }).token}">Reset Password</a>
@@ -82,7 +78,7 @@ async function generateEmailContent(
       return {
         subject: `Email Verification - ${commonData.appName}`,
         html: `
-          <div dir="rtl">
+          <div dir="ltr">
             <h1>Account Activation</h1>
             <p>Thank you for signing up! Please click the link below to verify your account:</p>
             <a href="${baseUrl}/verify-email/${(data as { token: string }).token}">Verify Account</a>
@@ -92,18 +88,6 @@ async function generateEmailContent(
         `,
       };
 
-    case "PASSWORD_CHANGED":
-      return {
-        subject: `Password Changed - ${commonData.appName}`,
-        html: `
-          <div dir="rtl">
-            <h1>Password Successfully Changed</h1>
-            <p>Your account password was changed on ${new Date().toLocaleString()}.</p>
-            <p>If you did not perform this action, please contact us immediately.</p>
-            ${supportFooter(commonData)}
-          </div>
-        `,
-      };
 
     default:
       throw new Error("UNSUPPORTED_EMAIL_TEMPLATE");
@@ -126,23 +110,16 @@ function supportFooter(data: {
 }
 
 // Specific email interfaces
-export const sendPasswordResetEmail = (email: string, token: string) =>
-  sendEmail<{ type: "PASSWORD_RESET"; data: { token: string } }>(
+export const sendPasswordResetEmail = async (email: string, token: string) => 
+  await sendEmail<{ type: "PASSWORD_RESET"; data: { token: string } }>(
     email,
     "PASSWORD_RESET",
     { token }
   );
 
-  export const sendVerificationEmail = (email: string, token: string) =>
-    sendEmail<{ type: "EMAIL_VERIFICATION"; data: { token: string } }>(
-      email,
-      "EMAIL_VERIFICATION",
-      { token }
-    );
-
-export const sendPasswordChangedNotification = (email: string) =>
-  sendEmail<{ type: "PASSWORD_CHANGED"; data: {} }>(
+export const sendVerificationEmail = async (email: string, token: string) => 
+  await sendEmail<{ type: "EMAIL_VERIFICATION"; data: { token: string } }>(
     email,
-    "PASSWORD_CHANGED",
-    {}
+    "EMAIL_VERIFICATION",
+    { token }
   );
