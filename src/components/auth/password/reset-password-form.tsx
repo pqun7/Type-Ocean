@@ -37,7 +37,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
   useEffect(() => {
     if (state.success) {
       setTimeout(() => {
-        router.push('/auth/login');
+        router.push('/auth?login');
       }, 3000);
     }
   }, [state.success]);

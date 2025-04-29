@@ -122,7 +122,6 @@ export const generateDailyChallenge = async (level: number): Promise<DailyChalle
 export function getChallengeXP(level: number): number {
   if (level < 1) return 0;
   if (level > LINEAR_GROWTH_END_LEVEL) return BASE_XP * MAX_XP_MULTIPLIER;
-  // مرحلة النمو الأسّي (المستويات 1-50)
   if (level <= EXP_GROWTH_END_LEVEL) {
     const growthFactor = Math.pow(10, 1 / (EXP_GROWTH_END_LEVEL - 1));
     const percentage = 10 * Math.pow(growthFactor, level - 1);

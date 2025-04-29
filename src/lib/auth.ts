@@ -50,25 +50,24 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       },
       async authorize(credentials) {
         try {
-          const { username, password } = await loginSchema.parseAsync(
-            credentials
-          );
+          const { username, password } =
+            await loginSchema.parseAsync(credentials);
           const user = await getUserFromDb(username, password);
           return {
             id: user.id,
             username: user.username,
             email: user.email,
           };
-        }  catch (error) {
+        } catch (error) {
           if (error instanceof ZodError) {
             throw new Error("Invalid credentials format");
           }
-          
+
           let errorMessage = "Authentication failed";
           if (error instanceof Error) {
             errorMessage = error.message;
           }
-          
+
           throw new Error(errorMessage);
         }
       },
@@ -92,9 +91,22 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       return session;
     },
   },
+  // auth.ts
   pages: {
-    signIn: "/auth",
-    error: "/auth",
+    signIn: "/auth?login",
+    error: "/auth/error",
+    signOut: "/auth?login",
+    verifyRequest: "/auth/verify",
+    newUser: "/auth?signup",
+  },
+  
+  events: {
+    async linkAccount({ user }) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerified: new Date() },
+      });
+    },
   },
   session: {
     strategy: "jwt",

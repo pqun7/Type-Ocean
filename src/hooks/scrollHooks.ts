@@ -6,9 +6,9 @@ const SCROLL_CONFIG = {
   offset: ["start end", "end start"] as ["start end", "end start"],
 };
 const SPRING_SETTINGS = {
-  damping: 20,    // زيادة التخميد قليلاً لتقليل التذبذب
-  stiffness: 100, // تقليل الصلابة لتقليل التحديثات
-  mass: 0.5,      // زيادة الكتلة لجعل الحركة أبطأ وأقل استهلاكاً للموارد
+  damping: 20,  
+  stiffness: 100, 
+  mass: 0.5,     
 };
 
 export const useOptimizedScrollTransform = (
