@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { motion, LayoutGroup } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,8 +18,10 @@ import { resetPassword, PasswordState } from "@/actions/reset-password";
 import { Loader } from "@/assets";
 import dynamic from "next/dynamic";
 
-const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
+import { useAlert } from "@/contexts/alert-context";
 
+
+const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 export function ForgotPasswordForm() {
   const [state, formAction, isPending] = useActionState<
     PasswordState,
@@ -28,6 +30,12 @@ export function ForgotPasswordForm() {
     success: false,
     error: null,
   });
+  const { showAlert } = useAlert();
+
+  useEffect(() => {
+    if (state.error) showAlert(state.error, "error");
+    if (state.success) showAlert("Reset link sent successfully", "success");
+  }, [state]);
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
@@ -92,7 +100,7 @@ export function ForgotPasswordForm() {
                       />
                     </motion.div>
 
-                    {state.error && (
+                    {/* {state.error && (
                       <motion.div
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -102,7 +110,7 @@ export function ForgotPasswordForm() {
                       >
                         <span role="alert">{state.error}</span>
                       </motion.div>
-                    )}
+                    )} */}
 
                     <motion.div
                       layout

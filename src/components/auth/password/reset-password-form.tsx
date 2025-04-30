@@ -1,7 +1,6 @@
 // components/auth/reset-password-form.tsx
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
 import { motion, LayoutGroup } from "framer-motion";
 import {
   Card,
@@ -17,27 +16,32 @@ import Link from "next/link";
 import { updatePassword, PasswordState } from "@/actions/reset-password";
 import { Loader } from "@/assets";
 import dynamic from "next/dynamic";
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, useActionState } from "react";
+import { useRouter } from "next/navigation";
 import { HiOutlineLockClosed } from "react-icons/hi";
+import { useAlert } from "@/contexts/alert-context";
+import { Eye, EyeOff } from "lucide-react";
 
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 export function ResetPasswordForm({ token }: { token: string }) {
   const router = useRouter();
+  const { showAlert } = useAlert();
 
-  const [state, formAction] = useFormState<PasswordState, FormData>(
+  const [state, formAction, isPending] = useActionState<PasswordState, FormData>(
     updatePassword,
     {
       success: false,
       error: null,
     }
   );
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     if (state.success) {
       setTimeout(() => {
-        router.push('/auth?login');
+        router.push("/auth?login");
       }, 3000);
     }
   }, [state.success]);
@@ -53,6 +57,11 @@ export function ResetPasswordForm({ token }: { token: string }) {
       </div>
     );
   }
+
+  useEffect(() => {
+    if (state.error) showAlert(state.error, "error");
+    if (state.success) showAlert("Reset link sent successfully", "success");
+  }, [state]);
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
@@ -113,15 +122,28 @@ export function ResetPasswordForm({ token }: { token: string }) {
                       <Label htmlFor="password" className="text-[#E0E7FF]">
                         New Password
                       </Label>
-                      <Input
-                        id="password"
-                        name="password"
-                        type="password"
-                        required
-                        minLength={8}
-                        className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
-                        placeholder="••••••••"
-                      />
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          name="password"
+                          type={showPassword ? "text" : "password"}
+                          required
+                          minLength={8}
+                          className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] pr-10"
+                          placeholder="••••••••"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E0E7FF]/70 hover:text-[#69d0ff] transition-colors"
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-5 w-5" />
+                          ) : (
+                            <Eye className="h-5 w-5" />
+                          )}
+                        </button>
+                      </div>
                     </motion.div>
 
                     <motion.div
@@ -131,21 +153,39 @@ export function ResetPasswordForm({ token }: { token: string }) {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.2, delay: 0.1 }}
                     >
-                      <Label htmlFor="confirmPassword" className="text-[#E0E7FF]">
+                      <Label
+                        htmlFor="confirmPassword"
+                        className="text-[#E0E7FF]"
+                      >
                         Confirm Password
                       </Label>
-                      <Input
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        type="password"
-                        required
-                        minLength={8}
-                        className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
-                        placeholder="••••••••"
-                      />
+                      <div className="relative">
+                        <Input
+                          id="confirmPassword"
+                          name="confirmPassword"
+                          type={showConfirmPassword ? "text" : "password"}
+                          required
+                          minLength={8}
+                          className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] pr-10"
+                          placeholder="••••••••"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowConfirmPassword(!showConfirmPassword)
+                          }
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E0E7FF]/70 hover:text-[#69d0ff] transition-colors"
+                        >
+                          {showConfirmPassword ? (
+                            <EyeOff className="h-5 w-5" />
+                          ) : (
+                            <Eye className="h-5 w-5" />
+                          )}
+                        </button>
+                      </div>
                     </motion.div>
 
-                    {state.error && (
+                    {/* {state.error && (
                       <motion.div
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -155,7 +195,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
                       >
                         <span role="alert">{state.error}</span>
                       </motion.div>
-                    )}
+                    )} */}
 
                     <motion.div
                       layout
@@ -163,8 +203,8 @@ export function ResetPasswordForm({ token }: { token: string }) {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.2, delay: 0.2 }}
                     >
-                      <SubmitButton />
-                    </motion.div>
+                      <SubmitButton isPending={isPending} />
+                      </motion.div>
                   </div>
                 </form>
               </CardContent>
@@ -184,17 +224,16 @@ export function ResetPasswordForm({ token }: { token: string }) {
             )}
           </LayoutGroup>
         </Card>
-
       </div>
     </div>
   );
 }
 
-function SubmitButton() {
-  const { pending } = useFormStatus();
+function SubmitButton({ isPending }: { isPending: boolean }) {
+  const pending = isPending;
 
   return (
-    <Button type="submit" className="w-full py-5 btn-main" disabled={pending}>
+    <Button type="submit" className="py-5 btn-main" disabled={pending}>
       {pending ? (
         <Lottie animationData={Loader} loop className="w-6 h-6" />
       ) : (

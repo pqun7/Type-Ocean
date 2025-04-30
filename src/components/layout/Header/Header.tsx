@@ -66,7 +66,7 @@ const Header: React.FC = () => {
             className="z-10 flex items-center"
           >
             <Logo />
-          </motion.div>
+          </motion.div> 
 
           <div className="hidden md:flex">
             <DesktopNavigation scrollY={scrollY} />

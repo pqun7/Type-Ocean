@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 // Import icons and assets
 import { GithubAuth } from "@/components/auth/github-button";
 import { GoogleAuth } from "@/components/auth/google-button";
+import { Eye, EyeOff } from "lucide-react";
 
 // Import assets and custom components
 import { TextMorphButton } from "@/components/ui/text-morph-button";
@@ -33,6 +34,7 @@ import { TextMorphButton } from "@/components/ui/text-morph-button";
 // Import server actions
 import { signUp } from "@/lib/actions";
 import { signIn } from "next-auth/react";
+import { useAlert } from "@/contexts/alert-context";
 
 /**
  * Authentication form component handling both login and signup states
@@ -51,12 +53,21 @@ export function AuthForm() {
   const [successMessage, setSuccessMessage] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { showAlert } = useAlert();
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  useEffect(() => {
+    if (error) showAlert(error, "error");
+    if (successMessage) showAlert(successMessage, "success");
+  }, [error, successMessage]);
+
+  // Handle form submission state
   useEffect(() => {
     if (isTransitioning) {
       const timer = setTimeout(() => {
         setIsTransitioning(false);
-      }, 5000); // تغيير الوقت إلى 500 مللي ثانية
+      }, 5000);
       return () => clearTimeout(timer);
     }
   }, [isTransitioning]);
@@ -158,10 +169,10 @@ export function AuthForm() {
                   {isLogin ? "Welcome back" : "Create an account"}
                 </CardTitle>
                 <CardDescription className="text-[#8A8FB5]">
-                  {/* {isLogin
-                    ? "Enter your credentials to login"
-                    : "Create a new account"} */}
-                  {successMessage && (
+                  {isLogin
+                    ? "Please enter your credentials to access your account."
+                    : "Fill in your details to create your account and get started."}
+                  {/* {successMessage && (
                     <p className="text-green-400 text-sm mt-2">
                       {successMessage}
                     </p>
@@ -169,7 +180,7 @@ export function AuthForm() {
 
                   {error && (
                     <p className="text-red-400 text-sm mt-2">{error}</p>
-                  )}
+                  )} */}
                 </CardDescription>
               </motion.div>
             </CardHeader>
@@ -246,9 +257,6 @@ export function AuthForm() {
                     )}
                     <motion.div layout className="grid gap-2">
                       <div className="flex items-center">
-                        {/* <Label htmlFor="password" className="text-[#E0E7FF]">
-                          Password
-                        </Label> */}
                         {isLogin && (
                           <a
                             href="/forgot-password"
@@ -258,17 +266,33 @@ export function AuthForm() {
                           </a>
                         )}
                       </div>
-                      <Input
-                        id="password"
-                        name="password"
-                        type="password"
-                        className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
-                        required
-                        placeholder="Password"
-                        autoComplete={
-                          isLogin ? "current-password" : "new-password"
-                        }
-                      />
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          name="password"
+                          type={showPassword ? "text" : "password"}
+                          className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] pr-10"
+                          required
+                          placeholder="Password"
+                          autoComplete={
+                            isLogin ? "current-password" : "new-password"
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E0E7FF]/70 hover:text-[#69d0ff]"
+                          aria-label={
+                            showPassword ? "Hide password" : "Show password"
+                          }
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-5 w-5" />
+                          ) : (
+                            <Eye className="h-5 w-5" />
+                          )}
+                        </button>
+                      </div>
                       {fieldErrors.password?.map((msg, i) => (
                         <p key={i} className="text-red-400 text-sm mt-1">
                           {msg}
@@ -283,15 +307,35 @@ export function AuthForm() {
                           {...exclusiveAnim}
                           className="grid gap-2"
                         >
-                          <Input
-                            id="confirmPassword"
-                            name="confirmPassword"
-                            placeholder="Confirm Password"
-                            type="password"
-                            className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff]"
-                            required
-                            autoComplete="new-password"
-                          />
+                          <div className="relative">
+                            <Input
+                              id="confirmPassword"
+                              name="confirmPassword"
+                              placeholder="Confirm Password"
+                              type={showConfirmPassword ? "text" : "password"}
+                              className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] pr-10"
+                              required
+                              autoComplete="new-password"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowConfirmPassword(!showConfirmPassword)
+                              }
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E0E7FF]/70 hover:text-[#69d0ff]"
+                              aria-label={
+                                showConfirmPassword
+                                  ? "Hide password"
+                                  : "Show password"
+                              }
+                            >
+                              {showConfirmPassword ? (
+                                <EyeOff className="h-5 w-5" />
+                              ) : (
+                                <Eye className="h-5 w-5" />
+                              )}
+                            </button>
+                          </div>
                           {fieldErrors.confirmPassword?.map((msg, i) => (
                             <p key={i} className="text-red-400 text-sm mt-1">
                               {msg}
@@ -311,7 +355,7 @@ export function AuthForm() {
                           <Lottie
                             animationData={Loader}
                             loop
-                            className="w-15 h-15"
+                            className="w-6 h-6"
                           />
                         ) : isLogin ? (
                           "Login"
