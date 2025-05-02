@@ -4,21 +4,24 @@ import Image from "next/image";
 import { google } from "@/assets";
 import dynamic from "next/dynamic";
 import { Loader } from "@/assets";
+import { useState } from "react"; // أضفنا استيراد useState
 
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 type GoogleButtonProps = {
   isLogin: boolean;
-  isSubmitting: boolean; // إضافة النوع
 };
 
-export const GoogleAuth = ({ 
-  isLogin, 
-  isSubmitting 
-}: GoogleButtonProps) => {
-  const handleGoogleSignIn = () => {
-    // signIn("google"); // تفعيل الدالة
-    
+export const GoogleAuth = ({ isLogin }: GoogleButtonProps) => {
+  const [isLoading, setIsLoading] = useState(false); 
+
+  const handleGoogleSignIn = async () => {
+    // setIsLoading(true);
+    // try {
+    //   await signIn("google");
+    // } finally {
+    //   setIsLoading(false);
+    // }
   };
 
   return (
@@ -27,9 +30,9 @@ export const GoogleAuth = ({
       type="button"
       onClick={handleGoogleSignIn}
       className="font-medium rounded-lg py-5 w-full border-[#69d0ff] hover:bg-[#69d0ff]/20 text-[#60a5fa] hover:text-[#93c5fd] transition-colors duration-300"
-      disabled={isSubmitting} // تعطيل الزر أثناء التحميل
+      disabled={isLoading} // استخدام الحالة المحلية
     >
-      {isSubmitting ? (
+      {isLoading ? (
         <Lottie 
           animationData={Loader} 
           loop 

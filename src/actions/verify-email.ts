@@ -1,24 +1,31 @@
+// src/actions/verify-email.ts
 "use server";
 
 import { prisma } from "@/lib/db";
 import { validateEmailToken } from "@/utils/tokens";
+import { redirect } from "next/navigation";
 
 export async function verifyEmail(token: string) {
   try {
     const user = await validateEmailToken(token);
     
+    if (user.emailVerified) {
+      redirect(`/auth?error=EMAIL_ALREADY_VERIFIED`);
+    }
+
     await prisma.user.update({
       where: { id: user.id },
       data: {
         emailVerified: new Date(),
         emailVerifyToken: null,
-        emailVerifyTokenExpiry: null
+        emailVerifyTokenExpiry: null,
+        emailVerificationAttempts: 0
       }
     });
 
-    return { success: true };
+    redirect("/home?verified=success");
   } catch (error) {
-    console.error(error);
-    return { error: "Failed to verify email" };
+    console.error("Email verification failed:", error);
+    redirect("/auth?error=INVALID_VERIFICATION_TOKEN");
   }
 }

@@ -1,3 +1,4 @@
+// src/contexts/alert-context.tsx
 "use client";
 
 import { createContext, useState, useCallback, useContext } from "react";
@@ -8,6 +9,7 @@ export const AlertContext = createContext<{
 }>({
   alert: null,
   showAlert: () => {},
+  
 });
 
 export function AlertProvider({ children }: { children: React.ReactNode }) {
@@ -19,7 +21,7 @@ export function AlertProvider({ children }: { children: React.ReactNode }) {
   const showAlert = useCallback(
     (message: string, type: "success" | "error") => {
       setAlert({ message, type });
-      setTimeout(() => setAlert(null), 5000); // إخفاء التنبيه بعد 5 ثواني
+      setTimeout(() => setAlert(null), 5000); 
     },
     []
   );

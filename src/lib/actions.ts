@@ -6,6 +6,8 @@ import db from "@/lib/db";
 import { saltAndHashPassword } from "@/utils/password";
 import { ZodError } from "zod";
 import { resendVerificationEmail } from "@/actions/email-verification";
+import { mapErrorToMessage } from "@/constants/errors"; 
+
 
 export const signUp = async (formData: FormData) => {
   try {
@@ -71,7 +73,7 @@ export const signUp = async (formData: FormData) => {
       console.error("Failed to send verification email:", verificationResult.error);
       return {
         success: false,
-        error: "USER_CREATED_BUT_EMAIL_NOT_SENT",
+        error: mapErrorToMessage("USER_CREATED_BUT_EMAIL_NOT_SENT"), 
         details: { error: verificationResult.error }
       };
     }

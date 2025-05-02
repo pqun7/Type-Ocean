@@ -28,8 +28,6 @@ import { GithubAuth } from "@/components/auth/github-button";
 import { GoogleAuth } from "@/components/auth/google-button";
 import { Eye, EyeOff } from "lucide-react";
 
-// Import assets and custom components
-import { TextMorphButton } from "@/components/ui/text-morph-button";
 
 // Import server actions
 import { signUp } from "@/lib/actions";
@@ -89,7 +87,11 @@ export function AuthForm() {
         formRef.current?.reset();
         setIsLogin(true);
         setError("");
-        setSuccessMessage("Account created successfully.");
+        // setSuccessMessage("Account created successfully.");
+        showAlert(
+          "Account created successfully. Please check your email for verification.",
+          "success"
+        );
         setFieldErrors({});
       } else {
         if (result?.details?.fieldErrors) {
@@ -185,17 +187,9 @@ export function AuthForm() {
               </motion.div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {" "}
-              {/* تقليل المسافات */}
               <motion.div layout className="flex flex-col gap-4">
-                <GithubAuth
-                  isLogin={isLogin}
-                  isSubmitting={isSubmitting} // إضافة الخاصية
-                />
-                <GoogleAuth
-                  isLogin={isLogin}
-                  isSubmitting={isSubmitting} // إضافة الخاصية
-                />
+                <GithubAuth isLogin={isLogin} />
+                <GoogleAuth isLogin={isLogin} />
               </motion.div>
               <motion.div
                 layout

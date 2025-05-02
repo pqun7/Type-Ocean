@@ -4,13 +4,16 @@ import { prisma } from "@/lib/db";
 export async function cleanupExpiredTokens() {
   await prisma.user.updateMany({
     where: {
-      resetTokenExpiry: {
-        lt: new Date()
-      }
+      OR: [
+        { resetTokenExpiry: { lt: new Date() } },
+        { emailVerifyTokenExpiry: { lt: new Date() } }
+      ]
     },
     data: {
       resetToken: null,
-      resetTokenExpiry: null
+      resetTokenExpiry: null,
+      emailVerifyToken: null,
+      emailVerifyTokenExpiry: null
     }
   });
 }

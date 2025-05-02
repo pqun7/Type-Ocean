@@ -6,20 +6,24 @@ import Image from "next/image";
 import { github } from "@/assets";
 import dynamic from "next/dynamic";
 import { Loader } from "@/assets";
+import { useState } from "react"; // أضفنا استيراد useState
 
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 interface GithubAuthProps {
   isLogin?: boolean;
-  isSubmitting: boolean; // إضافة الواجهة
 }
 
-const GithubAuth = ({ 
-  isLogin = true, 
-  isSubmitting 
-}: GithubAuthProps) => {
+const GithubAuth = ({ isLogin = true }: GithubAuthProps) => {
+  const [isLoading, setIsLoading] = useState(false); // حالة محلية للتحميل
+
   const handleGithubSignIn = async () => {
-    await signIn("github");
+    setIsLoading(true);
+    try {
+      await signIn("github");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -28,10 +32,10 @@ const GithubAuth = ({
       type="button"
       onClick={handleGithubSignIn}
       className="font-medium rounded-lg py-5 w-full border-[#8A6BFF] hover:bg-[#8A6BFF]/20 text-[#818cf8] hover:text-[#a5b4fc] transition-colors duration-300 group"
-      disabled={isSubmitting} // تعطيل الزر أثناء التحميل
+      disabled={isLoading} // استخدام الحالة المحلية
     >
       <div className="flex items-center justify-center">
-        {isSubmitting ? (
+        {isLoading ? (
           <Lottie 
             animationData={Loader} 
             loop 

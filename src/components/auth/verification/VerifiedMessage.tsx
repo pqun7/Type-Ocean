@@ -13,8 +13,10 @@ export default function VerifiedMessage() {
   useEffect(() => {
     if (verificationStatus === "true") {
       showAlert("Email verified successfully!", "success");
+      console.log("Email verified successfully!");
     } else if (verificationStatus === "false") {
       showAlert("Email verification failed.", "error");
+      console.log("Email verification failed.");
     }
   }, [verificationStatus, showAlert]);
 

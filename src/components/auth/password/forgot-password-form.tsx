@@ -22,6 +22,7 @@ import { useAlert } from "@/contexts/alert-context";
 
 
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
+
 export function ForgotPasswordForm() {
   const [state, formAction, isPending] = useActionState<
     PasswordState,
