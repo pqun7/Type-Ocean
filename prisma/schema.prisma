@@ -7,26 +7,55 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model SessionStat {
+  id     String   @id @default(uuid())
+  userId String
+  n      Int
+  avgWpm Int
+  avgAcc Float
+  date   DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+model PlayerProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  level  Int    @default(1)
+  xp     Int    @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model User {
-  id            String          @id @default(uuid())
-  username      String?         @unique
+  id            String         @id @default(uuid())
+  username      String?        @unique
   passwordHash  String?
-  email         String          @unique
+  email         String         @unique
   emailVerified DateTime?
   image         String?
   accounts      Account[]
   sessions      Session[]
+  sessionStats  SessionStat[]
+  profile       PlayerProfile?
+
   // Optional for WebAuthn support
   Authenticator Authenticator[]
 
-  resetToken       String?
-  resetTokenExpiry DateTime?
-  passwordResetRequests Int @default(0) 
+  resetToken            String?
+  resetTokenExpiry      DateTime?
+  passwordResetRequests Int       @default(0)
 
-  emailVerifyToken         String?   @unique
-  emailVerifyTokenExpiry   DateTime?
-  emailVerificationAttempts Int?     @default(0)
-
+  emailVerifyToken          String?   @unique
+  emailVerifyTokenExpiry    DateTime?
+  emailVerificationAttempts Int?      @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
