@@ -4,12 +4,11 @@ import Pricing from "@/components/Pricing";
 export default function Home() {
   return (
     <>
-    <div className="pt-[4.75rem] lg:pt-[5.25rem] overflow-hidden">
-      <Main />
-      <Benefits />
-      <Pricing />
-    </div>
-
-  </>
+      <div className="pt-[4.75rem] lg:pt-[5.25rem] overflow-hidden">
+        <Main />
+        <Benefits />
+        <Pricing />
+      </div>
+    </>
   );
 }

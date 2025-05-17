@@ -16,7 +16,9 @@ export type XPMessage = {
   style?: React.CSSProperties;
 };
 
-type DailyChallenge = {
+export type DailyChallenge = {
+  id: string;
+  // userId: string; 
   type: 'marathon' | 'timeAttack' | 'speedCombo';
   target: number | { wpm: number; accuracy: number };
   xp: number;
@@ -26,6 +28,17 @@ type DailyChallenge = {
   data?: {
     charactersTyped?: number;
     timeSpent?: number;
+  };
+};
+
+export type DailyChallengeResponse = {
+  completed: boolean;
+  xp: number;
+  updatedChallenge: {
+    id: string;
+    progress: Record<string, any>;
+    status: number;
+    date: string;
   };
 };
 
@@ -85,28 +98,19 @@ export type LevelAction =
   | { type: "UNLOCK_ACHIEVEMENT"; achievement: Achievement }
   | { type: "UPDATE_ACHIEVEMENT"; achievement: Achievement };
 
-export interface LevelContextType {
-  level: number;
-  userXP: number;
-  nextLevelXP: number;
-  streak: number;
-  dailyChallenge: DailyChallenge | null;
-  achievements: Achievement[];
-  addXP: (amount: number) => void;
-  calculateSessionXP: (session: SessionData) => number;
-  xpMessages: XPMessage[];
-  addXPMessage: (text: string, value: number, type: XPMessageType) => void;
-  calculateDailyAverage: (
-    newWpm: number,
-    newAcc: number
-  ) => {
-    dailyAvgWpm: number;
-    dailyAvgAcc: number;
-    sessionsCount: number;
-  };
-  dailyChallenge: DailyChallenge | null;
-  handleDailyChallenge: (session: SessionData) => { completed: boolean; xp: number };
-}
+  export interface LevelContextType {
+    level: number;
+    userXP: number;
+    nextLevelXP: number;
+    dailyChallenge: DailyChallenge | null;
+    achievements: Achievement[];
+    addXP: (amount: number) => void;
+    calculateSessionXP: (session: SessionData) => number;
+    calculateSessionAverage: (newWpm: number, newAcc: number) => Promise<{ dailyAvgWpm: number; dailyAvgAcc: number; sessionsCount: number }>;
+    handleDailyChallenge: (session: SessionData) => Promise<{ completed: boolean; xp: number }>;
+    xpMessages: XPMessage[];
+    addXPMessage: (text: string, value: number, type: XPMessageType) => void;
+  }
 
 
 export interface Session {

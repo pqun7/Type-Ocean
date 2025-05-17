@@ -19,7 +19,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Loader } from "@/assets";
 import { Button } from "@/components/ui/button";
 
@@ -28,11 +27,12 @@ import { GithubAuth } from "@/components/auth/github-button";
 import { GoogleAuth } from "@/components/auth/google-button";
 import { Eye, EyeOff } from "lucide-react";
 
-
 // Import server actions
 import { signUp } from "@/lib/actions";
 import { signIn } from "next-auth/react";
 import { useAlert } from "@/contexts/alert-context";
+
+import { logger } from "@/log/clientLogger";
 
 /**
  * Authentication form component handling both login and signup states
@@ -54,6 +54,8 @@ export function AuthForm() {
   const { showAlert } = useAlert();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+
 
   useEffect(() => {
     if (error) showAlert(error, "error");
@@ -82,29 +84,31 @@ export function AuthForm() {
   const handleSignup = async (formData: FormData) => {
     try {
       const result = await signUp(formData);
+      logger.auth.debug('Signup API response', { success: result?.success });
 
       if (result?.success) {
         formRef.current?.reset();
         setIsLogin(true);
         setError("");
-        // setSuccessMessage("Account created successfully.");
-        showAlert(
-          "Account created successfully. Please check your email for verification.",
-          "success"
-        );
+        logger.auth.info('User account created successfully');
+        showAlert("Account created successfully. Please check your email for verification.", "success");
         setFieldErrors({});
       } else {
         if (result?.details?.fieldErrors) {
-          setFieldErrors(
-            result.details.fieldErrors as Record<string, string[]>
-          );
+          logger.auth.warn('Signup validation failed', {
+            fieldErrors: result.details.fieldErrors
+          });
+          setFieldErrors(result.details.fieldErrors as Record<string, string[]>);
           setError("");
         } else {
-          setError(result?.error || "An error occurred during signup");
+          const errorMsg = result?.error || "An error occurred during signup";
+          logger.auth.error('Signup failed', new Error(errorMsg));
+          setError(errorMsg);
           setFieldErrors({});
         }
       }
     } catch (err) {
+      logger.auth.error('Unexpected signup error', err instanceof Error ? err : new Error(String(err)));
       setError("An unexpected error occurred");
       setFieldErrors({});
     }
@@ -112,41 +116,51 @@ export function AuthForm() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     const formData = new FormData(e.currentTarget);
+    const username = formData.get("username")?.toString() || '';
 
     e.preventDefault();
     setIsSubmitting(true);
-    setFieldErrors({}); // Reset field errors on submit
-    setError(""); // Reset error message on submit
-    setSuccessMessage(""); // Reset success message on submit
+    setFieldErrors({});
+    setError("");
+    setSuccessMessage("");
 
-    // Validate required fields
-    if (!formData.get("username") || !formData.get("password")) {
-      setError("Please fill in all fields");
-      return;
-    }
+    logger.auth.info('Auth form submitted', {
+      type: isLogin ? 'login' : 'signup',
+      username: username
+    });
+
     try {
       if (isLogin) {
         const res = await signIn("credentials", {
           redirect: false,
-          username: formData.get("username"),
-          password: formData.get("password"),
+          username: username,
+          password: formData.get("password")
         });
 
         if (res?.error) {
-          const errorMessage =
-            res.error === "NO_PASSWORD_SET"
-              ? "This account doesn't have a password. Please use social login."
-              : "Invalid username or password.";
+          const errorMessage = res.error === "NO_PASSWORD_SET"
+            ? "This account doesn't have a password. Please use social login."
+            : "Invalid username or password.";
+          
+          logger.auth.warn('Login failed', {
+            errorType: res.error,
+            username: username
+          });
+          
           setError(errorMessage);
         } else {
+          logger.auth.info('Login successful', { username: username });
           router.push("/auth");
         }
       } else {
         await handleSignup(formData);
       }
     } catch (err) {
+      logger.auth.error('Form submission error', err instanceof Error ? err : new Error(String(err)), {
+        username: username,
+        formType: isLogin ? 'login' : 'signup'
+      });
       setError("An unexpected error occurred");
-      console.error("[AuthForm] Submission error:", err);
     } finally {
       setIsSubmitting(false);
     }

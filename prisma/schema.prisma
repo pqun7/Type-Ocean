@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
 model SessionStat {
   id     String   @id @default(uuid())
   userId String
@@ -21,22 +22,25 @@ model SessionStat {
   updatedAt DateTime @updatedAt
 }
 
-
 model PlayerProfile {
-  id     String @id @default(uuid())
-  userId String @unique
-  level  Int    @default(1)
-  xp     Int    @default(0)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  id           String  @id @default(uuid())
+  userId       String  @unique
+  username     String
+  level        Int     @default(1)
+  xp           Int     @default(0)
+  achievements Json    @default("[]")
+  avatar       String?
+  user         User    @relation(name: "UserProfile", fields: [userId], references: [id])
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("player_profile")
 }
 
 model User {
   id            String         @id @default(uuid())
-  username      String?        @unique
+  username      String        @unique
   passwordHash  String?
   email         String         @unique
   emailVerified DateTime?
@@ -44,7 +48,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   sessionStats  SessionStat[]
-  profile       PlayerProfile?
+  profile PlayerProfile? @relation(name: "UserProfile")
 
   // Optional for WebAuthn support
   Authenticator Authenticator[]

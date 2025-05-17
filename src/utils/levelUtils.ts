@@ -8,7 +8,7 @@ import {
   MAX_XP_MULTIPLIER,
   CHALLENGE_TYPE_WEIGHTS,
 } from "../constants/level";
-import { connection } from 'next/server';
+import { connection } from "next/server";
 
 // XP Calculation Helper
 export const calculateNextLevelXP = (level: number): number => {
@@ -16,54 +16,82 @@ export const calculateNextLevelXP = (level: number): number => {
     return Math.round(BASE_XP * Math.pow(1.7, level - 1));
   } else {
     const xpAtThreshold = BASE_XP * Math.pow(1.7, EXPONENTIAL_GROWTH_LEVEL - 1);
-    return Math.round(xpAtThreshold + LINEAR_GROWTH_INCREMENT * (level - EXPONENTIAL_GROWTH_LEVEL));
+    return Math.round(
+      xpAtThreshold +
+        LINEAR_GROWTH_INCREMENT * (level - EXPONENTIAL_GROWTH_LEVEL)
+    );
   }
 };
 
-
-export const generateDailyChallenge = async (level: number): Promise<DailyChallenge> => {
+export const generateDailyChallenge = async (
+  userId: string, // إضافة userId كمعامل إلزامي
+  userLevel: number // تغيير الاسم من level لعدم التضارب
+): Promise<DailyChallenge> => {
   await connection();
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split("T")[0];
 
   const challengeConfig = {
-    baseWPM: Math.min(70, 50 + level * 0.8),
-    baseAccuracy: Math.min(100, 85 + level * 0.2),
-    baseLength: Math.min(800, 300 + level * 3),
-    baseTime: Math.min(1800, 600 + level * 15), 
+    baseWPM: Math.min(70, 50 + userLevel * 0.8),
+    baseAccuracy: Math.min(100, 85 + userLevel * 0.2),
+    baseLength: Math.min(800, 300 + userLevel * 3),
+    baseTime: Math.min(1800, 600 + userLevel * 15),
   };
 
-  const challengeTypes: Array<Omit<DailyChallenge, 'date' | 'difficulty'> & { weight: number }> = [
-      {
-        type: "speedCombo" as const,
-        target: {
-          wpm: Math.round(challengeConfig.baseWPM * (1.15 + Math.random() * 0.15)),
-          accuracy: Math.round(challengeConfig.baseAccuracy * (1.05 + Math.random() * 0.05)),
-        },
-        xp: getChallengeXP(level),
-        status: 0,
-        weight: CHALLENGE_TYPE_WEIGHTS.speedCombo,
+  const generateChallengeId = (userId: string, type: string) => {
+    const datePart = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const randomPart = Math.random().toString(36).substring(2, 8);
+    return `${type}-${userId}-${datePart}-${randomPart}`;
+  };
+
+  const challengeTypes: Array<
+    Omit<DailyChallenge, "date" | "difficulty"> & { id: string; weight: number }
+  > = [
+    // speedCombo
+    {
+      id: generateChallengeId(userId, "speedCombo"), 
+      type: "speedCombo" as const,
+      target: {
+        wpm: Math.round(
+          challengeConfig.baseWPM * (1.15 + Math.random() * 0.15)
+        ),
+        accuracy: Math.round(
+          challengeConfig.baseAccuracy * (1.05 + Math.random() * 0.05)
+        ),
       },
-      {
-        type: "marathon" as const,
-        target: Math.round(challengeConfig.baseLength * (1.3 + Math.random() * 0.4)),
-        xp: getChallengeXP(level),
-        status: 0,
-        weight: CHALLENGE_TYPE_WEIGHTS.marathon,
-      },
-      {
-        type: "timeAttack" as const,
-        target: Math.round(challengeConfig.baseTime * (0.8 + Math.random() * 0.4)),
-        xp: getChallengeXP(level),
-        status: 0,
-        weight: CHALLENGE_TYPE_WEIGHTS.timeAttack,
-      },
-    ];
+      xp: getChallengeXP(userLevel),
+      status: 0,
+      weight: CHALLENGE_TYPE_WEIGHTS.speedCombo,
+    },
+    // marathon
+    {
+      id: generateChallengeId(userId, "marathon"), 
+
+      type: "marathon" as const,
+      target: Math.round(
+        challengeConfig.baseLength * (1.3 + Math.random() * 0.4)
+      ),
+      xp: getChallengeXP(userLevel),
+      status: 0,
+      weight: CHALLENGE_TYPE_WEIGHTS.marathon,
+    },
+    // timeAttack
+    {
+      id: generateChallengeId(userId, "timeAttack"), 
+      type: "timeAttack" as const,
+      target: Math.round(
+        challengeConfig.baseTime * (0.8 + Math.random() * 0.4)
+      ),
+      xp: getChallengeXP(userLevel),
+      status: 0,
+      weight: CHALLENGE_TYPE_WEIGHTS.timeAttack,
+    },
+  ];
 
   // اختيار عشوائي مرجح
   const totalWeight = challengeTypes.reduce((sum, c) => sum + c.weight, 0);
   let random = Math.random() * totalWeight;
 
-  const selectedChallenge = challengeTypes.find(challenge => {
+  const selectedChallenge = challengeTypes.find((challenge) => {
     random -= challenge.weight;
     return random <= 0;
   })!;
@@ -73,51 +101,22 @@ export const generateDailyChallenge = async (level: number): Promise<DailyChalle
   const baseChallenge = {
     ...selectedChallenge,
     date: today,
-    difficulty: level,
+    difficulty: userLevel,
     status: 0 as 0,
   };
 
   // Initialize data based on challenge type
   switch (selectedChallenge.type) {
-    case 'marathon':
+    case "marathon":
       return { ...baseChallenge, data: { charactersTyped: 0 } };
-    case 'timeAttack':
+    case "timeAttack":
       return { ...baseChallenge, data: { timeSpent: 0 } };
-    case 'speedCombo':
+    case "speedCombo":
       return { ...baseChallenge, data: {} }; // No data needed
     default:
       return baseChallenge;
   }
-
-  // return {
-  //   ...challengeWithoutWeight,
-  //   date: today,
-  //   difficulty: level,
-  //   type: selectedChallenge.type,
-  //   target: selectedChallenge.target,
-  //   xp: selectedChallenge.xp,
-  // } as DailyChallenge;
 };
-
-// export const checkDailyChallenge = (
-//   challenge: DailyChallenge,
-//   session: SessionData
-// ): boolean => {
-//   if (!challenge) return false;
-
-//   switch (challenge.type) {
-//     case "speedCombo":
-//       return session.wpm >= challenge.target.wpm && 
-//              session.accuracy >= challenge.target.accuracy;
-//     case "marathon":
-//       return session.textLength >= challenge.target;
-      
-//     case "timeAttack":
-//       return session.timeSpent >= challenge.target;
-//     default:
-//       return false;
-//   }
-// };
 
 export function getChallengeXP(level: number): number {
   if (level < 1) return 0;
@@ -128,7 +127,22 @@ export function getChallengeXP(level: number): number {
     return Math.round((percentage / 100) * BASE_XP);
   }
   // مرحلة النمو الخطّي (المستويات 51-100)
-  const linearIncrement = (MAX_XP_MULTIPLIER - 1) * BASE_XP / (LINEAR_GROWTH_END_LEVEL - EXP_GROWTH_END_LEVEL);
+  const linearIncrement =
+    ((MAX_XP_MULTIPLIER - 1) * BASE_XP) /
+    (LINEAR_GROWTH_END_LEVEL - EXP_GROWTH_END_LEVEL);
   return Math.round(BASE_XP + (level - EXP_GROWTH_END_LEVEL) * linearIncrement);
 }
 
+export const validateChallenge = (challenge: DailyChallenge): boolean => {
+  return (
+    (challenge.date &&
+      challenge.xp > 0 &&
+      challenge.type === "marathon" &&
+      typeof challenge.target === "number") ||
+    (challenge.type === "timeAttack" && typeof challenge.target === "number") ||
+    (challenge.type === "speedCombo" &&
+      typeof challenge.target === "object" &&
+      "wpm" in challenge.target &&
+      "accuracy" in challenge.target)
+  );
+};

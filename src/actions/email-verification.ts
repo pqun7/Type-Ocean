@@ -6,7 +6,7 @@ import { generateEmailVerificationToken } from "@/utils/tokens";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import { sendVerificationEmail } from "@/providers/resend";
 import { mapErrorToMessage } from "@/constants/errors";
-import { prisma } from "@/lib/db";
+import prisma  from "@/lib/db";
 
 export async function resendVerificationEmail(email: string) {
   try {

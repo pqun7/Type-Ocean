@@ -5,10 +5,7 @@ import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
 import { useLevel } from "@/hooks/useLevel";
 import { SessionData } from "@/types/level";
-import {
-  calculateNextLevelXP,
-  getChallengeXP,
-} from "@/utils/levelUtils";
+import { calculateNextLevelXP, getChallengeXP } from "@/utils/levelUtils";
 
 /**
  * Core typing test logic hook managing:
@@ -62,7 +59,7 @@ export default function useTypingLogic(
     calculateSessionXP,
     addXPMessage,
     level,
-    calculateDailyAverage,
+    calculateSessionAverage,
     handleDailyChallenge,
   } = useLevel();
 
@@ -121,76 +118,72 @@ export default function useTypingLogic(
     startTime.current = performance.now();
     startNewSession();
     addTempPoints([{ time: 0, wpm: 0, prevWpm: 0 }]);
-
-    for (let i = 0; i < 100; i++) {
-      const nextLevelXP = calculateNextLevelXP(i);
-      console.log(`Level ${i}: XP required -> ${nextLevelXP}`);
-    }
   }, [startNewSession, addTempPoints]);
 
-  const handleSessionEnd = useCallback(() => {
-    const activeTime = getActiveTime();
-    const { wpm, accuracy } = calculateMetrics();
+  const handleSessionEnd = useCallback(async () => {
+    try {
+      const activeTime = getActiveTime();
+      const { wpm, accuracy } = calculateMetrics();
 
-    const { dailyAvgWpm, dailyAvgAcc, sessionsCount } = calculateDailyAverage(
-      wpm,
-      accuracy
-    );
+      // Await session averages calculation
+      const { dailyAvgWpm, dailyAvgAcc, sessionsCount } =
+        await calculateSessionAverage(wpm, accuracy);
 
-    // Create session data object
-    const sessionData: SessionData = {
-      wpm,
-      accuracy,
-      textLength: text.length,
-      textType: selectedLevel,
-      timeSpent: Math.floor(activeTime / 1000),
-      errors: totalErrors,
-      dailyAvgWpm,
-      dailyAvgAcc,
-      sessionsCount,
-    };
+      const sessionData: SessionData = {
+        wpm,
+        accuracy,
+        textLength: text.length,
+        textType: selectedLevel,
+        timeSpent: Math.floor(activeTime / 1000),
+        errors: totalErrors,
+        dailyAvgWpm,
+        dailyAvgAcc,
+        sessionsCount,
+      };
 
-    setMetrics((prev) => ({
-      ...prev,
-      wpm,
-      elapsedTime: Math.floor(activeTime / 1000),
-    }));
+      // Update metrics and state
+      setMetrics((prev) => ({
+        ...prev,
+        wpm,
+        elapsedTime: Math.floor(activeTime / 1000),
+      }));
+      commitSession();
+      setState("end");
 
-    commitSession();
-    setState("end");
+      // Calculate XP and handle challenge
+      const baseXP = calculateSessionXP(sessionData);
+      const { completed, xp } = await handleDailyChallenge(sessionData);
 
-    // Calculate XP first
-    const baseXP = calculateSessionXP(sessionData);
-    const bonusXP = getChallengeXP(level);
-    const totalXP = baseXP + bonusXP;
+      // Calculate participation bonus
+      const participationXP = Math.max(15 - baseXP, 0);
+      const totalXP = baseXP + xp + participationXP;
 
-    // Handle daily challenge - this will automatically update local storage
-    const { completed, xp } = handleDailyChallenge(sessionData);
+      // Update XP state
+      if (participationXP > 0) {
+        addXP(participationXP);
+        addXPMessage("Participation Reward", participationXP, "participation");
+      }
 
-    // Add challenge XP if completed
-    if (completed) {
-      addXP(xp);
-      addXPMessage("Daily Challenge Completed", xp, "daily-challenge");
-    }
-
-    // Add XP and participation message if earnedXP is less than 15
-    if (totalXP < 15) {
-      addXP(15);
-      addXPMessage("Participation Reward", 15, "participation");
-    } else {
-      addXP(totalXP);
-      // addXPMessage("Session Completed", totalXP, "level-up");
+      if (completed) {
+        addXP(xp);
+        addXPMessage("Daily Challenge Completed", xp, "daily-challenge");
+      }
+    } catch (error) {
+      console.error("Session end error:", error);
+      // Add error handling logic here
     }
   }, [
     getActiveTime,
     calculateMetrics,
     commitSession,
-    addXP,
-    selectedLevel,
     text.length,
+    selectedLevel,
+    totalErrors,
     calculateSessionXP,
-    calculateDailyAverage,
+    calculateSessionAverage,
     handleDailyChallenge,
+    addXP,
+    addXPMessage,
   ]);
 
   // Idle state management
@@ -243,8 +236,13 @@ export default function useTypingLogic(
     setIsError(text.slice(0, input.length) !== input);
     // if(isError) setTotalErrors((prv) => prv + 1);
 
-    if (input.length === text.length) handleSessionEnd();
-
+    if (input.length === text.length) {
+      // Handle async session end properly
+      handleSessionEnd().catch(error => 
+        console.error("Failed to complete session:", error)
+      );
+    }
+    
     // Reset idle timer on input
     idleTimer.current && clearTimeout(idleTimer.current);
     if (idleState.current.isIdle) handleIdleState(false);

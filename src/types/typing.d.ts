@@ -4,8 +4,8 @@ export type State = "start" | "running" | "end";
 export type Mode = "course" | "game" | "practice" | "online";
 
 export type GameState = {
-  userInput: string;
-  wpm: number;
+userInput: string;
+wpm: number;
   accuracy: number;
   totalErrors: number;
   state: 'start' | 'running' | 'end';

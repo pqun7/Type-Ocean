@@ -2,7 +2,8 @@
 "use server";
 
 import { headers } from "next/headers";
-import { prisma } from "@/lib/db";
+import prisma from "@/lib/db";
+
 import { saltAndHashPassword } from "@/utils/password";
 import bcrypt from "bcrypt";
 import { resetPasswordSchema } from "@/lib/schema";

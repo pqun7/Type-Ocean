@@ -22,11 +22,19 @@ import {
   getChallengeXP,
   generateDailyChallenge,
 } from "@/utils/levelUtils";
+import { ACHIEVEMENTS, BONUSES } from "@/constants/level";
+import { authFetch } from "@/utils/authFetch";
 import {
-  ACHIEVEMENTS,
-  DAILY_CHALLENGE_BASE_XP,
-  BONUSES,
-} from "@/constants/level";
+  logger,
+  XP_MESSAGE_TIMEOUT,
+} from "@/log/clientLogger";
+import { calculateChallengeStatus } from "@/utils/challengeUtils";
+
+// Make sure you do NOT import anything from "@/lib/redis" or any server-only code here.
+const CACHE_KEYS = {
+  DAILY_CHALLENGE: (userId: string) => `dailyChallenge:${userId}`,
+  SESSION_STATS: (userId: string) => `sessionStats:${userId}`,
+};
 
 export const LevelContext = createContext<LevelContextType | null>(null);
 
@@ -38,341 +46,413 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
     nextLevelXP: calculateNextLevelXP(1),
   });
   const [xpMessages, setXPMessages] = useState<XPMessage[]>([]);
-  const [streak, setStreak] = useState(0);
-  const [dailyChallenge, setDailyChallenge] = useState<DailyChallenge | null>(null);
+  const [dailyChallenge, setDailyChallenge] = useState<DailyChallenge | null>(
+    null
+  );
+  const [userId, setUserId] = useState<string | undefined>(undefined); // حالة المستخدم
 
+  // User session management
   useEffect(() => {
-    const loadDailyChallenge = async () => {
-      const today = new Date().toISOString().split('T')[0];
-      const storedChallenge = localStorage.getItem('dailyChallenge');
-      let challenge: DailyChallenge | null = null;
-
-      // Check existing challenge
-      if (storedChallenge) {
-        const parsed = JSON.parse(storedChallenge);
-        if (parsed.date === today) challenge = parsed;
-      }
-
-      // Generate new if none exists
-      if (!challenge) {
-        challenge = await generateDailyChallenge(state.level);
-        localStorage.setItem('dailyChallenge', JSON.stringify(challenge));
-      }
-
-      setDailyChallenge(challenge);
-    };
-
-    loadDailyChallenge();
-  }, [state.level]);
-
-  const addXPMessage = useCallback(
-    (text: string, value: number, type: XPMessageType) => {
-      // Only add message if value is positive
-      if (value > 0) {
-        const message: XPMessage = {
-          id: uuidv4(),
-          text,
-          value,
-          type,
-        };
-
-        setXPMessages((prev) => [...prev, message]);
-
-        setTimeout(
-          () => {
-            setXPMessages((prev) =>
-              prev.filter((msg) => msg.id !== message.id)
-            );
+    const fetchUserSession = async () => {
+      try {
+        // Use POST instead of GET to match the API route's allowed methods
+        const response = await fetch("/api/session", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-          type === "level-up" ? 5000 : 3000
+        });
+
+        if (!(response instanceof Response) || !response.ok) {
+          throw new Error(`Session request failed: ${response.status}`);
+        }
+
+        const sessionData = await response.json();
+        setUserId(sessionData.userId);
+
+        logger.session.debug("User session initialized", {
+          userId: sessionData.userId,
+          sessionAge: `${Date.now() - new Date(sessionData.createdAt).getTime()}ms`,
+        });
+      } catch (error) {
+        logger.session.error(
+          "Failed to initialize user session",
+          error instanceof Error ? error : undefined
         );
       }
+    };
+
+    fetchUserSession();
+  }, []);
+
+  // Daily challenge loader with abort controller
+  useEffect(() => {
+    const abortController = new AbortController();
+    const requestId = uuidv4();
+
+    const loadChallenge = async (): Promise<void> => {
+      if (!userId) {
+        logger.challenge.warn("Aborting challenge load - missing user ID", {
+          requestId,
+        });
+        return;
+      }
+
+      try {
+        logger.challenge.info("Loading daily challenge", {
+          requestId,
+          userId,
+          currentLevel: state.level,
+        });
+
+        const response = await authFetch(
+          `/api/daily-challenge`,
+          {
+            signal: abortController.signal,
+            headers: { "X-Request-ID": requestId },
+          },
+          userId
+        );
+
+        const challenge: DailyChallenge = await (response as Response).json();
+        setDailyChallenge(challenge);
+        logger.challenge.info("Daily challenge loaded", {
+          requestId,
+          challengeId: challenge.id,
+          difficulty: challenge.difficulty,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          logger.challenge.debug("Challenge load aborted", { requestId });
+          return;
+        }
+
+        logger.challenge.error(
+          "Failed to load daily challenge",
+          error instanceof Error ? error : undefined,
+          {
+            requestId,
+            fallbackUsed: true,
+          }
+        );
+
+        const fallbackChallenge = await generateDailyChallenge(
+          userId,
+          state.level
+        );
+        setDailyChallenge(fallbackChallenge);
+      }
+    };
+
+    loadChallenge();
+
+    return () => {
+      abortController.abort();
+      logger.challenge.debug("Cleanup challenge loader", { requestId });
+    };
+  }, [userId, state.level]);
+
+
+  // حساب المتوسطات اليومية مع Redis
+  const fallbackAverages = { dailyAvgWpm: 0, dailyAvgAcc: 0, sessionsCount: 0 };
+
+  const calculateSessionAverage = useCallback(
+    async (newWpm: number, newAcc: number) => {
+      if (!userId) return fallbackAverages;
+  
+      try {
+        const response = await authFetch("/api/session-stats", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "X-Performance-Metrics": "v2" 
+          },
+          body: JSON.stringify({ 
+            wpm: newWpm, 
+            accuracy: newAcc,
+            timestamp: Date.now()
+          })
+        }, userId) as Response;
+  
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+  
+        const data = await response.json();
+  
+        if (!data.dailyAvgWpm || !data.dailyAvgAcc || !data.sessionsCount) {
+          throw new Error("Invalid session stats response");
+        }
+  
+        return data;
+      } catch (error) {
+        logger.session.error(
+          "Session average calculation failed",
+          error instanceof Error ? error : undefined
+        );
+        return fallbackAverages;
+      }
+    },
+    [userId]
+  );
+  
+  // تحديث التحدي اليومي  
+// في handleDailyChallenge function
+const handleDailyChallenge = useCallback(
+  async (session: SessionData) => {
+    if (!dailyChallenge || !userId) return { completed: false, xp: 0 };
+
+    // حفظ الحالة الحالية للتراجع
+    const prevChallenge = dailyChallenge;
+    
+    // تحديث محلي فوري
+    const tempChallenge = {
+      ...dailyChallenge,
+      progress: session,
+      status: calculateChallengeStatus(dailyChallenge, session) as 0 | 1
+    };
+    setDailyChallenge(tempChallenge);
+
+    try {
+      const response = await authFetch(`/api/daily-challenge/${dailyChallenge.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ progress: session }),
+      }, userId);
+
+      if (!(response instanceof Response)) {
+        throw new Error("Unexpected response type");
+      }
+
+      const result = await response.json();
+      setDailyChallenge(result.updatedChallenge);
+
+      return result;
+    } catch (error) {
+      // التراجع عند الخطأ
+      setDailyChallenge(prevChallenge);
+      logger.challenge.error(
+        "Challenge update failed",
+        error instanceof Error ? error : undefined
+      );
+      throw error; // لإعادة التحميل أو المعالجة
+    }
+  },
+  [dailyChallenge, userId]
+);
+
+  // إدارة رسائل XP مع تحسين الأداء
+  const addXPMessage = useCallback(
+    (text: string, value: number, type: XPMessageType) => {
+      if (value <= 0) return;
+
+      const message: XPMessage = {
+        id: uuidv4(),
+        text,
+        value,
+        type,
+      };
+
+      setXPMessages((prev) => [...prev, message]);
+
+      const timeout = setTimeout(
+        () => setXPMessages((prev) => prev.filter((m) => m.id !== message.id)),
+        XP_MESSAGE_TIMEOUT[type as keyof typeof XP_MESSAGE_TIMEOUT] ||
+          XP_MESSAGE_TIMEOUT.BASE
+      );
+      return () => clearTimeout(timeout);
     },
     []
   );
 
-  const calculateDailyAverage = useCallback(
-    (newWpm: number, newAcc: number) => {
-      const today = new Date().toISOString().split("T")[0];
-      const storedData = localStorage.getItem("dailyStats");
-      const prevData = storedData
-        ? JSON.parse(storedData)
-        : {
-            n: 0,
-            avgWpm: 0,
-            avgAcc: 0,
-            date: today,
-          };
-
-      // إذا كان يوم جديد: تحديث المتوسطات مع الاحتفاظ بقيمة n
-      if (prevData.date !== today) {
-        const newAvgWpm = newWpm; // ابدأ بمتوسط اليوم الجديد
-        const newAvgAcc = newAcc;
-
-        const newData = {
-          n: prevData.n + 1, // زيادة n التراكمية
-          avgWpm: newAvgWpm,
-          avgAcc: newAvgAcc,
-          date: today,
-        };
-
-        localStorage.setItem("dailyStats", JSON.stringify(newData));
-
-        return {
-          dailyAvgWpm: newAvgWpm,
-          dailyAvgAcc: newAvgAcc,
-          sessionsCount: newData.n,
-        };
-      }
-
-      // إذا كان نفس اليوم: تحديث المتوسطات
-      const newN = prevData.n + 1;
-      const newAvgWpm = (prevData.avgWpm * prevData.n + newWpm) / newN;
-      const newAvgAcc = (prevData.avgAcc * prevData.n + newAcc) / newN;
-
-      const updatedData = {
-        n: newN,
-        avgWpm: newAvgWpm,
-        avgAcc: newAvgAcc,
-        date: today,
-      };
-
-      localStorage.setItem("dailyStats", JSON.stringify(updatedData));
-
-      return {
-        dailyAvgWpm: newAvgWpm,
-        dailyAvgAcc: newAvgAcc,
-        sessionsCount: newN,
-      };
-    },
-    []
-  );
-
-  const handleDailyChallenge = useCallback(
-    (session: SessionData) => {
-      const today = new Date().toISOString().split('T')[0];
-      const stored = localStorage.getItem('dailyChallenge');
-      if (!stored) return { completed: false, xp: 0 };
-  
-      const challenge: DailyChallenge = JSON.parse(stored);
-      if (challenge.date !== today || challenge.status === 1) {
-        return { completed: false, xp: 0 };
-      }
-  
-      const updated: DailyChallenge = { ...challenge };
-      let completed = false;
-  
-      switch (updated.type) {
-        case 'marathon':
-          updated.data = updated.data || {};
-          updated.data.charactersTyped = (updated.data.charactersTyped || 0) + session.textLength;
-          if (updated.data.charactersTyped >= (updated.target as number)) {
-            updated.status = 1;
-            completed = true;
-          }
-          break;
-        
-        case 'timeAttack':
-          updated.data = updated.data || {};
-          updated.data.timeSpent = (updated.data.timeSpent || 0) + session.timeSpent;
-          if (updated.data.timeSpent >= (updated.target as number)) {
-            updated.status = 1;
-            completed = true;
-          }
-          break;
-        
-        case 'speedCombo':
-          const target = updated.target as { wpm: number; accuracy: number };
-          if (session.wpm >= target.wpm && session.accuracy >= target.accuracy) {
-            updated.status = 1;
-            completed = true;
-          }
-          break;
-      }
-  
-      if (completed) {
-        localStorage.setItem('dailyChallenge', JSON.stringify(updated));
-        setDailyChallenge(updated);
-        return { completed: true, xp: updated.xp };
-      } else {
-        localStorage.setItem('dailyChallenge', JSON.stringify(updated));
-        setDailyChallenge(updated);
-        return { completed: false, xp: 0 };
-      }
-    },
-    [state.level, addXPMessage]
-  );
 
   const calculateSessionXP = useCallback(
     (session: SessionData) => {
-      const messages: XPMessage[] = [];
-      let totalXP = 0;
+      if (!userId) return 0;
 
-      let addedBaseXP: number;
-      if (state.level <= 5) {
-        addedBaseXP = 100; // زيادة من 50
-      } else if (state.level <= 10) {
-        addedBaseXP = 150; // زيادة من 75
-      } else if (state.level <= 50) {
-        addedBaseXP = 200; // زيادة من 100
-      } else {
-        addedBaseXP = 300; // زيادة من 150
-      }
+      const calculationStart = performance.now();
+      const sessionId = uuidv4();
 
-      // 1. حساب الحد الأقصى لـ XP حسب المستوى
-      const maxBaseXP = Math.min(addedBaseXP + state.level * 10, 1000); // زيادة من 700
+      try {
+        logger.perf.debug("Starting XP calculation", { sessionId, userId });
+        
+        let totalXP = 0;
+        const xpEvents: XPMessage[] = [];
+        let addedBaseXP: number;
 
-      // 2. توزيع النسب حسب الأولوية
-      const accuracyWeight = 0.4; // 60%
-      const textWeight = 0.3; // 30%
-      const speedWeight = 0.3; // 10%
+        if (state.level <= 5) {
+          addedBaseXP = 100; // زيادة من 50
+        } else if (state.level <= 10) {
+          addedBaseXP = 150; // زيادة من 75
+        } else if (state.level <= 50) {
+          addedBaseXP = 200; // زيادة من 100
+        } else {
+          addedBaseXP = 300; // زيادة من 150
+        }
 
-      // 3. حساب كل مكون مع مراعاة الدقة
-      const accuracyEffect = Math.pow(session.accuracy / 100, 1.8);
+        // 1. حساب الحد الأقصى لـ XP حسب المستوى
+        const maxBaseXP = Math.min(addedBaseXP + state.level * 10, 1000); // زيادة من 700
 
-      // XP الدقة (العامل الأساسي)
-      const accuracyXP = Math.round(
-        maxBaseXP * accuracyWeight * accuracyEffect
-      );
+        // 2. توزيع النسب حسب الأولوية
+        const accuracyWeight = 0.4; // 60%
+        const textWeight = 0.3; // 30%
+        const speedWeight = 0.3; // 10%
 
-      const textXP = Math.round(
-        Math.min(
-          Math.log(session.textLength + 1) * 70, // زيادة من 35
-          maxBaseXP * textWeight
-        ) * accuracyEffect
-      );
+        // 3. حساب كل مكون مع مراعاة الدقة
+        const accuracyEffect = Math.pow(session.accuracy / 100, 1.8);
 
-      // XP السرعة
-      const speedXP = Math.round(
-        Math.min(session.wpm * 1.4, maxBaseXP * speedWeight) * // زيادة من 0.7
-          Math.pow(accuracyEffect, 2)
-      );
-
-      // 4. الجمع النهائي
-      let baseXP = accuracyXP + textXP + speedXP;
-
-      // 5. تطبيق الحدود القصوى
-      baseXP = Math.min(baseXP, maxBaseXP);
-      totalXP += baseXP;
-      messages.push({
-        id: uuidv4(),
-        text: `Base XP`,
-        value: baseXP,
-        type: "base",
-      });
-
-      const streakBonus = Math.log1p(streak) * 30; // زيادة من 15
-      const levelModifier = 1 + state.level / 40; // زيادة التأثير من 80 إلى 40
-      const performanceXP = Math.round(
-        baseXP * ((streakBonus / 100) * levelModifier)
-      );
-      totalXP += performanceXP;
-      messages.push({
-        id: uuidv4(),
-        text: `Performance Bonus`,
-        value: performanceXP,
-        type: "bonus",
-      });
-
-      // if (handleDailyChallenge(messages, session, totalXP)) {
-      //   // Ensure proper handling of daily challenge completion
-      //   addXPMessage(
-      //     "Daily Challenge Completed",
-      //     DAILY_CHALLENGE_BASE_XP,
-      //     "daily-challenge"
-      //   );
-      // }
-
-      ACHIEVEMENTS.forEach((achievement) => {
-        const existing = state.achievements.find(
-          (a) => a.id === achievement.id
+        // XP الدقة (العامل الأساسي)
+        const accuracyXP = Math.round(
+          maxBaseXP * accuracyWeight * accuracyEffect
         );
-        if (existing?.unlocked) return;
 
-        const result = achievement.condition(session, existing?.progress);
+        const textXP = Math.round(
+          Math.min(
+            Math.log(session.textLength + 1) * 70, // زيادة من 35
+            maxBaseXP * textWeight
+          ) * accuracyEffect
+        );
 
-        if (result.achieved) {
-          messages.push({
-            id: uuidv4(),
-            text: `${achievement.name}`,
-            value: achievement.xpReward,
-            type: "achievement",
-          });
-          totalXP += achievement.xpReward;
-          dispatch({
-            type: "UNLOCK_ACHIEVEMENT",
-            achievement: {
-              ...achievement,
-              unlocked: true,
-              progress: result.current
-                ? {
-                    current: result.current,
-                    target: achievement.progress?.target || result.current,
-                  }
-                : undefined,
-            },
-          });
-        } else if (result.current !== undefined) {
-          dispatch({
-            type: "UPDATE_ACHIEVEMENT",
-            achievement: {
-              ...achievement,
-              progress: {
-                current: result.current,
-                target: achievement.progress?.target || result.current,
+        // XP السرعة
+        const speedXP = Math.round(
+          Math.min(session.wpm * 1.4, maxBaseXP * speedWeight) * // زيادة من 0.7
+            Math.pow(accuracyEffect, 2)
+        );
+
+        // 4. الجمع النهائي
+        let baseXP = accuracyXP + textXP + speedXP;
+
+        // 5. تطبيق الحدود القصوى
+        baseXP = Math.min(baseXP, maxBaseXP);
+        totalXP += baseXP;
+        xpEvents.push({
+          id: uuidv4(),
+          text: `Base XP`,
+          value: baseXP,
+          type: "base",
+        });
+
+        ACHIEVEMENTS.forEach((achievement) => {
+          const existing = state.achievements.find(
+            (a) => a.id === achievement.id
+          );
+          if (existing?.unlocked) return;
+
+          const result = achievement.condition(session, existing?.progress);
+
+          if (result.achieved) {
+            xpEvents.push({
+              id: uuidv4(),
+              text: `${achievement.name}`,
+              value: achievement.xpReward,
+              type: "achievement",
+            });
+            totalXP += achievement.xpReward;
+            dispatch({
+              type: "UNLOCK_ACHIEVEMENT",
+              achievement: {
+                ...achievement,
+                unlocked: true,
+                progress: result.current
+                  ? {
+                      current: result.current,
+                      target: achievement.progress?.target || result.current,
+                    }
+                  : undefined,
               },
-            },
-          });
+            });
+          } else if (result.current !== undefined) {
+            dispatch({
+              type: "UPDATE_ACHIEVEMENT",
+              achievement: {
+                ...achievement,
+                progress: {
+                  current: result.current,
+                  target: achievement.progress?.target || result.current,
+                },
+              },
+            });
+          }
+        });
+
+        BONUSES.forEach((bonus) => {
+          if (bonus.condition(session)) {
+            const calculatedReward = getChallengeXP(state.level);
+
+            totalXP += calculatedReward;
+            xpEvents.push({
+              id: uuidv4(),
+              text: `${bonus.name}`,
+              value: calculatedReward,
+              type: "bonus",
+            });
+          }
+        });
+
+        xpEvents.forEach((msg) => {
+          if (msg.value > 0) {
+            addXPMessage(msg.text, msg.value, msg.type);
+          }
+        });
+
+        if (totalXP > 500) {
+          console.warn(
+            JSON.stringify({
+              type: "HIGH_XP_EVENT",
+              userId,
+              totalXP,
+              sessionDetails: {
+                wpm: session.wpm,
+                accuracy: session.accuracy,
+                textLength: session.textLength,
+              },
+              timestamp: new Date().toISOString(),
+            })
+          );
         }
+
+         
+      logger.xp.info("Session XP calculated", {
+        sessionId,
+        totalXP,
+        duration: `${performance.now() - calculationStart}ms`
       });
 
-      BONUSES.forEach((bonus) => {
-        if (bonus.condition(session)) {
-          const calculatedReward = getChallengeXP(state.level);
-
-          totalXP += calculatedReward;
-          messages.push({
-            id: uuidv4(),
-            text: `${bonus.name}`,
-            value: calculatedReward,
-            type: "bonus",
-          });
-        }
-      });
-
-      messages.forEach((msg) => {
-        if (msg.value > 0) {
-          addXPMessage(msg.text, msg.value, msg.type);
-        }
-      });
-
-      return totalXP;
+        return totalXP;
+      } catch (error) {
+        logger.xp.error(
+          "XP calculation failed",
+          error instanceof Error ? error : undefined,
+          {
+          sessionId,
+          userId,
+          sessionDetails: {
+            wpm: session.wpm,
+            accuracy: session.accuracy,
+            textLength: session.textLength,
+          },
+        });
+        return 0;
+      }
     },
-    [state.level, streak, state.achievements, addXPMessage]
+    [state.level, state.achievements, addXPMessage]
   );
-  
   const contextValue = useMemo(
     () => ({
       level: state.level,
       userXP: state.userXP,
       nextLevelXP: state.nextLevelXP,
-      streak,
+
       dailyChallenge,
       achievements: state.achievements,
       addXP: (amount: number) => dispatch({ type: "ADD_XP", amount }),
       calculateSessionXP,
       xpMessages,
       addXPMessage,
-      calculateDailyAverage,
+      calculateSessionAverage,
       handleDailyChallenge,
     }),
-    [
-      state,
-      streak,
-      xpMessages,
-      calculateSessionXP,
-      dailyChallenge,
-    ]
+    [state, xpMessages, dailyChallenge]
   );
 
   return (

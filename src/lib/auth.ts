@@ -8,6 +8,8 @@ import { PrismaClient } from "@prisma/client";
 import { loginSchema } from "@/lib/schema";
 import { getUserFromDb } from "@/utils/db";
 import { ZodError } from "zod";
+import { env } from "@/env.mjs";
+
 
 declare module "next-auth" {
   interface Session {
@@ -80,7 +82,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         token.id = user.id;
         token.username = user.username;
         token.email = user.email;
-        token.emailVerified = user.emailVerified; 
+        token.emailVerified = user.emailVerified;
       }
       return token;
     },
@@ -94,6 +96,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       return session;
     },
   },
+
   // auth.ts
   pages: {
     signIn: "/auth?login",
@@ -102,7 +105,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     verifyRequest: "/auth/verify",
     newUser: "/auth?signup",
   },
-  
+
   events: {
     async linkAccount({ user }) {
       await prisma.user.update({
