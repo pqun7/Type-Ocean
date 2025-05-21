@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateDailyChallenge } from '@/utils/levelUtils';
+import { generateDailyChallenge } from '@/features/level/utils/challengeHelpers';
 import redis from '@/lib/redis';
 import { getLocalMidnightTTL, getTodayDate } from '@/utils/timeUtils'; // تحديث دالة التاريخ
-import { DailyChallenge } from '@/types/level';
+import { DailyChallenge } from '@/features/level/types/level';
 import { v4 as uuidv4 } from 'uuid';
-import { getUserLevel } from '@/server-utils/userCache'; // استيراد دالة المستوى
+import { getUserLevel } from '@/features/level/server-utils/userCache'; // استيراد دالة المستوى
 import { logging } from '@/log/ServerLogger'; 
 
 const logRequest = (requestId: string, message: string, metadata?: object) => {

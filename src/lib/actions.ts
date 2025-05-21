@@ -1,13 +1,13 @@
 // lib/actions.ts
 "use server";
 
-import { signUpSchema } from "@/lib/schema";
+import { signUpSchema } from "@/schemas/authSchema";
 import db from "@/lib/db";
 import { saltAndHashPassword } from "@/utils/password";
 import { ZodError } from "zod";
 import { resendVerificationEmail } from "@/actions/email-verification";
 import { mapErrorToMessage } from "@/constants/errors"; 
-import { cacheLevel, cacheXP } from "@/server-utils/userCache";
+import { cacheLevel, cacheXP } from "@/features/level/server-utils/userCache";
 import { logging } from '@/log/ServerLogger'; 
 
 export const signUp = async (formData: FormData) => {

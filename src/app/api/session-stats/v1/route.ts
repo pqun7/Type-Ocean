@@ -1,23 +1,24 @@
+//api/session-stats/v1/route.ts
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from "next/server";
 import redis, { connectIfNeeded } from '@/lib/redis';
-import * as Sentry from '@sentry/nextjs';
+import { logging } from "@/log/ServerLogger";
 
 export async function POST(req: NextRequest) {
   await connectIfNeeded();
 
   const userId = req.headers.get("x-user-id");
   if (!userId) {
-    console.warn("[STATS] Unauthorized stats update attempt");
+    logging.warn("[STATS] Unauthorized stats update attempt");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { wpm, accuracy } = await req.json();
-  console.debug(`[STATS] Updating stats for ${userId}`, { wpm, accuracy });
+  logging.debug(`[STATS] Updating stats for ${userId}`, { wpm, accuracy });
 
   if (typeof wpm !== "number" || typeof accuracy !== "number") {
-    console.warn(`[STATS] Invalid input for ${userId}`, { wpm, accuracy });
+    logging.warn(`[STATS] Invalid input for ${userId}`, { wpm, accuracy });
     return NextResponse.json({ error: "Invalid data format" }, { status: 400 });
   }
 
@@ -58,12 +59,11 @@ export async function POST(req: NextRequest) {
         sessionsCount: 1,
       });
     }
-     const newN = parseInt(String(currentData.n || "0")) + 1;
+
+    const newN = parseInt(String(currentData.n || "0")) + 1;
     const currentWpm = parseFloat(String(currentData.avgWpm || "0"));
     const currentAcc = parseFloat(String(currentData.avgAcc || "0"));
 
-
-   
     const newAvgWpm = (currentWpm * (newN - 1) + wpm) / newN;
     const newAvgAcc = (currentAcc * (newN - 1) + accuracy) / newN;
 
@@ -81,11 +81,11 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error(`[STATS] Processing error for ${userId}:`, error);
-    Sentry.captureException(error, {
-      user: { id: userId },
-      extra: { endpoint: "session-stats" },
-    });
+    logging.error(
+      `[STATS] Processing error for ${userId}`,
+      error,
+      { endpoint: "session-stats", userId }
+    );
 
     return NextResponse.json(
       { error: "Failed to process session stats" },

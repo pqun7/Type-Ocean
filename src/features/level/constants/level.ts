@@ -1,4 +1,4 @@
-import { Achievement, Bonus, Session } from "@/types/level";
+import { Achievement, Bonus, Session } from "@/features/level/types/level";
 
 export const BASE_XP = 500;
 
@@ -99,3 +99,20 @@ export const CHALLENGE_TYPE_WEIGHTS = {
   timeAttack: 18,
   consistency: 15,
 };
+
+
+
+export const XP_LOGGING_THRESHOLDS = {
+  BASE: 50,
+  BONUS: 100,
+  LEVEL_UP: 200,
+};
+
+
+export type XPMessageType = keyof typeof XP_MESSAGE_TIMEOUT;
+
+export const XP_MESSAGE_TIMEOUT = {
+  BASE: 3000,
+  BONUS: 5000,
+  LEVEL_UP: 7000,
+} as const;

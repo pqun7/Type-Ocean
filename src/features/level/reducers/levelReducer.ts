@@ -1,6 +1,13 @@
-import { LevelState, LevelAction } from "@/types/level";
-import { calculateNextLevelXP } from "@/utils/levelUtils";
+// levelReducer.ts
+import { LevelState, LevelAction } from "@/features/level/types/level";
+import { calculateNextLevelXP } from "@/features/level/utils/xpMath";
 
+/**
+ * Reducer for managing level progression and achievements
+ * @param state - Current level state
+ * @param action - Dispatched action
+ * @returns Updated level state
+ */
 export const levelReducer = (state: LevelState, action: LevelAction): LevelState => {
   switch (action.type) {
     case "ADD_XP": {
@@ -8,6 +15,7 @@ export const levelReducer = (state: LevelState, action: LevelAction): LevelState
       let totalXP = currentXP + action.amount;
       let nextLevel = currentLevel;
       
+      // Calculate level progression
       while (totalXP >= calculateNextLevelXP(nextLevel)) {
         totalXP -= calculateNextLevelXP(nextLevel);
         nextLevel++;

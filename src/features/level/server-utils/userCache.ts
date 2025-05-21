@@ -1,11 +1,16 @@
 import prisma from '@/lib/db';
 import client, { connectIfNeeded } from '@/lib/redis';
 import { PlayerProfile, User } from '@prisma/client';
-import { logging } from '@/log/ServerLogger'; // Add import
+import { logging } from '@/log/ServerLogger';
 
-const PROFILE_CACHE_TTL = 3600; // 1 ساعة
+// Cache configuration
+const PROFILE_CACHE_TTL = 3600; // 1 hour in seconds
 
-// 🔹 تخزين المستوى مؤقتًا
+/**
+ * Caches user level information in Redis with TTL
+ * @param userId - Target user ID
+ * @param level - Current level to cache
+ */
 export async function cacheLevel(userId: string, level: number): Promise<void> {
   try {
     await connectIfNeeded();
@@ -16,7 +21,11 @@ export async function cacheLevel(userId: string, level: number): Promise<void> {
   }
 }
 
-// 🔹 تخزين النقاط (XP) مؤقتًا
+/**
+ * Caches user XP (Experience Points) in Redis with TTL
+ * @param userId - Target user ID
+ * @param xp - Current XP to cache
+ */
 export async function cacheXP(userId: string, xp: number): Promise<void> {
   try {
     await connectIfNeeded();
@@ -27,8 +36,15 @@ export async function cacheXP(userId: string, xp: number): Promise<void> {
   }
 }
 
-// 🔹 تخزين الملف مؤقتًا
-export async function cacheProfile(profile: PlayerProfile & { user: User }, cacheKey: string): Promise<void> {
+/**
+ * Caches complete player profile with user relationship
+ * @param profile - Full profile object with user data
+ * @param cacheKey - Redis key to use for storage
+ */
+export async function cacheProfile(
+  profile: PlayerProfile & { user: User },
+  cacheKey: string
+): Promise<void> {
   try {
     await connectIfNeeded();
     await client.setEx(cacheKey, PROFILE_CACHE_TTL, JSON.stringify({
@@ -47,14 +63,22 @@ export async function cacheProfile(profile: PlayerProfile & { user: User }, cach
   }
 }
 
-// 🔹 استرجاع الملف من الكاش أو قاعدة البيانات
-export async function getCachedProfile(userId: string): Promise<PlayerProfile & { user: User }> {
+/**
+ * Retrieves player profile with cache-aside pattern
+ * @param userId - Target user ID
+ * @returns Complete player profile with user data
+ * @throws Error when fallback handling is required
+ */
+export async function getCachedProfile(
+  userId: string
+): Promise<PlayerProfile & { user: User }> {
   const cacheKey = `user:${userId}:profile`;
   logging.debug(`[CACHE] Attempting to fetch profile for ${userId}`);
 
   try {
     await connectIfNeeded();
 
+    // Attempt cache retrieval
     const cachedData = await client.get(cacheKey);
     if (cachedData) {
       logging.debug(`[CACHE] Cache hit for ${userId}`);
@@ -71,6 +95,7 @@ export async function getCachedProfile(userId: string): Promise<PlayerProfile & 
       };
     }
 
+    // Cache miss handling
     logging.debug(`[CACHE] Cache miss for ${userId}`);
     const profile = await prisma.playerProfile.findUnique({
       where: { userId },
@@ -82,6 +107,7 @@ export async function getCachedProfile(userId: string): Promise<PlayerProfile & 
       throw new Error('FALLBACK_NEEDED');
     }
 
+    // Update cache with fresh data
     await cacheProfile(profile, cacheKey);
     return profile;
 
@@ -91,18 +117,25 @@ export async function getCachedProfile(userId: string): Promise<PlayerProfile & 
   }
 }
 
-// 🔹 جلب المستوى مع التخزين المؤقت
+/**
+ * Retrieves user level with cache-first strategy
+ * @param userId - Target user ID
+ * @returns Current user level
+ * @throws Error when profile not found
+ */
 export async function getUserLevel(userId: string): Promise<number> {
   const CACHE_KEY = `user:${userId}:level`;
 
   try {
     await connectIfNeeded();
 
+    // Check cache first
     const cachedLevel = await client.get(CACHE_KEY);
     if (cachedLevel) {
       return parseInt(cachedLevel, 10);
     }
 
+    // Fallback to database
     const profile = await prisma.playerProfile.findUnique({
       where: { userId },
       select: { level: true }
@@ -112,6 +145,7 @@ export async function getUserLevel(userId: string): Promise<number> {
       throw new Error('USER_PROFILE_NOT_FOUND');
     }
 
+    // Update cache
     await client.setEx(CACHE_KEY, PROFILE_CACHE_TTL, profile.level.toString());
     return profile.level;
 

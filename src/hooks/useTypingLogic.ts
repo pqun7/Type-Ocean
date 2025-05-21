@@ -4,8 +4,8 @@ import { TextType, State } from "@/types/typing";
 import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
 import { useLevel } from "@/hooks/useLevel";
-import { SessionData } from "@/types/level";
-import { calculateNextLevelXP, getChallengeXP } from "@/utils/levelUtils";
+import { SessionData } from "@/features/level/types/level";
+import { logger } from "@/log/clientLogger";
 
 /**
  * Core typing test logic hook managing:
@@ -46,8 +46,13 @@ export default function useTypingLogic(
   });
 
   // Historical data management
-  const { wpmHistory, startNewSession, addTempPoints, commitSession } =
-    useWpmHistory();
+  const {
+    wpmHistory,
+    startNewSession,
+    addTempPoints,
+    commitSession,
+    rollback,
+  } = useWpmHistory();
 
   // Derived values
   const textRef = useRef(text);
@@ -121,58 +126,137 @@ export default function useTypingLogic(
   }, [startNewSession, addTempPoints]);
 
   const handleSessionEnd = useCallback(async () => {
+    // Capture pre-update state for rollback
+    const previousState = state;
+    const previousMetrics = { ...metrics };
+    const previousWpmHistory = [...wpmHistory];
+    const sessionStartTime = performance.now();
+
     try {
+      // Optimistic UI updates
       const activeTime = getActiveTime();
       const { wpm, accuracy } = calculateMetrics();
 
-      // Await session averages calculation
-      const { dailyAvgWpm, dailyAvgAcc, sessionsCount } =
-        await calculateSessionAverage(wpm, accuracy);
+      // // Parallelize independent state updates
+      // await Promise.all([
+      //   new Promise<void>((resolve) => {
+      //     setState("end");
+      //     setMetrics(prev => ({
+      //       ...prev,
+      //       wpm,
+      //       accuracy,
+      //       elapsedTime: Math.floor(activeTime / 1000),
+      //     }));
+      //     resolve();
+      //   }),
+      //   commitSession() // Assume this is sync/async as needed
+      // ]);
 
-      const sessionData: SessionData = {
-        wpm,
-        accuracy,
-        textLength: text.length,
-        textType: selectedLevel,
-        timeSpent: Math.floor(activeTime / 1000),
-        errors: totalErrors,
-        dailyAvgWpm,
-        dailyAvgAcc,
-        sessionsCount,
-      };
-
-      // Update metrics and state
+      setState("end");
       setMetrics((prev) => ({
         ...prev,
         wpm,
+        accuracy,
         elapsedTime: Math.floor(activeTime / 1000),
       }));
+
       commitSession();
-      setState("end");
 
-      // Calculate XP and handle challenge
-      const baseXP = calculateSessionXP(sessionData);
-      const { completed, xp } = await handleDailyChallenge(sessionData);
+      let sessionData: SessionData = {
+        wpm: 0,
+        accuracy: 0,
+        textLength: 0,
+        textType: selectedLevel,
+        timeSpent: 0,
+        errors: 0,
+        dailyAvgWpm: 0,
+        dailyAvgAcc: 0,
+        sessionsCount: 0,
+      };
 
-      // Calculate participation bonus
+      // Parallelize data processing and challenge handling
+      const [sessionAverages, challengeResult] = await Promise.all([
+        calculateSessionAverage(wpm, accuracy),
+        (async () => {
+          sessionData = {
+            wpm,
+            accuracy,
+            textLength: text.length,
+            textType: selectedLevel,
+            timeSpent: Math.floor(activeTime / 1000),
+            errors: totalErrors,
+            dailyAvgWpm: 0, // Temp value
+            dailyAvgAcc: 0,
+            sessionsCount: 0,
+          };
+          return handleDailyChallenge(sessionData);
+        })(),
+      ]);
+
+      // Update with actual averages
+      const finalSessionData: SessionData = {
+        ...sessionData,
+        dailyAvgWpm: sessionAverages.dailyAvgWpm,
+        dailyAvgAcc: sessionAverages.dailyAvgAcc,
+        sessionsCount: sessionAverages.sessionsCount,
+      };
+
+      // Process XP calculations
+      const baseXP = calculateSessionXP(finalSessionData);
+      const { completed, xp } = challengeResult;
       const participationXP = Math.max(15 - baseXP, 0);
-      const totalXP = baseXP + xp + participationXP;
+      const totalXP = baseXP + xp;
 
-      // Update XP state
+      // Batch XP updates
+      const updates = [];
       if (participationXP > 0) {
-        addXP(participationXP);
-        addXPMessage("Participation Reward", participationXP, "participation");
+        updates.push(addXP(participationXP));
+        updates.push(
+          addXPMessage("Participation Reward", participationXP, "participation")
+        );
+      } else {
+        updates.push(addXP(totalXP));
+        updates.push(addXPMessage("Session Completed", totalXP, "base"));
       }
 
       if (completed) {
-        addXP(xp);
-        addXPMessage("Daily Challenge Completed", xp, "daily-challenge");
+        updates.push(addXP(xp));
+        updates.push(
+          addXPMessage("Daily Challenge Completed", xp, "daily-challenge")
+        );
       }
+
+      // Execute all XP updates
+      await Promise.all(updates);
+
+      logger.session.info("Session completed successfully", {
+        duration: performance.now() - sessionStartTime,
+        wpm,
+        accuracy,
+        xpEarned: totalXP,
+      });
     } catch (error) {
-      console.error("Session end error:", error);
-      // Add error handling logic here
+      // Rollback procedure
+      setState(previousState);
+      setMetrics(previousMetrics);
+      if (wpmHistory !== previousWpmHistory) {
+        rollback();
+      }
+
+      logger.session.error(
+        "Session completion failed",
+        error instanceof Error ? error : undefined,
+        {
+          rollbackSuccess:
+            metrics === previousMetrics && state === previousState,
+        }
+      );
+
+      // Re-throw error for error boundaries or additional handling
+      throw new Error("Failed to complete session. Please try again.");
     }
   }, [
+    // Original dependencies
     getActiveTime,
     calculateMetrics,
     commitSession,
@@ -184,6 +268,7 @@ export default function useTypingLogic(
     handleDailyChallenge,
     addXP,
     addXPMessage,
+    wpmHistory, // Added for rollback comparison
   ]);
 
   // Idle state management
@@ -236,13 +321,14 @@ export default function useTypingLogic(
     setIsError(text.slice(0, input.length) !== input);
     // if(isError) setTotalErrors((prv) => prv + 1);
 
+    // if (input.length >= text.length && state !== "end") { ... }
     if (input.length === text.length) {
       // Handle async session end properly
-      handleSessionEnd().catch(error => 
+      handleSessionEnd().catch((error) =>
         console.error("Failed to complete session:", error)
       );
     }
-    
+
     // Reset idle timer on input
     idleTimer.current && clearTimeout(idleTimer.current);
     if (idleState.current.isIdle) handleIdleState(false);

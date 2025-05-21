@@ -6,6 +6,7 @@ export type XPMessageType =
   | "achievement"
   | "bonus"
   | "level-up"
+  | "error"
   | "participation";
 
 export type XPMessage = {
@@ -29,6 +30,8 @@ export type DailyChallenge = {
     charactersTyped?: number;
     timeSpent?: number;
   };
+  progress?: SessionData; 
+
 };
 
 export type DailyChallengeResponse = {

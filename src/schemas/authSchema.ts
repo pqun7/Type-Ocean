@@ -1,7 +1,5 @@
 // lib/schema.ts
 import { z } from "zod";
-import { DailyChallengeResponse } from '@/types/level';
-
 
 const usernameValidation = z
   .string()
@@ -64,26 +62,7 @@ const resetPasswordSchema = z
 });
 
 
-const ChallengeResponseSchema = z.object({
-  completed: z.boolean(),
-  xp: z.number().min(0),
-  updatedChallenge: z.object({
-    id: z.string(),
-    progress: z.record(z.any()),
-    status: z.number().min(0).max(2),
-    date: z.string()
-  })
-});
 
-export function validateChallengeResponse(data: unknown): DailyChallengeResponse {
-  try {
-    return ChallengeResponseSchema.parse(data);
-  } catch (error) {
-    throw new Error(`Invalid challenge response: ${error instanceof z.ZodError 
-      ? error.errors.map(e => e.message).join(', ')
-      : 'Unknown error'}`);
-  }
-}
 
 type LoginSchema = z.infer<typeof loginSchema>;
 type SignUpSchema = z.infer<typeof signUpSchema>;

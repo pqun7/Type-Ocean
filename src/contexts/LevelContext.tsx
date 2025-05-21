@@ -15,20 +15,19 @@ import {
   SessionData,
   XPMessageType,
   DailyChallenge,
-} from "@/types/level";
-import { levelReducer } from "@/reducers/levelReducer";
+} from "@/features/level/types/level";
+import { levelReducer } from "@/features/level/reducers/levelReducer";
+import { generateDailyChallenge, calculateChallengeStatus } from "@/features/level/utils/challengeHelpers";
 import {
   calculateNextLevelXP,
   getChallengeXP,
-  generateDailyChallenge,
-} from "@/utils/levelUtils";
-import { ACHIEVEMENTS, BONUSES } from "@/constants/level";
+} from "@/features/level/utils/xpMath";
+
+import { ACHIEVEMENTS, BONUSES } from "@/features/level/constants/level";
 import { authFetch } from "@/utils/authFetch";
-import {
-  logger,
-  XP_MESSAGE_TIMEOUT,
-} from "@/log/clientLogger";
-import { calculateChallengeStatus } from "@/utils/challengeUtils";
+import { logger } from "@/log/clientLogger";
+import { XP_MESSAGE_TIMEOUT } from "@/features/level/constants/level";
+import { getSession } from "next-auth/react";
 
 // Make sure you do NOT import anything from "@/lib/redis" or any server-only code here.
 const CACHE_KEYS = {
@@ -53,36 +52,13 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
 
   // User session management
   useEffect(() => {
-    const fetchUserSession = async () => {
-      try {
-        // Use POST instead of GET to match the API route's allowed methods
-        const response = await fetch("/api/session", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-
-        if (!(response instanceof Response) || !response.ok) {
-          throw new Error(`Session request failed: ${response.status}`);
-        }
-
-        const sessionData = await response.json();
-        setUserId(sessionData.userId);
-
-        logger.session.debug("User session initialized", {
-          userId: sessionData.userId,
-          sessionAge: `${Date.now() - new Date(sessionData.createdAt).getTime()}ms`,
-        });
-      } catch (error) {
-        logger.session.error(
-          "Failed to initialize user session",
-          error instanceof Error ? error : undefined
-        );
+    const fetchSession = async () => {
+      const session = await getSession();
+      if (session?.user?.id) {
+        setUserId(session.user.id);
       }
     };
-
-    fetchUserSession();
+    fetchSession();
   }, []);
 
   // Daily challenge loader with abort controller
@@ -152,38 +128,41 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [userId, state.level]);
 
-
   // حساب المتوسطات اليومية مع Redis
   const fallbackAverages = { dailyAvgWpm: 0, dailyAvgAcc: 0, sessionsCount: 0 };
 
   const calculateSessionAverage = useCallback(
     async (newWpm: number, newAcc: number) => {
       if (!userId) return fallbackAverages;
-  
+
       try {
-        const response = await authFetch("/api/session-stats", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "X-Performance-Metrics": "v2" 
+        const response = (await authFetch(
+          "/api/session-stats",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Performance-Metrics": "v2",
+            },
+            body: JSON.stringify({
+              wpm: newWpm,
+              accuracy: newAcc,
+              timestamp: Date.now(),
+            }),
           },
-          body: JSON.stringify({ 
-            wpm: newWpm, 
-            accuracy: newAcc,
-            timestamp: Date.now()
-          })
-        }, userId) as Response;
-  
+          userId
+        )) as Response;
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-  
+
         const data = await response.json();
-  
+
         if (!data.dailyAvgWpm || !data.dailyAvgAcc || !data.sessionsCount) {
           throw new Error("Invalid session stats response");
         }
-  
+
         return data;
       } catch (error) {
         logger.session.error(
@@ -195,51 +174,53 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
     },
     [userId]
   );
-  
-  // تحديث التحدي اليومي  
-// في handleDailyChallenge function
-const handleDailyChallenge = useCallback(
-  async (session: SessionData) => {
-    if (!dailyChallenge || !userId) return { completed: false, xp: 0 };
 
-    // حفظ الحالة الحالية للتراجع
-    const prevChallenge = dailyChallenge;
-    
-    // تحديث محلي فوري
-    const tempChallenge = {
-      ...dailyChallenge,
-      progress: session,
-      status: calculateChallengeStatus(dailyChallenge, session) as 0 | 1
-    };
-    setDailyChallenge(tempChallenge);
+  const handleDailyChallenge = useCallback(
+    async (session: SessionData) => {
+      if (!dailyChallenge || !userId) return { completed: false, xp: 0 };
 
-    try {
-      const response = await authFetch(`/api/daily-challenge/${dailyChallenge.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ progress: session }),
-      }, userId);
+      // حفظ الحالة الحالية للتراجع
+      const prevChallenge = dailyChallenge;
 
-      if (!(response instanceof Response)) {
-        throw new Error("Unexpected response type");
+      // تحديث محلي فوري
+      const tempChallenge = {
+        ...dailyChallenge,
+        progress: session,
+        status: calculateChallengeStatus(dailyChallenge, session) as 0 | 1,
+      };
+      setDailyChallenge(tempChallenge);
+
+      try {
+        const response = await authFetch(
+          `/api/daily-challenge/${dailyChallenge.id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ progress: session }),
+          },
+          userId
+        );
+
+        if (!(response instanceof Response)) {
+          throw new Error("Unexpected response type");
+        }
+
+        const result = await response.json();
+        setDailyChallenge(result.updatedChallenge);
+
+        return result;
+      } catch (error) {
+        // التراجع عند الخطأ
+        setDailyChallenge(prevChallenge);
+        logger.challenge.error(
+          "Challenge update failed",
+          error instanceof Error ? error : undefined
+        );
+        throw error; // لإعادة التحميل أو المعالجة
       }
-
-      const result = await response.json();
-      setDailyChallenge(result.updatedChallenge);
-
-      return result;
-    } catch (error) {
-      // التراجع عند الخطأ
-      setDailyChallenge(prevChallenge);
-      logger.challenge.error(
-        "Challenge update failed",
-        error instanceof Error ? error : undefined
-      );
-      throw error; // لإعادة التحميل أو المعالجة
-    }
-  },
-  [dailyChallenge, userId]
-);
+    },
+    [dailyChallenge, userId]
+  );
 
   // إدارة رسائل XP مع تحسين الأداء
   const addXPMessage = useCallback(
@@ -265,7 +246,6 @@ const handleDailyChallenge = useCallback(
     []
   );
 
-
   const calculateSessionXP = useCallback(
     (session: SessionData) => {
       if (!userId) return 0;
@@ -275,7 +255,7 @@ const handleDailyChallenge = useCallback(
 
       try {
         logger.perf.debug("Starting XP calculation", { sessionId, userId });
-        
+
         let totalXP = 0;
         const xpEvents: XPMessage[] = [];
         let addedBaseXP: number;
@@ -411,12 +391,11 @@ const handleDailyChallenge = useCallback(
           );
         }
 
-         
-      logger.xp.info("Session XP calculated", {
-        sessionId,
-        totalXP,
-        duration: `${performance.now() - calculationStart}ms`
-      });
+        logger.xp.info("Session XP calculated", {
+          sessionId,
+          totalXP,
+          duration: `${performance.now() - calculationStart}ms`,
+        });
 
         return totalXP;
       } catch (error) {
@@ -424,14 +403,15 @@ const handleDailyChallenge = useCallback(
           "XP calculation failed",
           error instanceof Error ? error : undefined,
           {
-          sessionId,
-          userId,
-          sessionDetails: {
-            wpm: session.wpm,
-            accuracy: session.accuracy,
-            textLength: session.textLength,
-          },
-        });
+            sessionId,
+            userId,
+            sessionDetails: {
+              wpm: session.wpm,
+              accuracy: session.accuracy,
+              textLength: session.textLength,
+            },
+          }
+        );
         return 0;
       }
     },

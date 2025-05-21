@@ -1,5 +1,5 @@
 // src/log/clientLogger.ts
-import { XPMessage } from '@/types/level';
+import { XPMessage } from '@/features/level/types/level';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 type LogContext = 'AUTH' | 'PERF' | 'XP' | 'CHALLENGE' | 'SESSION' | 'ERROR';
@@ -16,6 +16,8 @@ const LogLevelPriority: Record<LogLevel, number> = {
   warn: 2,
   error: 3,
 };
+
+import { XP_LOGGING_THRESHOLDS } from '@/features/level/constants/level';
 
 class ClientLogger {
   private readonly context: string;
@@ -113,17 +115,7 @@ export const logger = {
 };
 
 // XP-specific utilities
-export const XP_LOGGING_THRESHOLDS = {
-  BASE: 50,
-  BONUS: 100,
-  LEVEL_UP: 200,
-};
 
-export const XP_MESSAGE_TIMEOUT = {
-  BASE: 3000,
-  BONUS: 4000,
-  LEVEL_UP: 5000,
-};
 
 export const logXPEvent = (
   userId: string,

@@ -2,7 +2,6 @@ import { useRef, useEffect } from "react";
 import useTextManager from "./useTextManager";
 import useTypingLogic from "./useTypingLogic";
 import useCaret from "./useCaret";
-import { useLevel } from "@/contexts/LevelContext";
 
 type Level = "SHORT" | "MEDIUM" | "LONG";
 

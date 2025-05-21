@@ -34,7 +34,7 @@ interface UserMenuProps {
   userXP: number;
   nextLevelXP: number;
 }
-import { XPMessageType } from "@/types/level";
+import { XPMessageType } from "@/features/level/types/level";
 
 /**
  * UserLevelDisplay Component

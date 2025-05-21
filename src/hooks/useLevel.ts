@@ -1,6 +1,6 @@
 import { useContext } from "react";
 import { LevelContext } from "@/contexts/LevelContext";
-import { LevelContextType } from "@/types/level";
+import { LevelContextType } from "@/features/level/types/level";
 
 export const useLevel = (): LevelContextType => {
   const context = useContext(LevelContext);
