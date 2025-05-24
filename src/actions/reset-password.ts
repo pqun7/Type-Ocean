@@ -2,14 +2,14 @@
 "use server";
 
 import { headers } from "next/headers";
-import prisma from "@/lib/db";
+import prisma from "@/features/auth/lib/db";
 
-import { saltAndHashPassword } from "@/utils/password";
+import { saltAndHashPassword } from "@/features/auth/utils/password";
 import bcrypt from "bcrypt";
 import { resetPasswordSchema } from "@/schemas/authSchema";
-import { generateResetToken, validateResetToken } from "@/utils/tokens";
-import { checkRateLimit } from "@/lib/rate-limiter";
-import { sendPasswordResetEmail } from "@/providers/resend";
+import { generateResetToken, validateResetToken } from "@/features/auth/utils/tokens";
+import { checkRateLimit } from "@/features/auth/lib/rate-limiter";
+import { sendPasswordResetEmail } from "@/features/auth/providers/resend";
 import { mapErrorToMessage } from "@/constants/errors";
 
 export type PasswordState = {

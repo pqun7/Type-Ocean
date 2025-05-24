@@ -1,6 +1,6 @@
 import { verifyEmail } from "@/actions/verify-email";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { auth } from "@/features/auth/lib/auth";
 
 export default async function EmailVerificationPage({
   params,

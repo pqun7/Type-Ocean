@@ -3,10 +3,20 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from "next/server";
 import redis, { connectIfNeeded } from '@/lib/redis';
+import { enforceRateLimit } from '@/features/auth/lib/rate-limiter'
 import { logging } from "@/log/ServerLogger";
 
 export async function POST(req: NextRequest) {
   await connectIfNeeded();
+
+  // const rateLimitHeaders = await enforceRateLimit(
+  //   req,
+  //   '/api/session-stats/v1'
+  // )
+  
+  // if (rateLimitHeaders instanceof NextResponse) {
+  //   return rateLimitHeaders
+  // }
 
   const userId = req.headers.get("x-user-id");
   if (!userId) {

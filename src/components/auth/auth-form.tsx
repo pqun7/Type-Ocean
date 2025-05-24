@@ -28,7 +28,7 @@ import { GoogleAuth } from "@/components/auth/google-button";
 import { Eye, EyeOff } from "lucide-react";
 
 // Import server actions
-import { signUp } from "@/lib/actions";
+import { signUp } from "@/features/auth/lib/actions";
 import { signIn } from "next-auth/react";
 import { useAlert } from "@/contexts/alert-context";
 

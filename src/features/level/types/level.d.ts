@@ -109,10 +109,11 @@ export type LevelAction =
     achievements: Achievement[];
     addXP: (amount: number) => void;
     calculateSessionXP: (session: SessionData) => number;
-    calculateSessionAverage: (newWpm: number, newAcc: number) => Promise<{ dailyAvgWpm: number; dailyAvgAcc: number; sessionsCount: number }>;
     handleDailyChallenge: (session: SessionData) => Promise<{ completed: boolean; xp: number }>;
     xpMessages: XPMessage[];
     addXPMessage: (text: string, value: number, type: XPMessageType) => void;
+    clearXPMessages?: () => void;
+    recordSessionStats?: (...args: any[]) => any;
   }
 
 

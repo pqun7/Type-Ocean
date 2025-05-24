@@ -2,11 +2,11 @@
 "use server";
 
 import { headers } from "next/headers";
-import { generateEmailVerificationToken } from "@/utils/tokens";
-import { checkRateLimit } from "@/lib/rate-limiter";
-import { sendVerificationEmail } from "@/providers/resend";
+import { generateEmailVerificationToken } from "@/features/auth/utils/tokens";
+import { checkRateLimit } from "@/features/auth/lib/rate-limiter";
+import { sendVerificationEmail } from "@/features/auth/providers/resend";
 import { mapErrorToMessage } from "@/constants/errors";
-import prisma  from "@/lib/db";
+import prisma  from "@/features/auth/lib/db";
 
 export async function resendVerificationEmail(email: string) {
   try {

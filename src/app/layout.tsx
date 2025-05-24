@@ -3,7 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Footer from "@/components/layout/Footer";
 import Background from "@/components/ui/Background";
-import { LevelProvider } from "@/contexts/LevelContext";
+import { LevelProvider } from "@/features/level/context/LevelProvider";
 import { AlertProvider } from "@/contexts/alert-context";
 import { AlertState } from "@/components/ui/alert-state";
 import { AnimatePresence } from "framer-motion";

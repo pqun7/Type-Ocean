@@ -1,4 +1,3 @@
-// src/auth.ts (new configuration file)
 import "next-auth";
 import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
@@ -6,10 +5,8 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { PrismaClient } from "@prisma/client";
 import { loginSchema } from "@/schemas/authSchema";
-import { getUserFromDb } from "@/utils/db";
+import { getUserFromDb } from "@/features/auth/utils/db";
 import { ZodError } from "zod";
-import { env } from "@/env.mjs";
-
 
 declare module "next-auth" {
   interface Session {

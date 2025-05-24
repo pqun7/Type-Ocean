@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useWpmHistory } from "./useWpmHistory";
-import { TextType, State } from "@/types/typing";
+import { useWpmHistory } from "@/features/typing/hooks/useWpmHistory";
+import { TextType, State } from "@/features/typing/types/typing";
 import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
-import { useLevel } from "@/hooks/useLevel";
+import { useLevel } from "@/features/level/hooks/useLevel";
 import { SessionData } from "@/features/level/types/level";
 import { logger } from "@/log/clientLogger";
 
@@ -64,7 +64,7 @@ export default function useTypingLogic(
     calculateSessionXP,
     addXPMessage,
     level,
-    calculateSessionAverage,
+    recordSessionStats,
     handleDailyChallenge,
   } = useLevel();
 
@@ -176,7 +176,7 @@ export default function useTypingLogic(
 
       // Parallelize data processing and challenge handling
       const [sessionAverages, challengeResult] = await Promise.all([
-        calculateSessionAverage(wpm, accuracy),
+        recordSessionStats!(wpm, accuracy),
         (async () => {
           sessionData = {
             wpm,
@@ -264,7 +264,7 @@ export default function useTypingLogic(
     selectedLevel,
     totalErrors,
     calculateSessionXP,
-    calculateSessionAverage,
+    recordSessionStats,
     handleDailyChallenge,
     addXP,
     addXPMessage,

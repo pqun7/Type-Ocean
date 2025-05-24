@@ -1,4 +1,4 @@
-import prisma from '@/lib/db';
+import prisma from '@/features/auth/lib/db';
 import client, { connectIfNeeded } from '@/lib/redis';
 import { PlayerProfile, User } from '@prisma/client';
 import { logging } from '@/log/ServerLogger';

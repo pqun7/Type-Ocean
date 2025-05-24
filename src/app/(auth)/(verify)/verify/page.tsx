@@ -1,5 +1,5 @@
 // src/app/verify/page.tsx
-import { auth } from "@/lib/auth";
+import { auth } from "@/features/auth/lib/auth";
 import { redirect } from "next/navigation";
 import { EmailVerificationButton } from "@/components/auth/verification/email-verification-button";
 

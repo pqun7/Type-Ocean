@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
-import useTextManager from "./useTextManager";
-import useTypingLogic from "./useTypingLogic";
+import useTextManager from "@/features/typing/hooks/useTextManager";
+import useTypingLogic from "@/features/typing/hooks/useTypingLogic";
 import useCaret from "./useCaret";
 
 type Level = "SHORT" | "MEDIUM" | "LONG";

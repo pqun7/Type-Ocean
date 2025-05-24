@@ -17,7 +17,7 @@
 // };
 
 // export { SignOut };
-import { signOut } from "@/lib/auth";
+import { signOut } from "@/features/auth/lib/auth";
 
 export function SignOut() {
   return (

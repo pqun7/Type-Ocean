@@ -176,12 +176,15 @@ export class RateLimiter {
 
   // 8. توليد رؤوس الاستجابة
   private generateHeaders(allowed: boolean, config: RateLimitConfig): Record<string, string> {
-    return {
+    const headers: Record<string, string> = {
       'X-RateLimit-Limit': config.limit.toString(),
       'X-RateLimit-Remaining': allowed ? (config.limit - 1).toString() : '0',
       'X-RateLimit-Reset': (Date.now() + config.windowMs).toString(),
-      ...(!allowed && { 'Retry-After': (config.windowMs / 1000).toString() }),
     };
+    if (!allowed) {
+      headers['Retry-After'] = (config.windowMs / 1000).toString();
+    }
+    return headers;
   }
 
   // 9. الحصول على التهيئة مع القيم الافتراضية
@@ -201,7 +204,7 @@ export class RateLimiter {
       pipeline.pexpiretime(key);
     });
     
-    const results = await pipeline.exec();
+    const results = await pipeline.exec() as Array<[Error | null, number]>;
     
     results?.forEach(([err, ttl], index) => {
       if (ttl === -1 || ttl < 0) {
@@ -266,23 +269,27 @@ export async function applyRateLimit(req: NextRequest, endpoint: string) {
   try {
     // 5. تطبيق خوارزمية Sliding Window
     if (config.strategy === 'sliding-window') {
-      const pipeline = redis.pipeline()
-      
-      // إزالة الطلبات الأقدم من النافذة الزمنية
-      pipeline.zremrangebyscore(redisKey, 0, now - config.windowMs)
-      
-      // الحصول على عدد الطلبات الحالي
-      pipeline.zcard(redisKey)
-      
-      // إضافة الطلب الحالي
-      pipeline.zadd(redisKey, now, `${now}-${Math.random()}`)
-      
-      // تحديث مدة الانتهاء
-      pipeline.expire(redisKey, Math.ceil(config.windowMs / 1000))
-      
-      const results = await pipeline.exec()
-      const count = results?.[1]?.[1] as number || 0
+      const pipeline = redis.multi();
 
+      // إزالة الطلبات الأقدم من النافذة الزمنية
+      pipeline.zRemRangeByScore(redisKey, 0, now - config.windowMs);
+    
+      // الحصول على عدد الطلبات الحالي
+      pipeline.zCard(redisKey);
+    
+      // إضافة الطلب الحالي
+      pipeline.zAdd(redisKey, [{ score: now, value: `${now}-${Math.random()}` }]);
+    
+      // تحديث مدة الانتهاء
+      pipeline.expire(redisKey, Math.ceil(config.windowMs / 1000));
+    
+      const results = await pipeline.exec();
+
+      let count = 0;
+      if (Array.isArray(results) && Array.isArray(results[1]) && typeof results[1][1] === 'number') {
+        count = results[1][1];
+      }
+      
       if (count > config.limit) {
         logger.warn('Rate limit exceeded', { identifier, endpoint, count })
         return {
@@ -342,25 +349,22 @@ export async function applyRateLimit(req: NextRequest, endpoint: string) {
 // 8. دالة مساعدة للاستخدام في API Routes
 export async function enforceRateLimit(req: NextRequest, endpoint: string) {
   const { allowed, headers } = await applyRateLimit(req, endpoint)
-  
+
+  const stringHeaders: Record<string, string> = Object.fromEntries(
+    Object.entries(headers).filter(
+      ([, value]) => typeof value === 'string'
+    )
+  )
+
   if (!allowed) {
     return NextResponse.json(
       { error: 'Too many requests' }, 
       { 
         status: 429,
-        headers: new Headers(headers)
+        headers: new Headers(stringHeaders)
       }
     )
   }
-  
-  return new Headers(headers)
-  function generateKey(identifier: string, endpoint: string): string {
-    // Hash the identifier so we don’t store raw IPs or tokens in Redis keys
-    const safeIdentifier = crypto
-      .createHash('sha256')
-      .update(identifier)
-      .digest('hex');
 
-    // Prefix with a fixed namespace, then include endpoint so each route has its own bucket
-    return `rate-limit:${safeIdentifier}:${endpoint}`;
-  }
+  return new Headers(stringHeaders)
+}

@@ -1,4 +1,4 @@
-import { authFetch } from "@/utils/authFetch";
+import { authFetch } from "@/features/auth/utils/authFetch";
 import { generateDailyChallenge } from "@/features/level/utils/challengeHelpers";
 import { DailyChallenge } from "../types/level";
 

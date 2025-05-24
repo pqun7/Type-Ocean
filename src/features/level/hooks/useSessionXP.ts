@@ -1,4 +1,6 @@
 // useSessionXP.ts
+"use client";
+
 import { useReducer, useCallback } from "react";
 import { levelReducer } from "../reducers/levelReducer";
 import { calculateSessionXP } from "../utils/xpCalculations";
@@ -19,11 +21,24 @@ export const useSessionXP = (userId?: string, addXPMessage?: (text: string, valu
     nextLevelXP: calculateNextLevelXP(1),
   });
 
+  const addXP = useCallback(
+    (amount: number) => {
+      if (amount <= 0) return;
+
+      dispatch({ type: "ADD_XP", amount });
+
+      if (addXPMessage) {
+        addXPMessage("XP Added", amount, "base");
+      }
+    },
+    [addXPMessage]
+  );
+
   // Memoized XP calculation with side effects
   const enhancedCalculateXP = useCallback(
     (session: any) => calculateSessionXP(session, state, userId, addXPMessage, dispatch),
     [state, userId, addXPMessage]
   );
 
-  return { state, calculateSessionXP: enhancedCalculateXP };
+  return { state, calculateSessionXP: enhancedCalculateXP, addXP };
 };

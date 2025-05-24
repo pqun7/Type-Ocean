@@ -1,4 +1,6 @@
 // useDailyChallenge.ts
+"use client";
+
 import { useEffect, useState } from "react";
 import { DailyChallenge } from "../types/level";
 import { fetchDailyChallenge } from "@/features/level/services/dailyChallengeService";

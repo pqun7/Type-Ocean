@@ -4,7 +4,7 @@ import LevelsDock from "@/components/ui/levels-dock";
 import { motion, AnimatePresence, useSpring } from "framer-motion";
 import ResultsChart from "@/components/TypingTest/ResultsChart";
 import TypingTest from "@/components/TypingTest/TypingTest";
-import { TextType } from "@/types/typing";
+import { TextType } from "@/features/typing/types/typing";
 
 export type Mode = "course" | "game" | "practice" | "online";
 

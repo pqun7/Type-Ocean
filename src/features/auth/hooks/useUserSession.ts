@@ -1,4 +1,5 @@
 // useUserSession.ts
+"use client";
 import { useEffect, useState } from "react";
 import { getSession } from "next-auth/react";
 

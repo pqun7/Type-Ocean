@@ -32,7 +32,7 @@ export function generateEmergencyProfile(userId: string): PlayerProfile & { user
 }
 
 // 🔹 استرجاع ملف الطوارئ عند الحاجة (من API server فقط!)
-import prisma from '@/lib/db';
+import prisma from '@/features/auth/lib/db';
 
 export async function getFallbackProfile(userId: string): Promise<PlayerProfile & { user: User }> {
   try {

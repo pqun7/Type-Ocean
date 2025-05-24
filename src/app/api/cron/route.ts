@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { cleanupRateLimits } from "@/lib/cron/cleanup-rate-limits";
 import { cleanupExpiredTokens } from "@/lib/cron/cleanup-tokens";
-import prisma from "@/lib/db";
+import prisma from "@/features/auth/lib/db";
 
 export async function GET() {
   try {

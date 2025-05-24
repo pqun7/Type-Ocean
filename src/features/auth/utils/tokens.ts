@@ -1,4 +1,4 @@
-import prisma  from "@/lib/db";
+import prisma  from "@/features/auth/lib/db";
 import { randomBytes, createHash } from "crypto";
 
 

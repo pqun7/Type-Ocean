@@ -17,7 +17,7 @@ import { FaUserCircle } from "react-icons/fa";
 import { LevelIcon } from "@/assets";
 
 // hooks
-import { useLevel } from "@/hooks/useLevel";
+import { useLevel } from "@/features/level/hooks/useLevel";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 

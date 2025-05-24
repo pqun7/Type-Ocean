@@ -2,9 +2,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import short from "@/data/short.json";
-import medium from "@/data/medium.json";
-import long from "@/data/long.json";
+import short from "@/features/typing/data/short.json";
+import medium from "@/features/typing/data/medium.json";
+import long from "@/features/typing/data/long.json";
 
 type Level = "SHORT" | "MEDIUM" | "LONG";
 

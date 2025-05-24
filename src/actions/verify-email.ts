@@ -1,8 +1,8 @@
 // src/actions/verify-email.ts
 "use server";
 
-import { prisma } from "@/lib/db";
-import { validateEmailToken } from "@/utils/tokens";
+import { prisma } from "@/features/auth/lib/db";
+import { validateEmailToken } from "@/features/auth/utils/tokens";
 import { redirect } from "next/navigation";
 
 export async function verifyEmail(token: string) {

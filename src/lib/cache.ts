@@ -2,7 +2,7 @@
 import NodeCache from "node-cache";
 const RATE_LIMIT = {
   REQUESTS_PER_PERIOD: 3,
-  PERIOD_MS: 60 * 1000, // 1 دقيقة
+  PERIOD_MS: 60 * 1000, 
 };
 const requestCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
 

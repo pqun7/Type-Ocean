@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import TextDisplay from "./TextDisplay";
 import TypingInput from "./TypingInput";
 import Caret from "./Caret";
-import useTypingGame from "../../hooks/useTypingGame";
+import useTypingGame from "../../features/typing/hooks/useTypingGame";
 
 interface TypingTestProps {
   texts: string[];

@@ -1,4 +1,5 @@
 // useChallengeHandler.ts
+"use client";
 import { useCallback, useState } from "react";
 import { DailyChallenge, SessionData } from "../types/level";
 import { updateDailyChallenge } from "../services/dailyChallengeService";
@@ -53,7 +54,7 @@ export const useChallengeHandler = (userId?: string, currentChallenge?: DailyCha
         return result;
       } catch (error) {
         // Revert to previous state on failure
-        setOptimisticChallenge(prevChallenge);
+      setOptimisticChallenge(prevChallenge);
         const err = error instanceof Error ? error : new Error('Challenge update failed');
         logger.challenge.error("Challenge update failed", err);
         setError(err);

@@ -1,5 +1,5 @@
 import { AuthForm } from "@/components/auth/auth-form";
-import { auth } from "@/lib/auth";
+import { auth } from "@/features/auth/lib/auth";
 import { SignOut } from "@/components/auth/sign-out";
 import VerifiedMessage from "@/components/auth/verification/VerifiedMessage";
 import { HandleAuthErrors } from "@/components/handle-auth-errors";

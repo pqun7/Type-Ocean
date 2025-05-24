@@ -1,4 +1,4 @@
-import { useLevel } from "@/hooks/useLevel";
+import { useLevel } from "@/features/level/hooks/useLevel";
 import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { IoCheckmarkCircle, IoStar, IoStarOutline } from "react-icons/io5";

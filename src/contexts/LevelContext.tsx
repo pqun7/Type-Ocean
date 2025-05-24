@@ -24,7 +24,7 @@ import {
 } from "@/features/level/utils/xpMath";
 
 import { ACHIEVEMENTS, BONUSES } from "@/features/level/constants/level";
-import { authFetch } from "@/utils/authFetch";
+import { authFetch } from "@/features/auth/utils/authFetch";
 import { logger } from "@/log/clientLogger";
 import { XP_MESSAGE_TIMEOUT } from "@/features/level/constants/level";
 import { getSession } from "next-auth/react";

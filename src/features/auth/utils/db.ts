@@ -1,5 +1,5 @@
 // src/utils/db.ts
-import db from "@/lib/db"
+import db from "@/features/auth/lib/db"
 import bcrypt from "bcryptjs"
 
 export async function getUserFromDb(username: string, plainPassword: string) {

@@ -2,8 +2,8 @@
 "use server";
 
 import { signUpSchema } from "@/schemas/authSchema";
-import db from "@/lib/db";
-import { saltAndHashPassword } from "@/utils/password";
+import db from "@/features/auth/lib/db";
+import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { ZodError } from "zod";
 import { resendVerificationEmail } from "@/actions/email-verification";
 import { mapErrorToMessage } from "@/constants/errors"; 

@@ -16,7 +16,7 @@ import {
 } from "@/components/layout/Header";
 import { brainwaveSymbol } from "@/assets";
 import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
-import { useLevel } from "@/hooks/useLevel";
+import { useLevel } from "@/features/level/hooks/useLevel";
 
 const Header: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(true);

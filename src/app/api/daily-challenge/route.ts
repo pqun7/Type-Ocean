@@ -1,211 +1,236 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { generateDailyChallenge } from '@/features/level/utils/challengeHelpers';
-import redis from '@/lib/redis';
-import { getLocalMidnightTTL, getTodayDate } from '@/utils/timeUtils'; // تحديث دالة التاريخ
-import { DailyChallenge } from '@/features/level/types/level';
-import { v4 as uuidv4 } from 'uuid';
-import { getUserLevel } from '@/features/level/server-utils/userCache'; // استيراد دالة المستوى
-import { logging } from '@/log/ServerLogger'; 
+// routes.ts
+import { NextRequest, NextResponse } from "next/server";
+import { generateDailyChallenge, calculateChallengeStatus } from "@/features/level/utils/challengeHelpers";
+import redis, { connectIfNeeded } from "@/lib/redis";
+import { getLocalMidnightTTL, getTodayDate } from "@/features/auth/utils/timeUtils";
+import { DailyChallenge } from "@/features/level/types/level";
+import { v4 as uuidv4 } from "uuid";
+import { getUserLevel } from "@/features/level/server-utils/userCache";
+import {
+  createLogMetadata,
+  logRequestStart,
+  logRequestSuccess,
+  logRequestError,
+} from "@/log/loggingUtils";
+import { logging } from "@/log/ServerLogger";
 
-const logRequest = (requestId: string, message: string, metadata?: object) => {
-  logging.info(message, {
-    type: 'DAILY-CHALLENGE',
-    requestId,
-    ...metadata
-  });
-};
 
-const logError = (requestId: string, error: unknown, metadata?: object) => {
-  const errorObj = error instanceof Error ? error : new Error(String(error));
-  logging.error(errorObj.message, errorObj, {
-    type: 'DAILY-CHALLENGE',
-    requestId,
-    ...metadata
-  });
-};
-
+// إعدادات ثابتة
+const SERVICE_TYPE = "DAILY-CHALLENGE";
 
 // ███ GET - جلب التحدي اليومي ███
 export async function GET(req: NextRequest) {
   const requestId = uuidv4();
-  const userId = req.headers.get('x-user-id');
-  
-  logRequest(requestId, 'GET request started', { userId });
-
-  if (!userId) {
-    logError(requestId, new Error('Unauthorized access attempt'), { status: 401 });
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const today = getTodayDate();
-  const cacheKey = `dailyChallenge:${userId}:${today}`; // إضافة التاريخ للمفتاح
+  const userId = req.headers.get("x-user-id");
+  const logMetadata = (metadata?: object) => createLogMetadata(requestId, SERVICE_TYPE, metadata);
 
   try {
-    // 1. محاولة جلب التحدي من الكاش
-    logRequest(requestId, 'Checking Redis cache', { cacheKey });
-    const cached = await redis.get(cacheKey);
+    logRequestStart(requestId, SERVICE_TYPE, "GET", userId);
+    await connectIfNeeded();
 
+    if (!userId) {
+      logRequestError(requestId, SERVICE_TYPE, new Error("Unauthorized access"), {
+        status: 401,
+        securityEvent: true,
+        operationPhase: "authentication"
+      });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const today = getTodayDate();
+    const cacheKey = `dailyChallenge:${userId}:${today}`;
+
+    // عملية التحقق من الكاش
+    logging.debug("Initiating cache check", logMetadata({
+      operation: "cache_retrieval",
+      cacheKey
+    }));
+
+    const cached = await redis.get(cacheKey);
     if (cached) {
       const parsed = JSON.parse(cached) as DailyChallenge;
-      logRequest(requestId, 'Cache hit', { challengeId: parsed.id });
+      logRequestSuccess(requestId, SERVICE_TYPE, "GET", {
+        cacheStatus: "hit",
+        challengeId: parsed.id,
+        ttl: await redis.ttl(cacheKey)
+      });
       return NextResponse.json(parsed);
     }
 
-    // 2. إذا لم يوجد في الكاش، إنشاء تحد جديد
-    logRequest(requestId, 'Generating new daily challenge');
-    
-    // جلب مستوى المستخدم من قاعدة البيانات
-    const userLevel = await getUserLevel(userId);
-    logRequest(requestId, 'Fetched user level', { userLevel });
+    // عملية إنشاء التحدي
+    logging.debug("Generating new challenge", logMetadata({
+      operation: "challenge_generation",
+      userLevel: await getUserLevel(userId)
+    }));
 
-    // إنشاء التحدي مع مستوى المستخدم
-    const newChallenge = await generateDailyChallenge(userId, userLevel);
-    logRequest(requestId, 'Challenge generated', { challengeId: newChallenge.id });
-
-    // 3. تخزين في الكاش حتى منتصف الليل
+    const newChallenge = await generateDailyChallenge(userId, await getUserLevel(userId));
     const ttl = getLocalMidnightTTL();
+
     await redis.setEx(cacheKey, ttl, JSON.stringify(newChallenge));
-    logRequest(requestId, 'Cache updated', { ttl });
+    
+    logRequestSuccess(requestId, SERVICE_TYPE, "GET", {
+      cacheStatus: "miss",
+      challengeId: newChallenge.id,
+      difficulty: newChallenge.difficulty,
+      ttlSeconds: ttl,
+      generatedAt: new Date().toISOString()
+    });
 
     return NextResponse.json(newChallenge);
   } catch (error) {
-    logError(requestId, error, { operation: 'GET', cacheKey, userId });
-    return NextResponse.json({ 
-      error: 'Failed to fetch challenge',
-      referenceId: requestId
-    }, { status: 500 });
+    logRequestError(requestId, SERVICE_TYPE, error, {
+      operationPhase: "challenge_retrieval",
+      userId,
+      cacheKey: `dailyChallenge:${userId}:${getTodayDate()}`
+    });
+    return NextResponse.json(
+      { error: "Failed to fetch challenge", referenceId: requestId },
+      { status: 500 }
+    );
   }
 }
 
-// █████████████████████████████████████████████████████████████████████████████████████
 // ███ POST - تحديث تقدم التحدي ███
 export async function POST(req: NextRequest) {
   const requestId = uuidv4();
-  const userId = req.headers.get('x-user-id');
-  
-  logRequest(requestId, 'POST request started', { userId });
-
-  if (!userId) {
-    logError(requestId, new Error('Unauthorized access attempt'), { status: 401 });
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const today = getTodayDate();
-  const cacheKey = `dailyChallenge:${userId}:${today}`;
+  const userId = req.headers.get("x-user-id");
+  const logMetadata = (metadata?: object) => createLogMetadata(requestId, SERVICE_TYPE, metadata);
 
   try {
-    // 1. التحقق من وجود التحدي
-    const existing = await redis.get(cacheKey);
-    if (!existing) {
-      logError(requestId, new Error('Challenge not found'), { status: 404 });
-      return NextResponse.json({ error: 'Challenge not found' }, { status: 404 });
+    logRequestStart(requestId, SERVICE_TYPE, "POST", userId);
+    await connectIfNeeded();
+
+    if (!userId) {
+      logRequestError(requestId, SERVICE_TYPE, new Error("Unauthorized access"), {
+        status: 401,
+        securityEvent: true,
+        operationPhase: "authentication"
+      });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 2. التحقق من تاريخ التحدي
+    const today = getTodayDate();
+    const cacheKey = `dailyChallenge:${userId}:${today}`;
+
+    // التحقق من وجود التحدي
+    logging.debug("Validating challenge existence", logMetadata({ cacheKey }));
+    const existing = await redis.get(cacheKey);
+    
+    if (!existing) {
+      logRequestError(requestId, SERVICE_TYPE, new Error("Challenge not found"), {
+        status: 404,
+        operationPhase: "challenge_validation"
+      });
+      return NextResponse.json({ error: "Challenge not found" }, { status: 404 });
+    }
+
+    // التحقق من تاريخ التحدي
     const challenge = JSON.parse(existing) as DailyChallenge;
     if (challenge.date !== today) {
-      logError(requestId, new Error('Expired challenge'), {
+      logRequestError(requestId, SERVICE_TYPE, new Error("Expired challenge"), {
         challengeDate: challenge.date,
-        currentDate: today
+        currentDate: today,
+        status: 400,
+        operationPhase: "date_validation"
       });
-      return NextResponse.json({ error: 'Challenge expired' }, { status: 400 });
+      return NextResponse.json({ error: "Challenge expired" }, { status: 400 });
     }
 
-    // 3. معالجة التقدم
+    // معالجة البيانات الواردة
     const { progress } = await req.json();
-    if (!progress || typeof progress !== 'object') {
-      logError(requestId, new Error('Invalid progress data'), { status: 400 });
-      return NextResponse.json({ error: 'Invalid progress data' }, { status: 400 });
+    if (!progress || typeof progress !== "object") {
+      logRequestError(requestId, SERVICE_TYPE, new Error("Invalid progress data"), {
+        receivedType: typeof progress,
+        status: 400,
+        operationPhase: "data_validation"
+      });
+      return NextResponse.json({ error: "Invalid progress data" }, { status: 400 });
     }
 
-    // 4. تحديث حالة التحدي
+    // تحديث حالة التحدي
     const updatedChallenge = {
       ...challenge,
       progress,
-      status: calculateChallengeStatus(challenge, progress) // دالة جديدة
+      status: calculateChallengeStatus(challenge, progress),
+      lastUpdated: new Date().toISOString()
     };
 
-    // 5. تحديث الكاش
     await redis.setEx(cacheKey, getLocalMidnightTTL(), JSON.stringify(updatedChallenge));
-    logRequest(requestId, 'Progress updated', { 
+    
+    const updatedFields = (Object.keys(updatedChallenge) as Array<keyof DailyChallenge>).filter(
+      k => k !== 'id' && challenge[k] !== updatedChallenge[k]
+    );
+
+    logRequestSuccess(requestId, SERVICE_TYPE, "POST", {
       challengeId: updatedChallenge.id,
-      newStatus: updatedChallenge.status
+      newStatus: updatedChallenge.status,
+      progressKeys: Object.keys(progress),
+      updatedFields
     });
 
     return NextResponse.json(updatedChallenge);
   } catch (error) {
-    logError(requestId, error, { operation: 'POST', cacheKey, userId });
-    return NextResponse.json({ 
-      error: 'Failed to update challenge',
-      referenceId: requestId
-    }, { status: 500 });
+    logRequestError(requestId, SERVICE_TYPE, error, {
+      operationPhase: "progress_update",
+      userId,
+      cacheKey: `dailyChallenge:${userId}:${getTodayDate()}`
+    });
+    return NextResponse.json(
+      { error: "Failed to update challenge", referenceId: requestId },
+      { status: 500 }
+    );
   }
 }
 
-// █████████████████████████████████████████████████████████████████████████████████████
-// ███ DELETE - حذف التحدي (لأغراض التطوير) ███
+// ███ DELETE - حذف التحدي ███
 export async function DELETE(req: NextRequest) {
   const requestId = uuidv4();
-  const userId = req.headers.get('x-user-id');
-  
-  logRequest(requestId, 'DELETE request started', { userId });
-
-  if (!userId) {
-    logError(requestId, new Error('Unauthorized access attempt'), { status: 401 });
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const today = getTodayDate();
-  const cacheKey = `dailyChallenge:${userId}:${today}`;
+  const userId = req.headers.get("x-user-id");
+  const logMetadata = (metadata?: object) => createLogMetadata(requestId, SERVICE_TYPE, metadata);
 
   try {
-    const deletedCount = await redis.del(cacheKey);
-    if (deletedCount === 0) {
-      logRequest(requestId, 'No challenge to delete', { cacheKey });
-      return NextResponse.json({ message: 'No challenge found' });
+    logRequestStart(requestId, SERVICE_TYPE, "DELETE", userId);
+    await connectIfNeeded();
+
+    if (!userId) {
+      logRequestError(requestId, SERVICE_TYPE, new Error("Unauthorized access"), {
+        status: 401,
+        securityEvent: true,
+        operationPhase: "authentication"
+      });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    logRequest(requestId, 'Challenge deleted', { cacheKey });
-    return NextResponse.json({ message: 'Challenge deleted successfully' });
+    const today = getTodayDate();
+    const cacheKey = `dailyChallenge:${userId}:${today}`;
+
+    logging.debug("Initiating challenge deletion", logMetadata({ cacheKey }));
+    const deletedCount = await redis.del(cacheKey);
+
+    if (deletedCount === 0) {
+      logging.info("No challenge found for deletion", logMetadata({
+        cacheKey,
+        operationPhase: "challenge_deletion"
+      }));
+      return NextResponse.json({ message: "No challenge found" });
+    }
+
+    logRequestSuccess(requestId, SERVICE_TYPE, "DELETE", {
+      cacheKey,
+      deletedCount,
+      deletionTime: new Date().toISOString()
+    });
+
+    return NextResponse.json({ message: "Challenge deleted successfully" });
   } catch (error) {
-    logError(requestId, error, { operation: 'DELETE', cacheKey, userId });
-    return NextResponse.json({ 
-      error: 'Failed to delete challenge',
-      referenceId: requestId
-    }, { status: 500 });
+    logRequestError(requestId, SERVICE_TYPE, error, {
+      operationPhase: "challenge_deletion",
+      userId,
+      cacheKey: `dailyChallenge:${userId}:${getTodayDate()}`
+    });
+    return NextResponse.json(
+      { error: "Failed to delete challenge", referenceId: requestId },
+      { status: 500 }
+    );
   }
 }
-
-// █████████████████████████████████████████████████████████████████████████████████████
-// ███ دوال مساعدة ███
-const calculateChallengeStatus = (
-  challenge: DailyChallenge,
-  progress: any
-): 0 | 1 | 2 => {
-  // 0: لم يبدأ، 1: قيد التقدم، 2: مكتمل
-  if (isChallengeCompleted(challenge, progress)) return 2;
-  return Object.keys(progress).length > 0 ? 1 : 0;
-};
-
-const isChallengeCompleted = (challenge: DailyChallenge, progress: any): boolean => {
-  switch (challenge.type) {
-    case 'speedCombo':
-      return typeof progress === 'object' &&
-             typeof challenge.target === 'object' &&
-             progress.wpm >= challenge.target.wpm &&
-             progress.accuracy >= challenge.target.accuracy;
-
-    case 'marathon':
-      return typeof progress === 'object' &&
-             typeof challenge.target === 'number' &&
-             progress.charactersTyped >= challenge.target;
-
-    case 'timeAttack':
-      return typeof progress === 'object' &&
-             typeof challenge.target === 'number' &&
-             progress.timeSpent >= challenge.target;
-
-    default:
-      return false;
-  }
-};

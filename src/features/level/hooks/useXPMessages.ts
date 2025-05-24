@@ -1,5 +1,7 @@
 
 // useXpMessages.ts
+"use client";
+
 import { useState, useCallback, useRef, useEffect } from "react";
 import { XPMessage, XPMessageType } from "../types/level";
 import { XP_MESSAGE_TIMEOUT } from "../constants/level";
