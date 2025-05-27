@@ -9,14 +9,14 @@ import { logging } from "@/log/ServerLogger";
 export async function POST(req: NextRequest) {
   await connectIfNeeded();
 
-  // const rateLimitHeaders = await enforceRateLimit(
-  //   req,
-  //   '/api/session-stats/v1'
-  // )
+  const rateLimitHeaders = await enforceRateLimit(
+    req,
+    '/api/session-stats/v1'
+  )
   
-  // if (rateLimitHeaders instanceof NextResponse) {
-  //   return rateLimitHeaders
-  // }
+  if (rateLimitHeaders instanceof NextResponse && rateLimitHeaders.status === 429) {
+    return rateLimitHeaders;
+  }
 
   const userId = req.headers.get("x-user-id");
   if (!userId) {

@@ -112,6 +112,8 @@ const XPMessages = () => {
       bonus: `${base} text-emerald-200`,
       "level-up": `${base} text-emerald-200 `,
       participation: `${base} text-slate-200`,
+      error: `${base} bg-red-800 text-red-200`,
+      
     };
 
     return styles[type] || `${base} bg-slate-800 text-slate-200`;

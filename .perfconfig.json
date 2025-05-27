@@ -1,0 +1,9 @@
+{
+    "redis": {
+      "maxConnections": 50,
+      "idleTimeout": 30000
+    },
+    "monitoring": {
+      "flushInterval": 60000
+    }
+  }

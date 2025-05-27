@@ -130,8 +130,8 @@ export const calculateChallengeStatus = (
   challenge: DailyChallenge,
   progress: any
 ): 0 | 1 | 2 => {
-  return isChallengeCompleted(challenge, progress) ? 2 :
-    Object.keys(progress).length > 0 ? 1 : 0;
+  if (isChallengeCompleted(challenge, progress)) return 2;
+  return Object.values(progress).some((v: any) => v > 0) ? 1 : 0;
 };
 
 /**

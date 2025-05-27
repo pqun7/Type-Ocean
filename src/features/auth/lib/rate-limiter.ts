@@ -357,14 +357,15 @@ export async function enforceRateLimit(req: NextRequest, endpoint: string) {
   )
 
   if (!allowed) {
-    return NextResponse.json(
-      { error: 'Too many requests' }, 
+    return new NextResponse(
+      JSON.stringify({ error: 'Too many requests' }),
       { 
         status: 429,
         headers: new Headers(stringHeaders)
       }
-    )
+    );
   }
+  
 
   return new Headers(stringHeaders)
 }
