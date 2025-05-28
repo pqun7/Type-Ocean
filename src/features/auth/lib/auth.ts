@@ -8,21 +8,21 @@ import { loginSchema } from "@/schemas/authSchema";
 import { getUserFromDb } from "@/features/auth/utils/db";
 import { ZodError } from "zod";
 
-declare module "next-auth" {
-  interface Session {
-    user: {
-      id: string;
-      username?: string | null;
-      email?: string | null;
-      image?: string | null;
-      emailVerified?: Date | null;
-    };
-  }
-  interface User {
-    username?: string | null;
-    emailVerified?: Date | null;
-  }
-}
+// declare module "next-auth" {
+//   interface Session {
+//     user: {
+//       id: string;
+//       username?: string | null;
+//       email?: string | null;
+//       image?: string | null;
+//       emailVerified?: Date | null;
+//     };
+//   }
+//   interface User {
+//     username?: string | null;
+//     emailVerified?: Date | null;
+//   }
+// }
 
 const prisma = new PrismaClient();
 

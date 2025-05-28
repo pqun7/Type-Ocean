@@ -66,7 +66,7 @@ jest.mock("@/features/auth/lib/rate-limiter", () => ({
   enforceRateLimit: jest.fn(),
 }));
 
-import { enforceRateLimit } from "@/features/auth/lib/rate-limiter";
+import { enforceRateLimit } from "@/lib/rate-limiter";
 const mockEnforceRateLimit = enforceRateLimit as jest.Mock;
 
 beforeEach(() => {

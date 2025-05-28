@@ -1,51 +1,60 @@
 // src/lib/rateLimiter.ts
-import Redis from 'ioredis';
-import { logger } from '@/log/ServerLogger';
-import crypto from 'crypto';
-import { NextRequest, NextResponse } from 'next/server';
-import redis, { connectIfNeeded } from '@/lib/redis';
-
+import Redis from "ioredis";
+import { logger } from "@/log/ServerLogger";
+import crypto from "crypto";
+import { NextRequest, NextResponse } from "next/server";
+import redis, { connectIfNeeded } from "@/lib/redis";
 
 // 1. نوع البيانات للتهيئة
 type RateLimitConfig = {
   limit: number;
   windowMs: number;
-  strategy?: 'token-bucket' | 'fixed-window' | 'sliding-window';
+  strategy?: "token-bucket" | "fixed-window" | "sliding-window";
   burstAllowed?: boolean;
 };
 
-
-// 1.5. إعدادات نقاط النهاية الخاصة 
+// 1.5. إعدادات نقاط النهاية الخاصة
 const ENDPOINT_CONFIGS: Record<string, RateLimitConfig> = {
-  '/api/session-stats/v1': {
-    limit: 5, // 5 طلبات لكل دقيقة
+  "/api/session-stats/v1": {
+    limit: 5,
     windowMs: 60_000,
-    strategy: 'sliding-window'
+    strategy: "sliding-window",
   },
-  '/api/auth/login': {
+  "/api/auth/login": {
     limit: 3,
     windowMs: 15_000,
-    strategy: 'fixed-window'
-  }
-}
+    strategy: "fixed-window",
+  },
+  // إضافة نقاط النهاية الجديدة
+  "/api/auth/resend-verification": {
+    limit: 2,
+    windowMs: 60_000,
+    strategy: "fixed-window",
+  },
+  "/api/auth/reset-password": {
+    limit: 3,
+    windowMs: 30_000,
+    strategy: "sliding-window",
+  },
+};
 
 type RateLimitOptions = {
   namespace?: string;
   redisClient?: Redis;
-  fallback?: 'allow' | 'deny';
+  fallback?: "allow" | "deny";
 };
 
 // 2. تهيئة افتراضية آمنة
 const DEFAULT_CONFIG: RateLimitConfig = {
   limit: 100,
   windowMs: 60 * 1000, // 1 دقيقة
-  strategy: 'token-bucket',
+  strategy: "token-bucket",
   burstAllowed: false,
 };
 
 const DEFAULT_OPTIONS: RateLimitOptions = {
-  namespace: 'rate-limit',
-  fallback: 'allow',
+  namespace: "rate-limit",
+  fallback: "allow",
 };
 
 // 3. فئة رئيسية لإدارة Rate Limiting
@@ -53,6 +62,7 @@ export class RateLimiter {
   private redis: Redis;
   private configs: Map<string, RateLimitConfig>;
   private options: RateLimitOptions;
+  private localCache = new Map<string, { count: number; expires: number }>();
 
   constructor(
     configs: Record<string, RateLimitConfig> = {},
@@ -69,42 +79,76 @@ export class RateLimiter {
     endpoint: string
   ): Promise<{ allowed: boolean; headers: Record<string, string> }> {
     try {
+      const localKey = `${identifier}:${endpoint}`;
+      const cached = this.localCache.get(localKey);
       const config = this.getConfig(endpoint);
       const key = this.generateKey(identifier, endpoint);
-      
+      if (!config) {
+        logger.warn("No rate limit config found for endpoint", { endpoint });
+        return {
+          allowed: this.options.fallback === "allow",
+          headers: {},
+        };
+      }
+
+      if (cached && cached.expires > Date.now()) {
+        if (cached.count >= config.limit) {
+          return {
+            allowed: false,
+            headers: this.generateHeaders(false, config),
+          };
+        }
+        cached.count++;
+        return { allowed: true, headers: this.generateHeaders(true, config) };
+      }
+
       let result: boolean;
       switch (config.strategy) {
-        case 'token-bucket':
+        case "token-bucket":
           result = await this.tokenBucket(key, config);
           break;
-        case 'sliding-window':
+        case "sliding-window":
           result = await this.slidingWindow(key, config);
           break;
         default:
           result = await this.fixedWindow(key, config);
       }
 
+      this.localCache.set(localKey, {
+        count: result ? 1 : config.limit,
+        expires: Date.now() + config.windowMs,
+      });
+
       return {
         allowed: result,
         headers: this.generateHeaders(result, config),
       };
     } catch (error) {
-      logger.error('Rate limiter failure', error, { endpoint, identifier });
+      logger.error("Rate limiter failure", error, { endpoint, identifier });
+     
+      // sendToMonitoringSystem({
+      //   type: "RATE_LIMITER_FAILURE",
+      //   details: { endpoint, identifier },
+      // });
+      
       return {
-        allowed: this.options.fallback === 'allow',
+        allowed: this.options.fallback === "allow",
         headers: {},
       };
     }
   }
 
   // 5. Token Bucket Algorithm
-  private async tokenBucket(key: string, config: RateLimitConfig): Promise<boolean> {
+  private async tokenBucket(
+    key: string,
+    config: RateLimitConfig
+  ): Promise<boolean> {
     const now = Date.now();
     const pipeline = this.redis.pipeline();
-    
+
     // احصل على الحالة الحالية
     pipeline.hgetall(key);
-    
+
     const results = await pipeline.exec();
     const data = results![0][1] as { tokens?: string; last?: string };
 
@@ -121,11 +165,11 @@ export class RateLimiter {
 
     // خصم التوكن وتحديث القيم
     tokens -= 1;
-    
+
     await this.redis
       .multi()
-      .hset(key, 'tokens', tokens.toString())
-      .hset(key, 'last', now.toString())
+      .hset(key, "tokens", tokens.toString())
+      .hset(key, "last", now.toString())
       .pexpire(key, config.windowMs)
       .exec();
 
@@ -133,22 +177,25 @@ export class RateLimiter {
   }
 
   // 6. Sliding Window Algorithm
-  private async slidingWindow(key: string, config: RateLimitConfig): Promise<boolean> {
+  private async slidingWindow(
+    key: string,
+    config: RateLimitConfig
+  ): Promise<boolean> {
     const now = Date.now();
     const windowStart = now - config.windowMs;
 
     const transaction = this.redis.multi();
-    
+
     // إزالة الطلبات القديمة
     transaction.zremrangebyscore(key, 0, windowStart);
-    
+
     // عد الطلبات المتبقية
     transaction.zcard(key);
-    
+
     // إضافة الطلب الحالي
     transaction.zadd(key, now, `${now}-${crypto.randomUUID()}`);
     transaction.expire(key, Math.ceil(config.windowMs / 1000));
-    
+
     const results = await transaction.exec();
     const count = results![1][1] as number;
 
@@ -156,7 +203,10 @@ export class RateLimiter {
   }
 
   // 6.5. Fixed Window Algorithm
-  private async fixedWindow(key: string, config: RateLimitConfig): Promise<boolean> {
+  private async fixedWindow(
+    key: string,
+    config: RateLimitConfig
+  ): Promise<boolean> {
     const count = await this.redis.incr(key);
     if (count === 1) {
       await this.redis.expire(key, Math.ceil(config.windowMs / 1000));
@@ -167,22 +217,25 @@ export class RateLimiter {
   // 7. توليد المفاتيح الآمنة
   private generateKey(identifier: string, endpoint: string): string {
     const safeIdentifier = crypto
-      .createHash('sha256')
+      .createHash("sha256")
       .update(identifier)
-      .digest('hex');
+      .digest("hex");
 
     return `${this.options.namespace}:${safeIdentifier}:${endpoint}`;
   }
 
   // 8. توليد رؤوس الاستجابة
-  private generateHeaders(allowed: boolean, config: RateLimitConfig): Record<string, string> {
+  private generateHeaders(
+    allowed: boolean,
+    config: RateLimitConfig
+  ): Record<string, string> {
     const headers: Record<string, string> = {
-      'X-RateLimit-Limit': config.limit.toString(),
-      'X-RateLimit-Remaining': allowed ? (config.limit - 1).toString() : '0',
-      'X-RateLimit-Reset': (Date.now() + config.windowMs).toString(),
+      "X-RateLimit-Limit": config.limit.toString(),
+      "X-RateLimit-Remaining": allowed ? (config.limit - 1).toString() : "0",
+      "X-RateLimit-Reset": (Date.now() + config.windowMs).toString(),
     };
     if (!allowed) {
-      headers['Retry-After'] = (config.windowMs / 1000).toString();
+      headers["Retry-After"] = (config.windowMs / 1000).toString();
     }
     return headers;
   }
@@ -199,13 +252,13 @@ export class RateLimiter {
   async cleanOldEntries(): Promise<void> {
     const keys = await this.redis.keys(`${this.options.namespace}:*`);
     const pipeline = this.redis.pipeline();
-    
-    keys.forEach(key => {
+
+    keys.forEach((key) => {
       pipeline.pexpiretime(key);
     });
-    
-    const results = await pipeline.exec() as Array<[Error | null, number]>;
-    
+
+    const results = (await pipeline.exec()) as Array<[Error | null, number]>;
+
     results?.forEach(([err, ttl], index) => {
       if (ttl === -1 || ttl < 0) {
         this.redis.del(keys[index]);
@@ -218,15 +271,15 @@ export class RateLimiter {
 export const rateLimiter = new RateLimiter(
   {
     // مثال لتهيئات خاصة بالنقاط الطرفية
-    'session-stats': {
+    "session-stats": {
       limit: 50,
       windowMs: 60_000,
-      strategy: 'sliding-window',
+      strategy: "sliding-window",
     },
-    'auth': {
+    auth: {
       limit: 20,
       windowMs: 15_000,
-      strategy: 'token-bucket',
+      strategy: "token-bucket",
     },
   },
   {
@@ -234,95 +287,101 @@ export const rateLimiter = new RateLimiter(
       enableOfflineQueue: false,
       maxRetriesPerRequest: 1,
     }),
-    fallback: 'allow',
+    fallback: "allow",
   }
 );
 
 const generateKey = (identifier: string, endpoint: string) => {
-  const hash = crypto
-    .createHash('sha256')
-    .update(identifier)
-    .digest('hex')
-  return `rate-limit:${hash}:${endpoint}`
-}
+  const hash = crypto.createHash("sha256").update(identifier).digest("hex");
+  return `rate-limit:${hash}:${endpoint}`;
+};
 
 // 12. دمج مع إطار العمل (Next.js مثال)
 export async function applyRateLimit(req: NextRequest, endpoint: string) {
-  await connectIfNeeded()
-  
+  await connectIfNeeded();
+
   // الحصول على المعرف الفريد للعميل
-  const identifier = 
-    req.headers.get('x-real-ip') || 
-    req.headers.get('cf-connecting-ip') || 
-    'anonymous'
+  const identifier =
+    req.headers.get("x-real-ip") ||
+    req.headers.get("cf-connecting-ip") ||
+    "anonymous";
 
   // الحصول على التهيئة الخاصة بالنقطة الطرفية
   const config = ENDPOINT_CONFIGS[endpoint] || {
     limit: 100,
     windowMs: 60_000,
-    strategy: 'sliding-window'
-  }
+    strategy: "sliding-window",
+  };
 
-  const redisKey = generateKey(identifier, endpoint)
-  const now = Date.now()
+  const redisKey = generateKey(identifier, endpoint);
+  const now = Date.now();
 
   try {
     // 5. تطبيق خوارزمية Sliding Window
-    if (config.strategy === 'sliding-window') {
+    if (config.strategy === "sliding-window") {
       const pipeline = redis.multi();
 
       // إزالة الطلبات الأقدم من النافذة الزمنية
       pipeline.zRemRangeByScore(redisKey, 0, now - config.windowMs);
-    
+
       // الحصول على عدد الطلبات الحالي
       pipeline.zCard(redisKey);
-    
+
       // إضافة الطلب الحالي
-      pipeline.zAdd(redisKey, [{ score: now, value: `${now}-${Math.random()}` }]);
-    
+      pipeline.zAdd(redisKey, [
+        { score: now, value: `${now}-${Math.random()}` },
+      ]);
+
       // تحديث مدة الانتهاء
       pipeline.expire(redisKey, Math.ceil(config.windowMs / 1000));
-    
+
       const results = await pipeline.exec();
 
       let count = 0;
-      if (Array.isArray(results) && Array.isArray(results[1]) && typeof results[1][1] === 'number') {
+      if (
+        Array.isArray(results) &&
+        Array.isArray(results[1]) &&
+        typeof results[1][1] === "number"
+      ) {
         count = results[1][1];
       }
-      
-      if (count > config.limit) {
-        logger.warn('Rate limit exceeded', { identifier, endpoint, count })
-        return {
-          allowed: false,
-          headers: {
-            'X-RateLimit-Limit': config.limit.toString(),
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': (now + config.windowMs).toString(),
-            'Retry-After': (config.windowMs / 1000).toString()
-          }
-        }
-      }
-    }
-    
-    // 6. تطبيق خوارزمية Fixed Window
-    else {
-      const currentWindow = Math.floor(now / config.windowMs)
-      const key = `${redisKey}:${currentWindow}`
-      
-      const count = await redis.incr(key)
-      await redis.expire(key, Math.ceil(config.windowMs / 1000))
 
       if (count > config.limit) {
-        logger.warn('Rate limit exceeded', { identifier, endpoint, count })
+        logger.warn("Rate limit exceeded", { identifier, endpoint, count });
         return {
           allowed: false,
           headers: {
-            'X-RateLimit-Limit': config.limit.toString(),
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': ((currentWindow + 1) * config.windowMs).toString(),
-            'Retry-After': (config.windowMs / 1000).toString()
-          }
-        }
+            "X-RateLimit-Limit": config.limit.toString(),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": (now + config.windowMs).toString(),
+            "Retry-After": (config.windowMs / 1000).toString(),
+          },
+        };
+      }
+    }
+
+    // 6. تطبيق خوارزمية Fixed Window
+    else {
+      const currentWindow = Math.floor(now / config.windowMs);
+      const key = `${redisKey}:${currentWindow}`;
+
+      const count = await redis.incr(key);
+      await redis.expire(key, Math.ceil(config.windowMs / 1000));
+
+      if (count > config.limit) {
+        logger.warn("Rate limit exceeded", { identifier, endpoint, count });
+        return {
+          allowed: false,
+          headers: {
+            "X-RateLimit-Limit": config.limit.toString(),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": (
+              (currentWindow + 1) *
+              config.windowMs
+            ).toString(),
+            "Retry-After": (config.windowMs / 1000).toString(),
+          },
+        };
       }
     }
 
@@ -330,42 +389,40 @@ export async function applyRateLimit(req: NextRequest, endpoint: string) {
     return {
       allowed: true,
       headers: {
-        'X-RateLimit-Limit': config.limit.toString(),
-        'X-RateLimit-Remaining': (config.limit - 1).toString(),
-        'X-RateLimit-Reset': (now + config.windowMs).toString()
-      }
-    }
-
+        "X-RateLimit-Limit": config.limit.toString(),
+        "X-RateLimit-Remaining": (config.limit - 1).toString(),
+        "X-RateLimit-Reset": (now + config.windowMs).toString(),
+      },
+    };
   } catch (error) {
-    logger.error('Rate limiter failure', error, { identifier, endpoint })
+    logger.error("Rate limiter failure", error, { identifier, endpoint });
     // Fallback strategy: allow request in case of Redis failure
     return {
       allowed: true,
-      headers: {}
-    }
+      headers: {},
+    };
   }
 }
 
 // 8. دالة مساعدة للاستخدام في API Routes
 export async function enforceRateLimit(req: NextRequest, endpoint: string) {
-  const { allowed, headers } = await applyRateLimit(req, endpoint)
+  const { allowed, headers } = await applyRateLimit(req, endpoint);
 
   const stringHeaders: Record<string, string> = Object.fromEntries(
-    Object.entries(headers).filter(
-      ([, value]) => typeof value === 'string'
-    )
-  )
+    Object.entries(headers).filter(([, value]) => typeof value === "string")
+  );
 
   if (!allowed) {
-    return new NextResponse(
-      JSON.stringify({ error: 'Too many requests' }),
-      { 
-        status: 429,
-        headers: new Headers(stringHeaders)
-      }
-    );
+    return new NextResponse(JSON.stringify({ error: "Too many requests" }), {
+      status: 429,
+      headers: new Headers(stringHeaders),
+    });
   }
-  
 
-  return new Headers(stringHeaders)
+  return new Headers(stringHeaders);
+}
+
+export async function checkRateLimit(endpoint: string, identifier: string) {
+  const rateLimiter = new RateLimiter(ENDPOINT_CONFIGS);
+  return rateLimiter.applyRateLimit(identifier, endpoint);
 }

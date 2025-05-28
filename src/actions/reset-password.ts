@@ -8,7 +8,7 @@ import { saltAndHashPassword } from "@/features/auth/utils/password";
 import bcrypt from "bcrypt";
 import { resetPasswordSchema } from "@/schemas/authSchema";
 import { generateResetToken, validateResetToken } from "@/features/auth/utils/tokens";
-import { checkRateLimit } from "@/features/auth/lib/rate-limiter";
+import { checkRateLimit } from "@/lib/rate-limiter";
 import { sendPasswordResetEmail } from "@/features/auth/providers/resend";
 import { mapErrorToMessage } from "@/constants/errors";
 
@@ -24,12 +24,15 @@ export async function resetPassword(
     const headersInstance = await headers();
     const ip = (headersInstance.get("x-forwarded-for")?.split(',')[0]?.trim()) || "anonymous";
 
-  if (!(await checkRateLimit(ip))) {
-    return { 
-      success: false, 
-      error: mapErrorToMessage("TOO_MANY_REQUESTS") 
-    };
-  }
+    const endpoint = '/api/auth/reset-password';
+    const { allowed } = await checkRateLimit(endpoint, ip);
+    if (!allowed) {
+      return { 
+        success: false, 
+        error: mapErrorToMessage("TOO_MANY_REQUESTS") 
+      };
+    }
+
 
   try {
     const email = formData.get("email") as string;

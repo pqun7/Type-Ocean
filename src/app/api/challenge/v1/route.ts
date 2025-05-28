@@ -1,4 +1,4 @@
-// routes.ts - تحسينات الأداء الرئيسية
+//api/challenge/v1/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   generateDailyChallenge,

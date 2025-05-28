@@ -28,7 +28,7 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
       recordSessionStats,
       addXP,
     }),
-    [state, dailyChallenge, xpMessages]
+    [state, dailyChallenge, xpMessages, userId]
   );
 
   return (

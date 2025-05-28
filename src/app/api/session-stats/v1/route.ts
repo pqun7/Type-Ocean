@@ -3,7 +3,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from "next/server";
 import redis, { connectIfNeeded } from '@/lib/redis';
-import { enforceRateLimit } from '@/features/auth/lib/rate-limiter'
+import { enforceRateLimit } from '@/lib/rate-limiter'
 import { logging } from "@/log/ServerLogger";
 
 export async function POST(req: NextRequest) {

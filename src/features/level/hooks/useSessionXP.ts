@@ -23,7 +23,7 @@ export const useSessionXP = (userId?: string, addXPMessage?: (text: string, valu
 
   const addXP = useCallback(
     (amount: number) => {
-      if (amount <= 0) return;
+      if (amount <= 0 || !userId) return;
 
       dispatch({ type: "ADD_XP", amount });
 
@@ -31,7 +31,7 @@ export const useSessionXP = (userId?: string, addXPMessage?: (text: string, valu
         addXPMessage("XP Added", amount, "base");
       }
     },
-    [addXPMessage]
+    [addXPMessage, userId]
   );
 
   // Memoized XP calculation with side effects
