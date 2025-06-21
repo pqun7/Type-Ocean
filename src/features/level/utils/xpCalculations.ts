@@ -1,5 +1,5 @@
 // xpCalculations.ts
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
 import { getChallengeXP } from "@/features/level/utils/xpMath";
 import { ACHIEVEMENTS, BONUSES } from "@/features/level/constants/level";
 import { logger } from "@/log/clientLogger";
@@ -24,9 +24,13 @@ export const calculateSessionXP = (
   // Performance tracking setup
   const calculationStart = performance.now();
   const sessionId = uuidv4();
+  const filePath = "utils/xpCalculations.ts";
 
   try {
-    logger.perf.debug("Starting XP calculation", { sessionId, userId });
+    logger.perf.debug("Starting XP calculation", filePath, {
+      sessionId,
+      userId,
+    });
 
     let totalXP = 0;
     const xpEvents: XPMessage[] = [];
@@ -48,8 +52,8 @@ export const calculateSessionXP = (
 
     // Component weights for balanced scoring
     const accuracyWeight = 0.4; // Emphasis on precision
-    const textWeight = 0.3;    // Emphasis on content length
-    const speedWeight = 0.3;   // Emphasis on typing speed
+    const textWeight = 0.3; // Emphasis on content length
+    const speedWeight = 0.3; // Emphasis on typing speed
 
     // Non-linear accuracy scaling (emphasizes high accuracy)
     const accuracyEffect = Math.pow(session.accuracy / 100, 1.8);
@@ -80,7 +84,9 @@ export const calculateSessionXP = (
 
     // Achievement processing pipeline
     ACHIEVEMENTS.forEach((achievement) => {
-      const existing = state.achievements.find((a: any) => a.id === achievement.id);
+      const existing = state.achievements.find(
+        (a: any) => a.id === achievement.id
+      );
       if (existing?.unlocked) return; // Skip already unlocked achievements
 
       // Check achievement conditions
@@ -95,7 +101,7 @@ export const calculateSessionXP = (
           type: "achievement",
         });
         totalXP += achievement.xpReward;
-        
+
         // Update global state
         dispatch?.({
           type: "UNLOCK_ACHIEVEMENT",
@@ -164,7 +170,7 @@ export const calculateSessionXP = (
     }
 
     // Performance logging
-    logger.xp.info("Session XP calculated", {
+    logger.xp.info("Session XP calculated",filePath ,{
       sessionId,
       totalXP,
       duration: `${performance.now() - calculationStart}ms`,
@@ -174,7 +180,7 @@ export const calculateSessionXP = (
   } catch (error) {
     // Error handling and diagnostics
     logger.xp.error(
-      "XP calculation failed",
+      "XP calculation failed",filePath,
       error instanceof Error ? error : undefined,
       {
         sessionId,

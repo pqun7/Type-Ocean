@@ -63,19 +63,21 @@ if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
    });
  });
  
- const developmentFormat = printf(({ level, message, timestamp, stack, metadata = {} }) => {
-   const { filePath = 'unknown', ...restMeta } = metadata as Record<string, unknown>;
-   
-   let output = `[${timestamp}] [${level}] ${filePath} - ${message}`;
-   if (stack) output += `\n${stack}`;
-   
-   // عرض البيانات الوصفية فقط إذا كانت موجودة
-   if (Object.keys(restMeta).length > 0) {
-     output += `\n${JSON.stringify(restMeta, null, 2)}`;
-   }
-   
-   return output;
- });
+
+const developmentFormat = printf(({ level, message, timestamp, stack, metadata = {} }) => {
+  const { filePath = 'unknown', ...restMeta } = metadata as Record<string, unknown>;
+  
+  // تم تحسين تنسيق الرسالة لإظهار مسار الملف بشكل واضح
+  let output = `[${timestamp}] [${level}] ${filePath} - ${message}`;
+  if (stack) output += `\n${stack}`;
+  
+  if (Object.keys(restMeta).length > 0) {
+    output += `\n${JSON.stringify(restMeta, null, 2)}`;
+  }
+  
+  return output;
+});
+
  
  // 3. تحسينات Sentry مع إدارة السياق
  class SentryTransport extends TransportStream {

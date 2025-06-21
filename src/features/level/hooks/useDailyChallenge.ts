@@ -13,7 +13,7 @@ import { logger } from "@/log/clientLogger";
  */
 export const useDailyChallengeLoader = (userId?: string) => {
   const [dailyChallenge, setDailyChallenge] = useState<DailyChallenge | null>(null);
-
+  const filePath = "hooks/useDailyChallenge.ts";
   useEffect(() => {
     const abortController = new AbortController();
     const requestId = crypto.randomUUID();
@@ -22,15 +22,15 @@ export const useDailyChallengeLoader = (userId?: string) => {
       if (!userId) return;
 
       try {
-        logger.challenge.info("Loading daily challenge", { requestId, userId });
+        logger.challenge.info("Loading daily challenge",filePath ,{ requestId, userId });
         const challenge = await fetchDailyChallenge(userId, abortController, requestId);
         setDailyChallenge(challenge);
       } catch (error) {
         // Error handling and logging
         if (error instanceof Error) {
-          logger.challenge.error("Failed to load challenge", error);
+          logger.challenge.error("Failed to load challenge",filePath, error);
         } else {
-          logger.challenge.error("Failed to load challenge", new Error(String(error)));
+          logger.challenge.error("Failed to load challenge",filePath, new Error(String(error)));
         }
         setDailyChallenge(null);
       }

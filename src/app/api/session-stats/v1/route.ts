@@ -25,8 +25,8 @@ export async function POST(req: NextRequest) {
     requestId,
     SERVICE_TYPE,
     "POST",
-    req.headers.get("x-user-id") || undefined,
-    LOG_FILE
+    LOG_FILE,
+    req.headers.get("x-user-id") || undefined
   );
 
   // Rate limiting
@@ -94,8 +94,8 @@ export async function POST(req: NextRequest) {
         requestId,
         SERVICE_TYPE,
         "POST",
-        { userId, endpoint },
-        LOG_FILE
+        LOG_FILE,
+        { userId, endpoint }
       );
 
       return NextResponse.json({
@@ -140,8 +140,8 @@ export async function POST(req: NextRequest) {
       requestId,
       SERVICE_TYPE,
       "POST",
-      { userId, endpoint },
-      LOG_FILE
+      LOG_FILE,
+      { userId, endpoint }
     );
 
     return NextResponse.json({
@@ -150,10 +150,16 @@ export async function POST(req: NextRequest) {
       sessionsCount: newN,
     });
   } catch (error) {
-    logging.error(`[STATS] Processing error for ${userId}`, error, {
-      endpoint: "session-stats",
-      userId,
-    });
+    logRequestError(
+      requestId,
+      SERVICE_TYPE,
+      error,
+      LOG_FILE,
+      {
+        endpoint: "session-stats",
+        userId,
+      }
+    );
 
     return NextResponse.json(
       { error: "Failed to process session stats" },

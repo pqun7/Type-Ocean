@@ -21,6 +21,7 @@ export const useChallengeHandler = (
   const [error, setError] = useState<Error | null>(null);
   const [optimisticChallenge, setOptimisticChallenge] =
     useState(currentChallenge);
+  const filePath = "hooks/useChallengeHandler"
 
   /**
    * Handles challenge progress updates with optimistic UI pattern
@@ -70,7 +71,7 @@ export const useChallengeHandler = (
         return result;
       } catch (error) {
         // Handle errors gracefully with optimistic UI
-        logger.challenge.error("Failed to update challenge", error instanceof Error ? error : undefined);
+        logger.challenge.error("Failed to update challenge",filePath ,error instanceof Error ? error : undefined);
         await new Promise((resolve) => setTimeout(resolve, 500));
         setOptimisticChallenge(currentChallenge);
 
@@ -78,7 +79,7 @@ export const useChallengeHandler = (
         setOptimisticChallenge(prevChallenge);
         const err =
           error instanceof Error ? error : new Error("Challenge update failed");
-        logger.challenge.error("Challenge update failed", err);
+        logger.challenge.error("Challenge update failed", filePath , err);
         setError(err);
         throw err;
       } finally {

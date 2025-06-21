@@ -1,8 +1,6 @@
-// src/log/clientLogger.ts
-import { XPMessage } from '@/features/level/types/level';
-
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 type LogContext = 'AUTH' | 'PERF' | 'XP' | 'CHALLENGE' | 'SESSION' | 'ERROR';
+import { XPMessage } from "@/features/level/types/level";
 
 const LOG_CONFIG = {
   LEVEL: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
@@ -54,25 +52,32 @@ class ClientLogger {
   private formatMessage(
     level: LogLevel,
     message: string,
+    filePath: string, // إجبارية
     meta?: Record<string, unknown>
   ): string {
     const logEntry = {
       timestamp: new Date().toISOString(),
       level: level.toUpperCase(),
       context: this.context,
+      filePath, // استخدام المسار الممرر مباشرة
       message,
       ...(meta && { meta: this.sanitizeData(meta) }),
     };
 
     return process.env.NODE_ENV === 'production'
       ? JSON.stringify(logEntry)
-      : `[${logEntry.timestamp}] ${logEntry.level} ${logEntry.context} ${logEntry.message}`;
+      : `[${logEntry.timestamp}] ${logEntry.level} ${logEntry.context} ${logEntry.filePath} - ${logEntry.message}`;
   }
 
-  log(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
+  log(
+    level: LogLevel,
+    message: string,
+    filePath: string, // إجبارية
+    meta?: Record<string, unknown>
+  ): void {
     if (!this.shouldLog(level)) return;
 
-    const formattedMessage = this.formatMessage(level, message, meta);
+    const formattedMessage = this.formatMessage(level, message, filePath, meta);
     const consoleMethod = console[level] || console.log;
     
     if (level === 'error' && meta?.error instanceof Error) {
@@ -87,20 +92,37 @@ class ClientLogger {
     }
   }
 
-  debug(message: string, meta?: Record<string, unknown>): void {
-    this.log('debug', message, meta);
+  debug(
+    message: string,
+    filePath: string, // إجبارية
+    meta?: Record<string, unknown>
+  ): void {
+    this.log('debug', message, filePath, meta);
   }
 
-  info(message: string, meta?: Record<string, unknown>): void {
-    this.log('info', message, meta);
+  info(
+    message: string,
+    filePath: string, // إجبارية
+    meta?: Record<string, unknown>
+  ): void {
+    this.log('info', message, filePath, meta);
   }
 
-  warn(message: string, meta?: Record<string, unknown>): void {
-    this.log('warn', message, meta);
+  warn(
+    message: string,
+    filePath: string, // إجبارية
+    meta?: Record<string, unknown>
+  ): void {
+    this.log('warn', message, filePath, meta);
   }
 
-  error(message: string, error?: Error, meta?: Record<string, unknown>): void {
-    this.log('error', message, { ...meta, error });
+  error(
+    message: string,
+    filePath: string, // إجبارية
+    error?: Error,
+    meta?: Record<string, unknown>
+  ): void {
+    this.log('error', message, filePath, { ...meta, error });
   }
 }
 
@@ -118,9 +140,10 @@ export const logger = {
 export const logXPEvent = (
   userId: string | undefined, 
   event: XPMessage,
+  filePath: string, // إجبارية
   metadata?: Record<string, unknown>
 ): void => {
-  if (!userId) return; // لا تسجل إذا لم يكن هناك مستخدم
+  if (!userId) return;
   
   if (
     event.value >=
@@ -128,11 +151,15 @@ export const logXPEvent = (
       event.type.toUpperCase() as keyof typeof XP_LOGGING_THRESHOLDS
     ]
   ) {
-    logger.xp.info(`XP Event: ${event.type}`, {
-      userId,
-      eventType: event.type,
-      value: event.value,
-      ...metadata,
-    });
+    logger.xp.info(
+      `XP Event: ${event.type}`,
+      filePath, // تمرير filePath
+      {
+        userId,
+        eventType: event.type,
+        value: event.value,
+        ...metadata,
+      }
+    );
   }
 };

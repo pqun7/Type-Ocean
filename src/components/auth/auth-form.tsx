@@ -54,7 +54,7 @@ export function AuthForm() {
   const { showAlert } = useAlert();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
+  const filePath = "src/components/auth/auth-form.tsx";
 
 
   useEffect(() => {
@@ -84,31 +84,54 @@ export function AuthForm() {
   const handleSignup = async (formData: FormData) => {
     try {
       const result = await signUp(formData);
-      logger.auth.debug('Signup API response', { success: result?.success });
+      logger.auth.debug(
+        "Signup API response", 
+        filePath,
+        { success: result?.success }
+      );
 
       if (result?.success) {
         formRef.current?.reset();
         setIsLogin(true);
         setError("");
-        logger.auth.info('User account created successfully');
+        logger.auth.info(
+          "User account created successfully",
+          filePath,
+          { username: formData.get("username") }
+        );
         showAlert("Account created successfully. Please check your email for verification.", "success");
         setFieldErrors({});
       } else {
         if (result?.details?.fieldErrors) {
-          logger.auth.warn('Signup validation failed', {
-            fieldErrors: result.details.fieldErrors
-          });
+          logger.auth.warn(
+            "Signup validation failed",
+            filePath,
+            {
+              fieldErrors: result.details.fieldErrors,
+              username: formData.get("username")
+            }
+          );
           setFieldErrors(result.details.fieldErrors as Record<string, string[]>);
           setError("");
         } else {
           const errorMsg = result?.error || "An error occurred during signup";
-          logger.auth.error('Signup failed', new Error(errorMsg));
+          logger.auth.error(
+            "Signup failed",
+            filePath,
+            new Error(errorMsg),
+            { username: formData.get("username") }
+          );
           setError(errorMsg);
           setFieldErrors({});
         }
       }
     } catch (err) {
-      logger.auth.error('Unexpected signup error', err instanceof Error ? err : new Error(String(err)));
+      logger.auth.error(
+        "Unexpected signup error",
+        filePath,
+        err instanceof Error ? err : new Error(String(err)),
+        { username: formData.get("username") }
+      );
       setError("An unexpected error occurred");
       setFieldErrors({});
     }
@@ -124,10 +147,14 @@ export function AuthForm() {
     setError("");
     setSuccessMessage("");
 
-    logger.auth.info('Auth form submitted', {
-      type: isLogin ? 'login' : 'signup',
-      username: username
-    });
+    logger.auth.info(
+      "Auth form submitted",
+      filePath,
+      {
+        type: isLogin ? 'login' : 'signup',
+        username: username
+      }
+    );
 
     try {
       if (isLogin) {
@@ -142,24 +169,37 @@ export function AuthForm() {
             ? "This account doesn't have a password. Please use social login."
             : "Invalid username or password.";
           
-          logger.auth.warn('Login failed', {
-            errorType: res.error,
-            username: username
-          });
+          logger.auth.warn(
+            "Login failed",
+            filePath,
+            {
+              errorType: res.error,
+              username: username
+            }
+          );
           
           setError(errorMessage);
         } else {
-          logger.auth.info('Login successful', { username: username });
+          logger.auth.info(
+            "Login successful",
+            filePath,
+            { username: username }
+          );
           router.push("/auth");
         }
       } else {
         await handleSignup(formData);
       }
     } catch (err) {
-      logger.auth.error('Form submission error', err instanceof Error ? err : new Error(String(err)), {
-        username: username,
-        formType: isLogin ? 'login' : 'signup'
-      });
+      logger.auth.error(
+        "Form submission error",
+        filePath,
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          username: username,
+          formType: isLogin ? 'login' : 'signup'
+        }
+      );
       setError("An unexpected error occurred");
     } finally {
       setIsSubmitting(false);

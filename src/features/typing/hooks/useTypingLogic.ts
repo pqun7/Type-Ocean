@@ -37,6 +37,7 @@ export default function useTypingLogic(
     elapsedTime: 0,
   });
   const { userId, isLoading } = useUserSession();
+  const filePath = "hooks/useTypingLogic.ts";
 
   const userIdRef = useRef(userId);
   useEffect(() => {
@@ -199,7 +200,7 @@ export default function useTypingLogic(
         // Execute all XP updates
         await Promise.all(updates);
 
-        logger.session.info("Session completed for authenticated user", {
+        logger.session.info("Session completed for authenticated user",filePath, {
           userId,
           duration: performance.now() - sessionStartTime,
           wpm,
@@ -208,7 +209,7 @@ export default function useTypingLogic(
         });
       } else {
         // Guest user handling
-        logger.session.info("Guest session completed", {
+        logger.session.info("Guest session completed", filePath,{
           wpm,
           accuracy,
           duration: performance.now() - sessionStartTime,
@@ -225,7 +226,7 @@ export default function useTypingLogic(
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
       logger.session.error(
-        "Session completion failed",
+        "Session completion failed",filePath,
         error instanceof Error ? error : new Error(errorMessage),
         {
           userId,

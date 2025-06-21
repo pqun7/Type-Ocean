@@ -1,9 +1,9 @@
 // src/lib/rateLimiter.ts
 import Redis from "ioredis";
 import { logger } from "@/log/ServerLogger";
-import { 
-  logRequestStart, 
-  logRequestSuccess, 
+import {
+  logRequestStart,
+  logRequestSuccess,
   logRequestError,
 } from "@/log/loggingUtils"; // استيراد الأدوات الجديدة
 import { NextRequest, NextResponse } from "next/server";
@@ -93,7 +93,7 @@ export class RateLimiter {
     endpoint: string
   ): Promise<{ allowed: boolean; headers: Record<string, string> }> {
     const logType = "RATE_LIMIT";
-    
+
     logRequestStart(identifier, logType, "RATE_LIMIT", LOG_FILE);
 
     await this.ensureRedisConnection();
@@ -101,11 +101,11 @@ export class RateLimiter {
     if (!identifier || !endpoint) {
       const isAllowed = this.options.fallback === "allow";
 
-      logRequestSuccess(identifier, logType, "RATE_LIMIT", { 
+      logRequestSuccess(identifier, logType, "RATE_LIMIT", LOG_FILE, {
         allowed: isAllowed,
-        reason: "missing_identifier_or_endpoint"
-      }, LOG_FILE);
-      
+        reason: "missing_identifier_or_endpoint",
+      });
+
       return {
         allowed: isAllowed,
         headers: {},
@@ -116,7 +116,7 @@ export class RateLimiter {
       const localKey = `${identifier}:${endpoint}`;
       const cached = this.localCache.get(localKey);
       const config = this.getConfig(endpoint);
-     
+
       if (!config) {
         logger.warn("No rate limit config found for endpoint", { endpoint });
         return {
@@ -160,10 +160,17 @@ export class RateLimiter {
         headers: this.generateHeaders(result, config),
       };
     } catch (error: any) {
-      logRequestError(identifier, logType, error, { 
-        endpoint, 
-        errorDetails: error.message 
-      }, LOG_FILE);
+      logRequestError(
+        identifier,
+        logType,
+        error,
+        LOG_FILE,
+
+        {
+          endpoint,
+          errorDetails: error.message,
+        }
+      );
       // إضافة تأخير لإعطاء Redis فرصة لإعادة الاتصال
       if (error instanceof Error && error.message.includes("ECONNREFUSED")) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -457,8 +464,6 @@ export async function applyRateLimit(req: NextRequest, endpoint: string) {
 // 8. دالة مساعدة للاستخدام في API Routes
 export async function enforceRateLimit(req: NextRequest, endpoint: string) {
   const { allowed, headers } = await applyRateLimit(req, endpoint);
-
-  
 
   const stringHeaders: Record<string, string> = Object.fromEntries(
     Object.entries(headers).filter(([, value]) => typeof value === "string")

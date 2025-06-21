@@ -11,6 +11,7 @@ export const useUserSession = () => {
   const [userId, setUserId] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const filePath = "hooks/useUserSession.ts"; 
   
   // Session fetching on component mount
   useEffect(() => {
@@ -20,7 +21,7 @@ export const useUserSession = () => {
         const response = await fetch("/api/session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          cache: "force-cache" // استفد من التخزين المؤقت
+          cache: "force-cache" 
         });
 
         if (!response.ok) {
@@ -31,14 +32,14 @@ export const useUserSession = () => {
         
         if (valid && sessionUserId) {
           setUserId(sessionUserId);
-          logger.auth.debug("Session validated", { userId: sessionUserId });
+          logger.auth.debug("Session validated", filePath, { userId: sessionUserId });
         } else {
           setUserId(undefined);
-          logger.auth.debug("No valid session found");
+          logger.auth.debug("No valid session found", filePath);
         }
       } catch (err) {
         setError(err as Error);
-        logger.auth.error("Session fetch error", err as Error);
+        logger.auth.error("Session fetch error",filePath , err as Error);
       } finally {
         setIsLoading(false);
       }
