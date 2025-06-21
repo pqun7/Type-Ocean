@@ -115,14 +115,19 @@ export const logger = {
 };
 
 // XP-specific utilities
-
-
 export const logXPEvent = (
-  userId: string,
+  userId: string | undefined, 
   event: XPMessage,
   metadata?: Record<string, unknown>
 ): void => {
-  if (event.value >= XP_LOGGING_THRESHOLDS[event.type.toUpperCase() as keyof typeof XP_LOGGING_THRESHOLDS]) {
+  if (!userId) return; // لا تسجل إذا لم يكن هناك مستخدم
+  
+  if (
+    event.value >=
+    XP_LOGGING_THRESHOLDS[
+      event.type.toUpperCase() as keyof typeof XP_LOGGING_THRESHOLDS
+    ]
+  ) {
     logger.xp.info(`XP Event: ${event.type}`, {
       userId,
       eventType: event.type,

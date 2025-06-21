@@ -25,7 +25,7 @@ export type DailyChallenge = {
   xp: number;
   date: string;
   difficulty: number;
-  status: 0 | 1;
+  status: 0 | 1 | -1; // 0: not started, 1: completed, -1: in progress
   data?: {
     charactersTyped?: number;
     timeSpent?: number;

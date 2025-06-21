@@ -1,35 +1,78 @@
 //api/session-stats/v1/route.ts
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
+import { v4 as uuidv4 } from "uuid";
 
 import { NextRequest, NextResponse } from "next/server";
-import redis, { connectIfNeeded } from '@/lib/redis';
-import { enforceRateLimit } from '@/lib/rate-limiter'
+import redis, { connectIfNeeded } from "@/lib/redis";
+import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
+
+import {
+  logRequestStart,
+  logRequestSuccess,
+  logRequestError,
+} from "@/log/loggingUtils";
+
+const SERVICE_TYPE = "SESSION-STATS";
+const LOG_FILE = "src/app/api/session-stats/v1/route.ts";
 
 export async function POST(req: NextRequest) {
   await connectIfNeeded();
+  const requestId = uuidv4();
+  const endpoint = "/api/session-stats/v1";
 
-  const rateLimitHeaders = await enforceRateLimit(
-    req,
-    '/api/session-stats/v1'
-  )
-  
+  logRequestStart(
+    requestId,
+    SERVICE_TYPE,
+    "POST",
+    req.headers.get("x-user-id") || undefined,
+    LOG_FILE
+  );
+
+  // Rate limiting
+  const rateLimitHeaders = await enforceRateLimit(req, "/api/session-stats/v1");
   if (rateLimitHeaders instanceof NextResponse && rateLimitHeaders.status === 429) {
     return rateLimitHeaders;
   }
 
+  // User authentication
   const userId = req.headers.get("x-user-id");
   if (!userId) {
     logging.warn("[STATS] Unauthorized stats update attempt");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { wpm, accuracy } = await req.json();
+  // Content type validation
+  const contentType = req.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    return NextResponse.json(
+      { error: "Invalid content type. Expected application/json" },
+      { status: 415 }
+    );
+  }
+
+  // JSON parsing with error handling
+  let body;
+  try {
+    body = await req.json();
+    } catch (error) {
+    logging.warn("[STATS] JSON parsing error", { error });
+    return NextResponse.json(
+      { error: "Invalid JSON format in request body" },
+      { status: 400 }
+    );
+  }
+
+  // Data validation
+  const { wpm, accuracy } = body;
   logging.debug(`[STATS] Updating stats for ${userId}`, { wpm, accuracy });
 
   if (typeof wpm !== "number" || typeof accuracy !== "number") {
     logging.warn(`[STATS] Invalid input for ${userId}`, { wpm, accuracy });
-    return NextResponse.json({ error: "Invalid data format" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid data format. wpm and accuracy must be numbers" },
+      { status: 400 }
+    );
   }
 
   const today = new Date().toISOString().split("T")[0];
@@ -38,13 +81,22 @@ export async function POST(req: NextRequest) {
   try {
     const exists = await redis.exists(key);
 
-    if (!exists) {
+    // Handle new user or reset daily stats
+    if (!exists || (exists && (await redis.hGet(key, "date")) !== today)) {
       await redis.hSet(key, {
         n: 1,
         avgWpm: wpm,
         avgAcc: accuracy,
         date: today,
       });
+
+      logRequestSuccess(
+        requestId,
+        SERVICE_TYPE,
+        "POST",
+        { userId, endpoint },
+        LOG_FILE
+      );
 
       return NextResponse.json({
         dailyAvgWpm: wpm,
@@ -84,18 +136,24 @@ export async function POST(req: NextRequest) {
       date: today,
     });
 
+    logRequestSuccess(
+      requestId,
+      SERVICE_TYPE,
+      "POST",
+      { userId, endpoint },
+      LOG_FILE
+    );
+
     return NextResponse.json({
       dailyAvgWpm: newAvgWpm,
       dailyAvgAcc: newAvgAcc,
       sessionsCount: newN,
     });
-
   } catch (error) {
-    logging.error(
-      `[STATS] Processing error for ${userId}`,
-      error,
-      { endpoint: "session-stats", userId }
-    );
+    logging.error(`[STATS] Processing error for ${userId}`, error, {
+      endpoint: "session-stats",
+      userId,
+    });
 
     return NextResponse.json(
       { error: "Failed to process session stats" },

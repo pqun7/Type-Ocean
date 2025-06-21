@@ -25,6 +25,9 @@ const CACHE_TTL =
 const SERVICE_TYPE = "DAILY-CHALLENGE";
 const PARALLEL_OPS = process.env.REDIS_PARALLEL === "true"; // تمكين العمليات المتوازية
 
+const FILE_NAME = "challenge/v1/route.ts";
+
+
 // ███ GET - جلب التحدي اليومي (مُحسّن) ███
 export async function GET(req: NextRequest) {
   const requestId = uuidv4();
@@ -36,22 +39,26 @@ export async function GET(req: NextRequest) {
 
   const logMetadata = (metadata?: object) =>
     createLogMetadata(requestId, SERVICE_TYPE, metadata);
-
-  // const rateLimitHeaders = await enforceRateLimit(req, '/api/session-stats/v1')
-  // if (rateLimitHeaders instanceof NextResponse) return rateLimitHeaders;
+ 
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "GET", userId);
+    logRequestStart(requestId, SERVICE_TYPE, "GET", userId, FILE_NAME);
 
     try {
       await connectIfNeeded();
     } catch (error) {
-      logRequestError(requestId, SERVICE_TYPE, error, {
-        operationPhase: "redis_connection",
-      });
+      logRequestError(
+        requestId,
+        SERVICE_TYPE,
+        error,
+        {
+          operationPhase: "redis_connection",
+        },
+        FILE_NAME
+      );
       return NextResponse.json(
         { error: "Service unavailable" },
-        { status: 503 } 
+        { status: 503 }
       );
     }
 
@@ -64,7 +71,8 @@ export async function GET(req: NextRequest) {
           status: 401,
           securityEvent: true,
           operationPhase: "authentication",
-        }
+        },
+        FILE_NAME
       );
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -83,6 +91,7 @@ export async function GET(req: NextRequest) {
       logRequestSuccess(requestId, SERVICE_TYPE, "GET", {
         cacheStatus: "hit",
         challengeId: parsed.id,
+        FILE_NAME,
       });
       return NextResponse.json(parsed);
     }
@@ -100,6 +109,7 @@ export async function GET(req: NextRequest) {
       cacheStatus: "miss",
       challengeId: newChallenge.id,
       ttlSeconds: CACHE_TTL,
+      FILE_NAME,
     });
 
     return NextResponse.json(newChallenge);
@@ -107,6 +117,7 @@ export async function GET(req: NextRequest) {
     logRequestError(requestId, SERVICE_TYPE, error, {
       operationPhase: "challenge_retrieval",
       userId,
+      FILE_NAME,
     });
     return NextResponse.json(
       { error: "Failed to fetch challenge", referenceId: requestId },
@@ -129,7 +140,7 @@ export async function POST(req: NextRequest) {
     createLogMetadata(requestId, SERVICE_TYPE, metadata);
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "POST", userId);
+    logRequestStart(requestId, SERVICE_TYPE, "POST", userId, FILE_NAME);
 
     try {
       await connectIfNeeded();
@@ -146,7 +157,8 @@ export async function POST(req: NextRequest) {
           status: 401,
           securityEvent: true,
           operationPhase: "authentication",
-        }
+        },
+        FILE_NAME
       );
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -177,6 +189,7 @@ export async function POST(req: NextRequest) {
           status: 404,
           operationPhase: "challenge_validation",
         }
+        , FILE_NAME
       );
       return NextResponse.json(
         { error: "Challenge not found" },
@@ -191,6 +204,7 @@ export async function POST(req: NextRequest) {
         currentDate: today,
         status: 410,
         operationPhase: "date_validation",
+        FILE_NAME
       });
       return NextResponse.json({ error: "Challenge expired" }, { status: 410 });
     }
@@ -206,6 +220,7 @@ export async function POST(req: NextRequest) {
     logRequestSuccess(requestId, SERVICE_TYPE, "POST", {
       challengeId: updatedChallenge.id,
       newStatus: updatedChallenge.status,
+       FILE_NAME
     });
 
     return NextResponse.json(updatedChallenge);
@@ -213,6 +228,7 @@ export async function POST(req: NextRequest) {
     logRequestError(requestId, SERVICE_TYPE, error, {
       operationPhase: "progress_update",
       userId,
+      FILE_NAME
     });
     return NextResponse.json(
       { error: "Failed to update challenge", referenceId: requestId },
@@ -220,6 +236,60 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+
+export async function PUT(req: NextRequest) {
+  const requestId = uuidv4();
+  const userId = req.headers.get("x-user-id");
+  
+  if (!userId || userId === "undefined" || userId === "null") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    logRequestStart(requestId, SERVICE_TYPE, "PUT", userId, FILE_NAME);
+    await connectIfNeeded();
+
+    const today = getTodayDate();
+    const cacheKey = `dailyChallenge:${userId}:${today}`;
+    const existing = await redis.get(cacheKey);
+    
+    if (!existing) {
+      return NextResponse.json(
+        { error: "Challenge not found" },
+        { status: 404 }
+      );
+    }
+
+    const { progress } = await req.json();
+    const challenge = JSON.parse(existing) as DailyChallenge;
+    
+    if (challenge.date !== today) {
+      return NextResponse.json({ error: "Challenge expired" }, { status: 410 });
+    }
+
+    const updatedChallenge = {
+      ...challenge,
+      progress,
+      status: calculateChallengeStatus(challenge, progress),
+    };
+
+    await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(updatedChallenge));
+
+    return NextResponse.json(updatedChallenge);
+  }  catch (error) {
+    logRequestError(requestId, SERVICE_TYPE, error, {
+      operationPhase: "challenge_put",
+      userId,
+      FILE_NAME
+    });
+    return NextResponse.json(
+      { error: "Failed to update challenge", referenceId: requestId },
+      { status: 500 }
+    );
+  }
+}
+
 
 // ███ DELETE - حذف التحدي (مُحسّن) ███
 export async function DELETE(req: NextRequest) {
@@ -229,11 +299,10 @@ export async function DELETE(req: NextRequest) {
   if (!userId || userId === "undefined" || userId === "null") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const logMetadata = (metadata?: object) =>
-    createLogMetadata(requestId, SERVICE_TYPE, metadata);
+
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "DELETE", userId);
+    logRequestStart(requestId, SERVICE_TYPE, "DELETE", userId, FILE_NAME);
 
     try {
       await connectIfNeeded();
@@ -251,6 +320,7 @@ export async function DELETE(req: NextRequest) {
           securityEvent: true,
           operationPhase: "authentication",
         }
+        , FILE_NAME
       );
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -268,6 +338,7 @@ export async function DELETE(req: NextRequest) {
     logRequestSuccess(requestId, SERVICE_TYPE, "DELETE", {
       cacheKey,
       deletedCount,
+       FILE_NAME
     });
 
     return NextResponse.json(
@@ -280,6 +351,7 @@ export async function DELETE(req: NextRequest) {
     logRequestError(requestId, SERVICE_TYPE, error, {
       operationPhase: "challenge_deletion",
       userId,
+      FILE_NAME
     });
     return NextResponse.json(
       { error: "Failed to delete challenge", referenceId: requestId },

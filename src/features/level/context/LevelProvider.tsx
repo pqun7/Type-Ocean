@@ -9,16 +9,24 @@ import { useChallengeHandler } from "@/features/level/hooks/useChallengeHandler"
 import { useSessionStats } from "@/features/level/hooks/useSessionStats";
 
 export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
-  const { userId } = useUserSession();
+  const { userId, isLoading } = useUserSession();
+
+ 
+
+  // const shouldLoadChallenge = !isLoading && !!userId;
+  // const { dailyChallenge } = useDailyChallengeLoader(shouldLoadChallenge ? userId : undefined);
+
   const { dailyChallenge } = useDailyChallengeLoader(userId);
   const { xpMessages, addXPMessage, clearAllMessages } = useXPMessages();
   const { state, calculateSessionXP, addXP } = useSessionXP(userId, addXPMessage);
   const { handleDailyChallenge } = useChallengeHandler(userId, dailyChallenge);
   const { recordSessionStats } = useSessionStats();
 
-  const contextValue = useMemo(
-    () => ({
+  const contextValue = useMemo(() => {
+    if (!userId) return null;
+    return {
       ...state,
+      userId,
       dailyChallenge,
       xpMessages,
       addXPMessage,
@@ -27,9 +35,13 @@ export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
       clearXPMessages: clearAllMessages,
       recordSessionStats,
       addXP,
-    }),
-    [state, dailyChallenge, xpMessages, userId]
-  );
+      isLoadingSession: isLoading,
+    };
+  }, [state, dailyChallenge, xpMessages, userId, isLoading]);
+
+  if (!contextValue) {
+    return null; // Or render a loading spinner
+  }
 
   return (
     <LevelContext.Provider value={contextValue}>

@@ -7,10 +7,10 @@ import { logger } from "@/log/ServerLogger"
 
 // 1. قائمة بالنقاط الطرفية التي تحتاج Rate Limiting
 const RATE_LIMITED_ENDPOINTS = [
-  '/api/auth/login',
-  '/api/auth/resend-verification',
-  '/api/auth/reset-password',
-  '/api/session-stats/v1'
+  '/api/auth',
+  // '/api/auth/resend-verification',
+  // '/api/auth/reset-password',
+  // '/api/session-stats/v1'
 ]
 
 // 2. قائمة بالمسارات المحمية

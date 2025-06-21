@@ -1,9 +1,15 @@
 // src/lib/rateLimiter.ts
 import Redis from "ioredis";
 import { logger } from "@/log/ServerLogger";
-import crypto from "crypto";
+import { 
+  logRequestStart, 
+  logRequestSuccess, 
+  logRequestError,
+} from "@/log/loggingUtils"; // استيراد الأدوات الجديدة
 import { NextRequest, NextResponse } from "next/server";
 import redis, { connectIfNeeded } from "@/lib/redis";
+
+const LOG_FILE = "src/lib/rateLimiter.ts";
 
 // 1. نوع البيانات للتهيئة
 type RateLimitConfig = {
@@ -63,6 +69,11 @@ export class RateLimiter {
   private configs: Map<string, RateLimitConfig>;
   private options: RateLimitOptions;
   private localCache = new Map<string, { count: number; expires: number }>();
+  private async ensureRedisConnection(): Promise<void> {
+    if (this.redis.status !== "ready") {
+      await new Promise((resolve) => this.redis.once("connect", resolve));
+    }
+  }
 
   constructor(
     configs: Record<string, RateLimitConfig> = {},
@@ -71,6 +82,9 @@ export class RateLimiter {
     this.redis = options.redisClient || new Redis(process.env.REDIS_URL!);
     this.configs = new Map(Object.entries(configs));
     this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.redis.on("error", (err) => {
+      logger.error("Redis connection error", err);
+    });
   }
 
   // 4. تطبيق Rate Limit الأساسي
@@ -78,11 +92,31 @@ export class RateLimiter {
     identifier: string,
     endpoint: string
   ): Promise<{ allowed: boolean; headers: Record<string, string> }> {
+    const logType = "RATE_LIMIT";
+    
+    logRequestStart(identifier, logType, "RATE_LIMIT", LOG_FILE);
+
+    await this.ensureRedisConnection();
+
+    if (!identifier || !endpoint) {
+      const isAllowed = this.options.fallback === "allow";
+
+      logRequestSuccess(identifier, logType, "RATE_LIMIT", { 
+        allowed: isAllowed,
+        reason: "missing_identifier_or_endpoint"
+      }, LOG_FILE);
+      
+      return {
+        allowed: isAllowed,
+        headers: {},
+      };
+    }
+
     try {
       const localKey = `${identifier}:${endpoint}`;
       const cached = this.localCache.get(localKey);
       const config = this.getConfig(endpoint);
-      const key = this.generateKey(identifier, endpoint);
+     
       if (!config) {
         logger.warn("No rate limit config found for endpoint", { endpoint });
         return {
@@ -90,6 +124,8 @@ export class RateLimiter {
           headers: {},
         };
       }
+
+      const key = await this.generateKey(identifier, endpoint);
 
       if (cached && cached.expires > Date.now()) {
         if (cached.count >= config.limit) {
@@ -123,14 +159,16 @@ export class RateLimiter {
         allowed: result,
         headers: this.generateHeaders(result, config),
       };
-    } catch (error) {
-      logger.error("Rate limiter failure", error, { endpoint, identifier });
-     
-      // sendToMonitoringSystem({
-      //   type: "RATE_LIMITER_FAILURE",
-      //   details: { endpoint, identifier },
-      // });
-      
+    } catch (error: any) {
+      logRequestError(identifier, logType, error, { 
+        endpoint, 
+        errorDetails: error.message 
+      }, LOG_FILE);
+      // إضافة تأخير لإعطاء Redis فرصة لإعادة الاتصال
+      if (error instanceof Error && error.message.includes("ECONNREFUSED")) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
       return {
         allowed: this.options.fallback === "allow",
         headers: {},
@@ -215,12 +253,17 @@ export class RateLimiter {
   }
 
   // 7. توليد المفاتيح الآمنة
-  private generateKey(identifier: string, endpoint: string): string {
-    const safeIdentifier = crypto
-      .createHash("sha256")
-      .update(identifier)
-      .digest("hex");
-
+  private async generateKey(
+    identifier: string,
+    endpoint: string
+  ): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(identifier);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const safeIdentifier = hashArray
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
     return `${this.options.namespace}:${safeIdentifier}:${endpoint}`;
   }
 
@@ -291,8 +334,15 @@ export const rateLimiter = new RateLimiter(
   }
 );
 
-const generateKey = (identifier: string, endpoint: string) => {
-  const hash = crypto.createHash("sha256").update(identifier).digest("hex");
+const generateKey = async (
+  identifier: string,
+  endpoint: string
+): Promise<string> => {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(identifier);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hash = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   return `rate-limit:${hash}:${endpoint}`;
 };
 
@@ -313,7 +363,7 @@ export async function applyRateLimit(req: NextRequest, endpoint: string) {
     strategy: "sliding-window",
   };
 
-  const redisKey = generateKey(identifier, endpoint);
+  const redisKey = await generateKey(identifier, endpoint);
   const now = Date.now();
 
   try {
@@ -408,6 +458,8 @@ export async function applyRateLimit(req: NextRequest, endpoint: string) {
 export async function enforceRateLimit(req: NextRequest, endpoint: string) {
   const { allowed, headers } = await applyRateLimit(req, endpoint);
 
+  
+
   const stringHeaders: Record<string, string> = Object.fromEntries(
     Object.entries(headers).filter(([, value]) => typeof value === "string")
   );
@@ -423,6 +475,14 @@ export async function enforceRateLimit(req: NextRequest, endpoint: string) {
 }
 
 export async function checkRateLimit(endpoint: string, identifier: string) {
-  const rateLimiter = new RateLimiter(ENDPOINT_CONFIGS);
+  const rateLimiter = new RateLimiter(ENDPOINT_CONFIGS, {
+    redisClient: new Redis(process.env.REDIS_URL!, {
+      retryStrategy: (times) => {
+        return Math.min(times * 100, 3000); // إعادة الاتصال بعد 100ms، 200ms، 300ms
+      },
+      maxRetriesPerRequest: 3,
+    }),
+    fallback: "allow",
+  });
   return rateLimiter.applyRateLimit(identifier, endpoint);
 }

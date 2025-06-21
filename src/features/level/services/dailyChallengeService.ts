@@ -46,11 +46,11 @@ export const updateDailyChallenge = async (
   userId: string
 ) => {
   const response = (await authFetch(
-    `/api/daily-challenge/${challengeId}`,
+    `/api/daily-challenge`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ progress: session }),
+      body: JSON.stringify({ session }), // Send session data for update
     },
     userId
   )) as Response;

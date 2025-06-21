@@ -154,3 +154,32 @@ export async function getUserLevel(userId: string): Promise<number> {
     throw error;
   }
 }
+
+export const updateUserLevel = async (userId: string, newLevel: number, newXP: number) => {
+  try {
+    logging.info("Starting level update", { userId, newLevel, newXP });
+
+    // Update database
+    logging.debug("Updating player profile in database", { userId, newLevel, newXP });
+    const updatedProfile = await prisma.playerProfile.update({
+      where: { userId },
+      data: {
+        level: newLevel,
+        xp: newXP,
+      },
+    });
+    logging.info("Player profile updated successfully", { userId, level: updatedProfile.level, xp: updatedProfile.xp });
+
+    // Update cache
+    logging.debug("Updating cache for level and XP", { userId });
+    await cacheLevel(`user:${userId}:level`, updatedProfile.level);
+    await cacheXP(`user:${userId}:xp`, updatedProfile.xp);
+    logging.debug("Cache updated successfully", { userId });
+
+    logging.info("Level update completed successfully", { userId });
+    return { success: true, profile: updatedProfile };
+  } catch (error) {
+    logging.error("Failed to update user level", error, { userId, newLevel, newXP });
+    return { success: false, error: 'LEVEL_UPDATE_FAILED' };
+  }
+};

@@ -7,13 +7,54 @@ import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-
-  serverExternalPackages: ["@prisma/client", "bcryptjs"],
-  webpack: (config) => {
+  serverExternalPackages: [
+    "@prisma/client", 
+    "bcryptjs", 
+    "winston", 
+    "winston-transport",
+    "google-auth-library",
+    "google-p12-pem",
+    "gtoken",
+    "gcp-metadata",
+    "https-proxy-agent"
+  ],
+  webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
       "@": path.resolve(__dirname, "src"),
     };
+    
+    // Only apply fallbacks for client-side builds
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+        child_process: false,
+        os: false,
+        path: false,
+        crypto: false,
+        stream: false,
+        util: false,
+        buffer: false,
+        events: false,
+        string_decoder: false,
+        zlib: false,
+      };
+      
+      // Ignore winston and related server-only modules on client
+      config.externals = config.externals || [];
+      config.externals.push({
+        winston: 'commonjs winston',
+        'winston-transport': 'commonjs winston-transport',
+        'google-auth-library': 'commonjs google-auth-library',
+        'google-p12-pem': 'commonjs google-p12-pem',
+        'gtoken': 'commonjs gtoken',
+        'gcp-metadata': 'commonjs gcp-metadata',
+        'https-proxy-agent': 'commonjs https-proxy-agent'
+      });
+    }
     
     return config;
   },

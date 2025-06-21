@@ -36,7 +36,13 @@ export default function useTypingLogic(
     accuracy: 100,
     elapsedTime: 0,
   });
-  const { userId } = useUserSession();
+  const { userId, isLoading } = useUserSession();
+
+  const userIdRef = useRef(userId);
+  useEffect(() => {
+    if (!isLoading) userIdRef.current = userId;
+  }, [userId, isLoading]);
+
 
   // Persistent references
   const startTime = useRef<number | null>(null);
