@@ -27,8 +27,19 @@ export type DailyChallenge = {
   difficulty: number;
   status: 0 | 1 | -1; // 0: not started, 1: completed, -1: in progress
   data?: {
+    // Marathon challenge data
     charactersTyped?: number;
+    // Time attack challenge data
     timeSpent?: number;
+    // Speed combo challenge data
+    completedAt?: string;
+    finalWpm?: number;
+    finalAccuracy?: number;
+    bestWpm?: number;
+    bestAccuracy?: number;
+    attempts?: number;
+    // General challenge data
+    [key: string]: any; // Allow additional properties for extensibility
   };
   progress?: SessionData; 
 

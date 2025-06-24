@@ -17,9 +17,22 @@ const SERVICE_TYPE = "SESSION-STATS";
 const LOG_FILE = "src/app/api/session-stats/v1/route.ts";
 
 export async function POST(req: NextRequest) {
-  await connectIfNeeded();
   const requestId = uuidv4();
   const endpoint = "/api/session-stats/v1";
+
+  // Ensure Redis connection before proceeding
+  try {
+    await connectIfNeeded();
+  } catch (error) {
+    logging.error("[STATS] Redis connection failed", error, {
+      requestId,
+      endpoint,
+    });
+    return NextResponse.json(
+      { error: "Database connection failed. Please try again." },
+      { status: 503 }
+    );
+  }
 
   logRequestStart(
     requestId,
@@ -38,7 +51,10 @@ export async function POST(req: NextRequest) {
   // User authentication
   const userId = req.headers.get("x-user-id");
   if (!userId) {
-    logging.warn("[STATS] Unauthorized stats update attempt");
+    logging.warn("[STATS] Unauthorized stats update attempt", {
+      ip: req.headers.get("x-forwarded-for") || "unknown",
+      userAgent: req.headers.get("user-agent") || "unknown",
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -55,8 +71,12 @@ export async function POST(req: NextRequest) {
   let body;
   try {
     body = await req.json();
-    } catch (error) {
-    logging.warn("[STATS] JSON parsing error", { error });
+  } catch (error) {
+    logging.warn("[STATS] JSON parsing error", {
+      error: error instanceof Error ? error.message : "Unknown error",
+      requestId,
+      userId,
+    });
     return NextResponse.json(
       { error: "Invalid JSON format in request body" },
       { status: 400 }
@@ -65,12 +85,34 @@ export async function POST(req: NextRequest) {
 
   // Data validation
   const { wpm, accuracy } = body;
-  logging.debug(`[STATS] Updating stats for ${userId}`, { wpm, accuracy });
+  logging.debug(`[STATS] Updating stats for ${userId}`, { wpm, accuracy, requestId });
 
-  if (typeof wpm !== "number" || typeof accuracy !== "number") {
-    logging.warn(`[STATS] Invalid input for ${userId}`, { wpm, accuracy });
+  if (wpm == null || accuracy == null || typeof wpm !== "number" || typeof accuracy !== "number") {
+    logging.warn(`[STATS] Invalid input for ${userId}`, { 
+      wpm, 
+      accuracy, 
+      requestId,
+      types: { wpm: typeof wpm, accuracy: typeof accuracy }
+    });
     return NextResponse.json(
       { error: "Invalid data format. wpm and accuracy must be numbers" },
+      { status: 400 }
+    );
+  }
+
+  // Additional validation for reasonable values
+  if (wpm < 0 || wpm > 500) {
+    logging.warn(`[STATS] Unrealistic WPM value for ${userId}`, { wpm, requestId });
+    return NextResponse.json(
+      { error: "Invalid WPM value. Must be between 0 and 500" },
+      { status: 400 }
+    );
+  }
+
+  if (accuracy < 0 || accuracy > 100) {
+    logging.warn(`[STATS] Invalid accuracy value for ${userId}`, { accuracy, requestId });
+    return NextResponse.json(
+      { error: "Invalid accuracy value. Must be between 0 and 100" },
       { status: 400 }
     );
   }
@@ -90,6 +132,13 @@ export async function POST(req: NextRequest) {
         date: today,
       });
 
+      logging.info(`[STATS] New daily stats created for ${userId}`, {
+        wpm,
+        accuracy,
+        date: today,
+        requestId,
+      });
+
       logRequestSuccess(
         requestId,
         SERVICE_TYPE,
@@ -107,7 +156,9 @@ export async function POST(req: NextRequest) {
 
     const currentData = await redis.hGetAll(key);
 
-    if (currentData?.date !== today) {
+    // Validate Redis data
+    if (!currentData || Object.keys(currentData).length === 0) {
+      logging.warn(`[STATS] Empty Redis data for ${userId}, creating new entry`, { requestId });
       await redis.hSet(key, {
         n: 1,
         avgWpm: wpm,
@@ -126,6 +177,29 @@ export async function POST(req: NextRequest) {
     const currentWpm = parseFloat(String(currentData.avgWpm || "0"));
     const currentAcc = parseFloat(String(currentData.avgAcc || "0"));
 
+    // Validate parsed values
+    if (isNaN(newN) || isNaN(currentWpm) || isNaN(currentAcc)) {
+      logging.error(`[STATS] Invalid Redis data for ${userId}`, {
+        currentData,
+        parsed: { newN, currentWpm, currentAcc },
+        requestId,
+      });
+
+      // Reset to new entry if data is corrupted
+      await redis.hSet(key, {
+        n: 1,
+        avgWpm: wpm,
+        avgAcc: accuracy,
+        date: today,
+      });
+
+      return NextResponse.json({
+        dailyAvgWpm: wpm,
+        dailyAvgAcc: accuracy,
+        sessionsCount: 1,
+      });
+    }
+
     const newAvgWpm = (currentWpm * (newN - 1) + wpm) / newN;
     const newAvgAcc = (currentAcc * (newN - 1) + accuracy) / newN;
 
@@ -134,6 +208,14 @@ export async function POST(req: NextRequest) {
       avgWpm: newAvgWpm.toFixed(2),
       avgAcc: newAvgAcc.toFixed(2),
       date: today,
+    });
+
+    logging.info(`[STATS] Daily stats updated for ${userId}`, {
+      n: newN,
+      avgWpm: newAvgWpm.toFixed(2),
+      avgAcc: newAvgAcc.toFixed(2),
+      date: today,
+      requestId,
     });
 
     logRequestSuccess(
@@ -150,6 +232,17 @@ export async function POST(req: NextRequest) {
       sessionsCount: newN,
     });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    logging.error(`[STATS] Processing error for ${userId}`, error, {
+      requestId,
+      userId,
+      wpm,
+      accuracy,
+      redisKey: key,
+      errorMessage,
+    });
+
     logRequestError(
       requestId,
       SERVICE_TYPE,
@@ -160,6 +253,14 @@ export async function POST(req: NextRequest) {
         userId,
       }
     );
+
+    // Check if it's a Redis-specific error
+    if (errorMessage.includes("Redis") || errorMessage.includes("Connection")) {
+      return NextResponse.json(
+        { error: "Database connection error. Please try again." },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json(
       { error: "Failed to process session stats" },

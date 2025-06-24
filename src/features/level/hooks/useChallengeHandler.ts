@@ -21,73 +21,49 @@ export const useChallengeHandler = (
   const [error, setError] = useState<Error | null>(null);
   const [optimisticChallenge, setOptimisticChallenge] =
     useState(currentChallenge);
-  const filePath = "hooks/useChallengeHandler"
+  const filePath = "hooks/useChallengeHandler";
 
   /**
    * Handles challenge progress updates with optimistic UI pattern
    * @param session - Current gameplay session data
    * @returns Challenge completion status and XP rewards
    */
-  const handleDailyChallenge = useCallback(
-    async (session: SessionData) => {
-      if (!currentChallenge || !userId) return { completed: false, xp: 0 };
+  const handleDailyChallenge = useCallback(async (session: SessionData) => {
+    if (!currentChallenge || !userId) return { completed: false, xp: 0 };
 
-      setIsUpdating(true);
-      setError(null);
+    setIsUpdating(true);
+    setError(null);
+    const prevChallenge = currentChallenge;
 
-      // Store current state for potential rollback
-      const prevChallenge = currentChallenge;
+    // Optimistic update
+    const tempChallenge: DailyChallenge = {
+      ...currentChallenge,
+      progress: session,
+      status: calculateChallengeStatus(currentChallenge, session),
+    };
+    setOptimisticChallenge(tempChallenge);
 
-      // Immediate UI update with local state
-      // const tempChallenge: DailyChallenge = {
-      //   ...currentChallenge,
-      //   progress: session,
-      //   status: calculateChallengeStatus(currentChallenge, session) as 0 | 1
-      // };
-      // setOptimisticChallenge(tempChallenge);
+    try {
+      const updatedChallenge = await updateDailyChallenge(
+        currentChallenge.id,
+        session,
+        userId
+      );
 
-      const tempChallenge: DailyChallenge = {
-        ...currentChallenge,
-        progress: session,
-        status: -1 as any, // حالة مؤقتة
-      };
+      const completed = updatedChallenge.status === 1;
+      const xp = completed ? updatedChallenge.xp : 0;
       
-      setOptimisticChallenge(tempChallenge);
-
-      try {
-        // Persist changes to backend
-        const result = await updateDailyChallenge(
-          currentChallenge.id,
-          session,
-          userId
-        );
-
-        if (!result || !result.updatedChallenge) {
-          throw new Error("Invalid server response");
-        }
-
-        // Update with server response
-        setOptimisticChallenge(result.updatedChallenge);
-        return result;
-      } catch (error) {
-        // Handle errors gracefully with optimistic UI
-        logger.challenge.error("Failed to update challenge",filePath ,error instanceof Error ? error : undefined);
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        setOptimisticChallenge(currentChallenge);
-
-        // Revert to previous state on failure
-        setOptimisticChallenge(prevChallenge);
-        const err =
-          error instanceof Error ? error : new Error("Challenge update failed");
-        logger.challenge.error("Challenge update failed", filePath , err);
-        setError(err);
-        throw err;
-      } finally {
-        setIsUpdating(false);
-      }
-    },
-    [currentChallenge, userId]
-  );
+      setOptimisticChallenge(updatedChallenge);
+      return { completed, xp };
+    } catch (error) {
+      setOptimisticChallenge(prevChallenge);
+      const err = error instanceof Error ? error : new Error("Update failed");
+      setError(err);
+      throw err;
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [currentChallenge, userId]);
 
   return {
     handleDailyChallenge,

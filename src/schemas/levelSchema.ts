@@ -1,4 +1,3 @@
-
 import { DailyChallengeResponse } from '@/features/level/types/level';
 import { z } from "zod";
 
@@ -8,7 +7,7 @@ const ChallengeResponseSchema = z.object({
     updatedChallenge: z.object({
       id: z.string(),
       progress: z.record(z.any()),
-      status: z.number().min(0).max(2),
+      status: z.union([z.literal(0), z.literal(1), z.literal(-1)]), // 0: not started, 1: completed, -1: in progress
       date: z.string()
     })
   });

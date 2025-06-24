@@ -8,7 +8,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: [
-    "@prisma/client", 
+    "@prisma/client",
     "bcryptjs", 
     "winston", 
     "winston-transport",
@@ -18,14 +18,14 @@ const nextConfig: NextConfig = {
     "gcp-metadata",
     "https-proxy-agent"
   ],
-  webpack: (config, { isServer }) => {
+  webpack: (config, { isServer, webpack }) => {
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
       "@": path.resolve(__dirname, "src"),
     };
     
-    // Only apply fallbacks for client-side builds
     if (!isServer) {
+      // Client-side: Completely exclude Prisma and Node.js modules
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
@@ -41,19 +41,45 @@ const nextConfig: NextConfig = {
         events: false,
         string_decoder: false,
         zlib: false,
+        // Node.js protocol modules
+        'node:module': false,
+        'node:fs': false,
+        'node:path': false,
+        'node:os': false,
+        'node:crypto': false,
+        'node:stream': false,
+        'node:util': false,
+        'node:buffer': false,
+        'node:events': false,
+        'node:zlib': false,
+        'node:process': false,
+        'node:url': false,
+        'node:querystring': false,
       };
-      
-      // Ignore winston and related server-only modules on client
-      config.externals = config.externals || [];
-      config.externals.push({
-        winston: 'commonjs winston',
-        'winston-transport': 'commonjs winston-transport',
-        'google-auth-library': 'commonjs google-auth-library',
-        'google-p12-pem': 'commonjs google-p12-pem',
-        'gtoken': 'commonjs gtoken',
-        'gcp-metadata': 'commonjs gcp-metadata',
-        'https-proxy-agent': 'commonjs https-proxy-agent'
-      });
+
+      // Use IgnorePlugin to completely ignore Prisma on client side
+      config.plugins.push(
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^@prisma\/client$/,
+        })
+      );
+
+      // Additional externals for client side
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean)),
+        {
+          '@prisma/client': 'commonjs @prisma/client',
+          'prisma': 'commonjs prisma',
+        }
+      ];
+    } else {
+      // Server-side: Allow Prisma to work normally but externalize it
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean)),
+        {
+          '@prisma/client': '@prisma/client',
+        }
+      ];
     }
     
     return config;

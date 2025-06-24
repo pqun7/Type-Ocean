@@ -1,6 +1,8 @@
 import { authFetch } from "@/features/auth/utils/authFetch";
 import { generateDailyChallenge } from "@/features/level/utils/challengeHelpers";
 import { DailyChallenge } from "../types/level";
+import { getUserLevelWithFallback } from "@/features/level/utils/userLevelHelpers";
+import { SessionData } from "../types/level";
 
 /**
  * Fetches daily challenge from API with authentication
@@ -15,22 +17,20 @@ export const fetchDailyChallenge = async (
   requestId?: string
 ): Promise<DailyChallenge> => {
   try {
-    const response: Response = await authFetch(
-      `/api/daily-challenge`,
+    return await authFetch<DailyChallenge>(
+      `/api/challenge/v1/daily`,
       {
         signal: abortController?.signal,
-        headers: requestId ? { "X-Request-ID": requestId } : undefined,
-      },
-      userId
+        userId,
+        requestId,
+      }
     );
-
-    if (!response.ok) throw new Error("Failed to fetch challenge");
-    return await response.json();
   } catch (error) {
-    const userLevel = 1; // TODO: Replace with actual user level determination logic
+    const userLevel = await getUserLevelWithFallback(userId);
     return generateDailyChallenge(userId, userLevel);
   }
 };
+
 
 /**
  * Updates daily challenge progress on the server
@@ -40,21 +40,24 @@ export const fetchDailyChallenge = async (
  * @returns Promise resolving to updated challenge data
  * @throws Error if update fails
  */
+interface ChallengeUpdateData {
+  wpm: number;
+  accuracy: number;
+  completedAt?: Date;
+}
+
 export const updateDailyChallenge = async (
   challengeId: string,
-  session: any,
+  session: SessionData,
   userId: string
-) => {
-  const response = (await authFetch(
-    `/api/daily-challenge`,
+): Promise<DailyChallenge> => {
+  return authFetch<DailyChallenge>(
+    `/api/challenge/v1/daily/${challengeId}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session }), // Send session data for update
-    },
-    userId
-  )) as Response;
-
-  if (!response.ok) throw new Error("Challenge update failed");
-  return response.json();
+      body: JSON.stringify({ session }),
+      userId,
+    }
+  );
 };

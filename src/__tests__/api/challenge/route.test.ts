@@ -1,6 +1,6 @@
 // __tests__/routes.test.ts
 
-import { GET, POST, DELETE } from "@/app/api/challenge/v1/route";
+import { GET, POST, DELETE } from "@/app/api/challenge/v1/daily/route";
 
 import { NextRequest } from "next/server";
 import redis from "@/lib/redis";
@@ -239,7 +239,7 @@ describe("POST /api/challenge/v1", () => {
 
     expect(response.status).toBe(200);
     expect(data.data.charactersTyped).toBe(75);
-    expect(data.status).toBe(2); // التأكد من تحديث الحالة
+    expect(data.status).toBe(-1); // التأكد من تحديث الحالة (in progress)
   });
 
   it("should return 404 when challenge not found", async () => {

@@ -67,8 +67,10 @@ export default auth(async (req, ctx) => {
 
     // 6. التحقق من البريد الإلكتروني المؤكد
     if (session?.user && !session.user.emailVerified && !pathname.startsWith('/auth/verify')) {
-      return redirectWithSecurity(new URL("/auth/verify", req.url))
+      return redirectWithSecurity(new URL("/auth/verify", req.url));
     }
+
+    
 
     // 7. إضافة رؤوس الأمان وتحسينات الأداء
     const response = NextResponse.next()
@@ -122,6 +124,6 @@ function redirectWithSecurity(url: URL): NextResponse {
 // 12. تكوين Middleware
 export const config = {
   matcher: [
-    "/((?!api/healthcheck|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)"
+    "/((?!api/healthcheck|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|@prisma).*)"
   ]
 }

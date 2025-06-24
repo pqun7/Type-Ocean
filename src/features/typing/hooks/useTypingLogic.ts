@@ -155,10 +155,44 @@ export default function useTypingLogic(
         };
 
         // Parallelize data processing and challenge handling
-        const [sessionAverages, challengeResult] = await Promise.all([
-          recordSessionStats!(wpm, accuracy),
-          handleDailyChallenge(sessionData),
-        ]);
+        let sessionAverages;
+        let challengeResult;
+        
+        try {
+          [sessionAverages, challengeResult] = await Promise.all([
+            recordSessionStats!(wpm, accuracy),
+            handleDailyChallenge(sessionData),
+          ]);
+        } catch (error) {
+          // If session stats recording fails, use fallback values but continue
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          
+          logger.session.warn(
+            "Session stats recording failed, using fallback values",
+            filePath,
+            {
+              userId,
+              error: errorMessage,
+              wpm,
+              accuracy,
+            }
+          );
+          
+          // Provide fallback values so the session can still complete
+          sessionAverages = { dailyAvgWpm: wpm, dailyAvgAcc: accuracy, sessionsCount: 1 };
+          
+          // Still try to handle daily challenge
+          try {
+            challengeResult = await handleDailyChallenge(sessionData);
+          } catch (challengeError) {
+            logger.session.warn(
+              "Daily challenge handling also failed",
+              filePath,
+              { userId, challengeError }
+            );
+            challengeResult = { completed: false, xp: 0 };
+          }
+        }
 
         // Update with actual averages
         const finalSessionData: SessionData = {

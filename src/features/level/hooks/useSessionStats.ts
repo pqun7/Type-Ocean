@@ -41,6 +41,39 @@ export const useSessionStats = () => {
           throw error;
         }
 
+        // Additional validation for reasonable values
+        if (wpm < 0 || wpm > 500) {
+          const error = new Error(`Invalid WPM value: ${wpm}`);
+          logger.session.error(
+            "Invalid WPM value provided",
+            filePath,
+            error,
+            {
+              userId,
+              wpm,
+              accuracy,
+              context: "SESSION_STATS",
+            }
+          );
+          throw error;
+        }
+
+        if (accuracy < 0 || accuracy > 100) {
+          const error = new Error(`Invalid accuracy value: ${accuracy}`);
+          logger.session.error(
+            "Invalid accuracy value provided",
+            filePath,
+            error,
+            {
+              userId,
+              wpm,
+              accuracy,
+              context: "SESSION_STATS",
+            }
+          );
+          throw error;
+        }
+
         logger.session.info(
           "Recording session stats",
           filePath,
@@ -52,8 +85,22 @@ export const useSessionStats = () => {
           }
         );
 
-        return await sessionStatsService.recordSession(userId, wpm, accuracy);
+        const result = await sessionStatsService.recordSession(userId, wpm, accuracy);
+        
+        logger.session.info(
+          "Session stats recorded successfully",
+          filePath,
+          {
+            userId,
+            result,
+            context: "SESSION_STATS",
+          }
+        );
+
+        return result;
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
         logger.session.error(
           "Failed to record session stats",
           filePath,
@@ -63,9 +110,24 @@ export const useSessionStats = () => {
             wpm,
             accuracy,
             context: "SESSION_STATS",
+            errorMessage,
           }
         );
-        throw error;
+        
+        // Don't re-throw the error - let the session continue
+        // but provide fallback values so the game doesn't break
+        if (errorMessage.includes("timeout") || errorMessage.includes("connection")) {
+          logger.session.warn(
+            "Network issue detected, providing fallback stats",
+            filePath,
+            { userId, context: "SESSION_STATS" }
+          );
+          // Return fallback values instead of throwing
+          return { dailyAvgWpm: wpm, dailyAvgAcc: accuracy, sessionsCount: 1 };
+        }
+        
+        // For other errors, still throw but with a more user-friendly message
+        throw new Error("Unable to save session statistics. Your progress is still recorded locally.");
       }
     },
     [userId]
