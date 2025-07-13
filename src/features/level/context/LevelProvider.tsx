@@ -11,10 +11,10 @@ import { useSessionStats } from "@/features/level/hooks/useSessionStats";
 export const LevelProvider = ({ children }: { children: React.ReactNode }) => {
   const { userId, isLoading } = useUserSession();
 
- 
-
-  // const shouldLoadChallenge = !isLoading && !!userId;
-  // const { dailyChallenge } = useDailyChallengeLoader(shouldLoadChallenge ? userId : undefined);
+  // Ensure we're running in the browser before executing any hooks
+  if (typeof window === "undefined") {
+    return null;
+  }
 
   const { dailyChallenge } = useDailyChallengeLoader(userId);
   const { xpMessages, addXPMessage, clearAllMessages } = useXPMessages();

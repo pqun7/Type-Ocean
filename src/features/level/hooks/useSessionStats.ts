@@ -1,30 +1,45 @@
 "use client";
 
 import { useCallback } from "react";
-import { sessionStatsService } from "../services/sessionStatsService";
+import { sessionStatsService, type LongTermStats } from "../services/sessionStatsService";
 import { useUserSession } from "@/features/auth/hooks/useUserSession";
 import { logger } from "@/log/clientLogger";
 
 /**
- * Custom hook to record session statistics like WPM and accuracy
- * @returns Object containing the recordSessionStats function
+ * Custom hook to record session statistics with enhanced error handling and validation
+ * @returns Object containing the recordSessionStats function and service health status
  */
 export const useSessionStats = () => {
   const { userId } = useUserSession();
   const filePath = "src/features/level/hooks/useSessionStats.ts";
 
   const recordSessionStats = useCallback(
-    async (wpm: number, accuracy: number) => {
+    async (wpm: number, accuracy: number, sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number }): Promise<LongTermStats> => {
       try {
         if (!userId) {
           logger.session.warn(
             "No user ID available - skipping stats recording",
             filePath,
-            { context: "SESSION_STATS" }
+            { context: "SESSION_STATS", sessionId: sessionData?.sessionId }
           );
-          return { dailyAvgWpm: 0, dailyAvgAcc: 0, sessionsCount: 0 };
+          
+          // Return default long-term stats structure
+          return {
+            totalSessions: 0,
+            totalTimeTyped: 0,
+            totalWordsTyped: 0,
+            totalCharactersTyped: 0,
+            averageWPM: 0,
+            averageAccuracy: 0,
+            bestWPM: 0,
+            bestWPMDate: null,
+            bestAccuracy: 0,
+            bestAccuracyDate: null,
+            lastUpdated: new Date().toISOString(),
+          };
         }
 
+        // Client-side validation before sending to service
         if (typeof wpm !== "number" || typeof accuracy !== "number") {
           const error = new Error("Invalid stats values");
           logger.session.error(
@@ -35,6 +50,7 @@ export const useSessionStats = () => {
               userId,
               wpm,
               accuracy,
+              sessionId: sessionData?.sessionId,
               context: "SESSION_STATS",
             }
           );
@@ -52,6 +68,7 @@ export const useSessionStats = () => {
               userId,
               wpm,
               accuracy,
+              sessionId: sessionData?.sessionId,
               context: "SESSION_STATS",
             }
           );
@@ -68,6 +85,7 @@ export const useSessionStats = () => {
               userId,
               wpm,
               accuracy,
+              sessionId: sessionData?.sessionId,
               context: "SESSION_STATS",
             }
           );
@@ -81,23 +99,61 @@ export const useSessionStats = () => {
             userId,
             wpm,
             accuracy,
+            sessionId: sessionData?.sessionId,
             context: "SESSION_STATS",
           }
         );
 
-        const result = await sessionStatsService.recordSession(userId, wpm, accuracy);
+        // Use enhanced service with circuit breaker protection
+        const result = await sessionStatsService.recordSession(
+          userId, 
+          wpm, 
+          accuracy,
+          { 
+            sessionId: sessionData?.sessionId || crypto.randomUUID(), 
+            timestamp: Date.now(),
+            textLength: sessionData?.textLength,
+            timeSpent: sessionData?.timeSpent,
+          }
+        );
+        
+        // Validate response data integrity
+        if (!sessionStatsService.validateLongTermStats(result)) {
+          logger.session.warn(
+            "Received invalid long-term stats response",
+            filePath,
+            { userId, sessionId: sessionData?.sessionId, result, context: "SESSION_STATS" }
+          );
+          
+          // Return sanitized fallback values
+          return {
+            totalSessions: 1,
+            totalTimeTyped: sessionData?.timeSpent || 60,
+            totalWordsTyped: Math.round(wpm * ((sessionData?.timeSpent || 60) / 60)),
+            totalCharactersTyped: sessionData?.textLength || 100,
+            averageWPM: Math.max(0, Math.min(500, wpm)),
+            averageAccuracy: Math.max(0, Math.min(100, accuracy)),
+            bestWPM: wpm,
+            bestWPMDate: new Date().toISOString(),
+            bestAccuracy: accuracy,
+            bestAccuracyDate: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+          };
+        }
         
         logger.session.info(
           "Session stats recorded successfully",
           filePath,
           {
             userId,
+            sessionId: sessionData?.sessionId,
             result,
             context: "SESSION_STATS",
           }
         );
 
         return result;
+        
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         
@@ -109,29 +165,69 @@ export const useSessionStats = () => {
             userId,
             wpm,
             accuracy,
+            sessionId: sessionData?.sessionId,
             context: "SESSION_STATS",
             errorMessage,
+            serviceHealth: sessionStatsService.getServiceHealth()
           }
         );
         
-        // Don't re-throw the error - let the session continue
-        // but provide fallback values so the game doesn't break
-        if (errorMessage.includes("timeout") || errorMessage.includes("connection")) {
+        // Enhanced fallback handling based on error type
+        if (errorMessage.includes("timeout") || 
+            errorMessage.includes("connection") || 
+            errorMessage.includes("Circuit breaker")) {
+          
           logger.session.warn(
-            "Network issue detected, providing fallback stats",
+            "Network/service issue detected, providing fallback stats",
             filePath,
-            { userId, context: "SESSION_STATS" }
+            { userId, sessionId: sessionData?.sessionId, context: "SESSION_STATS", errorType: "network" }
           );
-          // Return fallback values instead of throwing
-          return { dailyAvgWpm: wpm, dailyAvgAcc: accuracy, sessionsCount: 1 };
+          
+          // Return calculated fallback values with local validation
+          return { 
+            totalSessions: 1,
+            totalTimeTyped: sessionData?.timeSpent || 60,
+            totalWordsTyped: Math.round(wpm * ((sessionData?.timeSpent || 60) / 60)),
+            totalCharactersTyped: sessionData?.textLength || 100,
+            averageWPM: Math.max(0, Math.min(500, wpm)), 
+            averageAccuracy: Math.max(0, Math.min(100, accuracy)), 
+            bestWPM: wpm,
+            bestWPMDate: new Date().toISOString(),
+            bestAccuracy: accuracy,
+            bestAccuracyDate: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+          };
         }
         
-        // For other errors, still throw but with a more user-friendly message
+        // For authentication or validation errors, provide user-friendly message
+        if (errorMessage.includes("Authentication") || errorMessage.includes("Invalid")) {
+          throw new Error("Unable to save session statistics. Please refresh and try again.");
+        }
+        
+        // For other errors, provide generic fallback
         throw new Error("Unable to save session statistics. Your progress is still recorded locally.");
       }
     },
     [userId]
   );
 
-  return { recordSessionStats };
+  /**
+   * Gets current service health status
+   */
+  const getServiceHealth = useCallback(() => {
+    return sessionStatsService.getServiceHealth();
+  }, []);
+
+  /**
+   * Validates if the service is currently healthy
+   */
+  const isServiceHealthy = useCallback(() => {
+    return sessionStatsService.getServiceHealth().isHealthy;
+  }, []);
+
+  return { 
+    recordSessionStats, 
+    getServiceHealth, 
+    isServiceHealthy 
+  };
 };

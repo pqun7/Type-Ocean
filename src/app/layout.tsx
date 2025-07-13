@@ -9,8 +9,11 @@ import { AlertState } from "@/components/ui/alert-state";
 import { AnimatePresence } from "framer-motion";
 
 const inter = Inter({
-  subsets: ["latin"], // You can choose another subset if needed
+  subsets: ["latin"],
+  display: "swap",
   preload: true,
+  fallback: ["system-ui", "arial"],
+  adjustFontFallback: false, // Disable to prevent Turbopack issues
 });
 
 export const metadata: Metadata = {

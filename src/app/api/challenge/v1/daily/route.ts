@@ -123,12 +123,91 @@ export async function GET(req: NextRequest) {
       userId: userId!,
       operationPhase: "challenge_retrieval",
     });
+
     return NextResponse.json(
-      { error: "Failed to fetch challenge", referenceId: requestId },
+      { error: "Failed to fetch daily challenge" },
       { status: 500 }
     );
   }
 }
+
+// ███ POST - Update challenge progress ███
+export async function POST(req: NextRequest) {
+  const requestId = uuidv4();
+  const userId = authorizeRequest(req);
+
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    logRequestStart(requestId, SERVICE_TYPE, "POST", FILE_PATH, userId!);
+
+    const body = await req.json();
+    const { wpm, accuracy, completed } = body;
+
+    if (typeof wpm !== 'number' || typeof accuracy !== 'number' || typeof completed !== 'boolean') {
+      return NextResponse.json(
+        { error: "Invalid request body. Expected wpm (number), accuracy (number), and completed (boolean)" },
+        { status: 400 }
+      );
+    }
+
+    await connectIfNeeded();
+    const cacheKey = getCacheKey(userId!);
+
+    // Get current challenge
+    const cached = await redis.get(cacheKey);
+    if (!cached) {
+      return NextResponse.json(
+        { error: "No active daily challenge found" },
+        { status: 404 }
+      );
+    }
+
+    const challenge: DailyChallenge = JSON.parse(cached);
+    
+    // Update challenge with new progress
+    const updatedChallenge = {
+      ...challenge,
+      status: calculateChallengeStatus(challenge, { wpm, accuracy, completed }),
+      data: {
+        ...challenge.data,
+        lastAttempt: {
+          wpm,
+          accuracy,
+          timestamp: new Date().toISOString(),
+          completed
+        }
+      }
+    };
+
+    // Save updated challenge back to cache
+    await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(updatedChallenge));
+
+    logRequestSuccess(requestId, SERVICE_TYPE, "POST", FILE_PATH, {
+      userId: userId!,
+      challengeId: challenge.id,
+      newStatus: updatedChallenge.status,
+      wpm,
+      accuracy,
+      completed
+    });
+
+    return NextResponse.json(updatedChallenge);
+  } catch (error) {
+    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+      userId: userId!,
+      operationPhase: "challenge_update",
+    });
+
+    return NextResponse.json(
+      { error: "Failed to update challenge progress" },
+      { status: 500 }
+    );
+  }
+}
+
 // Unified challenge update handler
 const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "PUT") => {
   const requestId = uuidv4();
@@ -226,7 +305,6 @@ const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "PUT") =
 };
 
 // Export wrapped handlers
-export const POST = (req: NextRequest) => handleChallengeUpdate(req, "POST");
 export const PUT = (req: NextRequest) => handleChallengeUpdate(req, "PUT");
 
 // ███ DELETE - Remove challenge ███
