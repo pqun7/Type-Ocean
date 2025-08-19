@@ -20,20 +20,28 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  // Default to login on server; read actual query on client
+  // Start with consistent default to prevent hydration mismatch
   const [formType, setFormType] = useState<AuthFormType>("login");
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setFormType(params.get("form") === "signup" ? "signup" : "login");
+    setMounted(true);
+    // Only read URL params after mount to prevent hydration mismatch
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setFormType(params.get("form") === "signup" ? "signup" : "login");
+    }
   }, []);
 
   const handleSetForm = useCallback(
     (type: AuthFormType) => {
       setFormType(type);
-      const newUrl = `${pathname}?form=${type}`;
-      router.replace(newUrl);
+      if (mounted) {
+        const newUrl = `${pathname}?form=${type}`;
+        router.replace(newUrl);
+      }
     },
-    [router, pathname]
+    [router, pathname, mounted]
   );
 
   const toggleForm = useCallback(() => {

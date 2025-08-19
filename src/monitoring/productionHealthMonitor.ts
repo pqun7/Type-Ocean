@@ -1,5 +1,5 @@
 // src/monitoring/productionHealthMonitor.ts
-import { logger } from "@/log/clientLogger";
+import { logger } from "@/log/ServerLogger";
 
 interface APIHealthMetrics {
   service: string;
@@ -19,92 +19,15 @@ interface ServiceHealthStatus {
   circuitState: 'OPEN' | 'CLOSED' | 'HALF_OPEN';
 }
 
-interface CircuitBreakerState {
-  state: 'closed' | 'open' | 'half-open';
-  failureCount: number;
-  lastFailureTime: number;
-  nextAttemptTime: number;
-}
-
-interface CircuitBreakerConfig {
-  failureThreshold: number;
-  resetTimeout: number;
-  monitoringWindow: number;
-}
-
-interface SystemHealthReport {
-  status: 'healthy' | 'degraded' | 'down';
-  timestamp: number;
-  services: ServiceHealthStatus[];
-  circuitBreakers: Record<string, CircuitBreakerState>;
-  overallHealth: {
-    isHealthy: boolean;
-    unhealthyServices: string[];
-    totalServices: number;
-    healthyServices: number;
-  };
-}
-
 export class ProductionHealthMonitor {
-  private static instance: ProductionHealthMonitor;
   private healthMetrics: Map<string, APIHealthMetrics[]> = new Map();
   private serviceStatus: Map<string, ServiceHealthStatus> = new Map();
-  private circuitBreakers: Map<string, CircuitBreakerState> = new Map();
   private readonly maxMetricsHistory = 100;
   private readonly healthCheckInterval = 30000; // 30 seconds
   private healthCheckTimer?: NodeJS.Timeout;
-  private isEnabled: boolean;
-
-  private readonly config: CircuitBreakerConfig = {
-    failureThreshold: 5,
-    resetTimeout: 30000, // 30 seconds
-    monitoringWindow: 60000, // 1 minute
-  };
 
   constructor() {
-    this.isEnabled = process.env.NODE_ENV === 'production';
-    this.initializeServices();
-    
-    if (this.isEnabled) {
-      this.startHealthMonitoring();
-    }
-  }
-
-  static getInstance(): ProductionHealthMonitor {
-    if (!ProductionHealthMonitor.instance) {
-      ProductionHealthMonitor.instance = new ProductionHealthMonitor();
-    }
-    return ProductionHealthMonitor.instance;
-  }
-
-  /**
-   * Initialize monitored services
-   */
-  private initializeServices(): void {
-    const services = [
-      'SessionStats:/api/session-stats/v1',
-      'DailyChallenge:/api/challenge/v1/daily',
-      'Redis:redis-connection',
-      'Database:db-connection'
-    ];
-    
-    services.forEach(serviceKey => {
-      this.serviceStatus.set(serviceKey, {
-        isHealthy: true,
-        lastCheck: Date.now(),
-        consecutiveFailures: 0,
-        averageResponseTime: 0,
-        successRate: 1.0,
-        circuitState: 'CLOSED'
-      });
-
-      this.circuitBreakers.set(serviceKey, {
-        state: 'closed',
-        failureCount: 0,
-        lastFailureTime: 0,
-        nextAttemptTime: 0
-      });
-    });
+    this.startHealthMonitoring();
   }
 
   /**
@@ -117,8 +40,6 @@ export class ProductionHealthMonitor {
     responseTime: number,
     errorMessage?: string
   ): void {
-    if (!this.isEnabled) return;
-
     const metric: APIHealthMetrics = {
       service,
       endpoint,
@@ -142,15 +63,13 @@ export class ProductionHealthMonitor {
       metrics.shift();
     }
 
-    // Update service status and circuit breaker
+    // Update service status
     this.updateServiceStatus(serviceKey, metrics);
-    this.updateCircuitBreaker(serviceKey, status === 'success', responseTime);
 
     // Log critical failures
     if (status === 'failure' || status === 'timeout') {
-      logger.session.error(
+      logger.error(
         `API Health Alert: ${service} ${endpoint} failed`,
-        "ProductionHealthMonitor",
         new Error(errorMessage || `${status} detected`),
         {
           service,
@@ -160,35 +79,6 @@ export class ProductionHealthMonitor {
           timestamp: metric.timestamp
         }
       );
-    }
-  }
-
-  /**
-   * Check if service is available through circuit breaker
-   */
-  isServiceAvailable(service: string, endpoint?: string): boolean {
-    const serviceKey = endpoint ? `${service}:${endpoint}` : service;
-    const breaker = this.circuitBreakers.get(serviceKey);
-    if (!breaker) return true;
-
-    const now = Date.now();
-
-    switch (breaker.state) {
-      case 'closed':
-        return true;
-      
-      case 'open':
-        if (now >= breaker.nextAttemptTime) {
-          breaker.state = 'half-open';
-          return true;
-        }
-        return false;
-      
-      case 'half-open':
-        return true;
-      
-      default:
-        return false;
     }
   }
 
@@ -214,42 +104,6 @@ export class ProductionHealthMonitor {
       successRate,
       circuitState: this.determineCircuitState(successRate, consecutiveFailures)
     });
-  }
-
-  /**
-   * Updates circuit breaker state
-   */
-  private updateCircuitBreaker(serviceKey: string, success: boolean, responseTime: number): void {
-    const breaker = this.circuitBreakers.get(serviceKey);
-    if (!breaker) return;
-
-    if (success) {
-      // Reset circuit breaker on success
-      if (breaker.state === 'half-open') {
-        breaker.state = 'closed';
-        breaker.failureCount = 0;
-      }
-    } else {
-      // Update circuit breaker on failure
-      breaker.failureCount++;
-      breaker.lastFailureTime = Date.now();
-      
-      if (breaker.failureCount >= this.config.failureThreshold) {
-        breaker.state = 'open';
-        breaker.nextAttemptTime = Date.now() + this.config.resetTimeout;
-        
-        logger.session.error(
-          'Circuit breaker opened',
-          'ProductionHealthMonitor',
-          new Error(`Service ${serviceKey} circuit breaker opened`),
-          {
-            serviceKey,
-            failureCount: breaker.failureCount,
-            resetTime: breaker.nextAttemptTime
-          }
-        );
-      }
-    }
   }
 
   /**
@@ -282,89 +136,31 @@ export class ProductionHealthMonitor {
   /**
    * Gets health status for a specific service
    */
-  getServiceHealth(service: string, endpoint?: string): ServiceHealthStatus | null {
-    const serviceKey = endpoint ? `${service}:${endpoint}` : service;
+  getServiceHealth(service: string, endpoint: string): ServiceHealthStatus | null {
+    const serviceKey = `${service}:${endpoint}`;
     return this.serviceStatus.get(serviceKey) || null;
   }
 
   /**
-   * Gets comprehensive system health report
+   * Gets overall system health status
    */
-  getSystemHealth(): SystemHealthReport {
-    const services = Array.from(this.serviceStatus.values());
-    const unhealthyServices = Array.from(this.serviceStatus.entries())
+  getOverallHealth(): {
+    isHealthy: boolean;
+    unhealthyServices: string[];
+    totalServices: number;
+    healthyServices: number;
+  } {
+    const allServices = Array.from(this.serviceStatus.entries());
+    const unhealthyServices = allServices
       .filter(([_, status]) => !status.isHealthy)
       .map(([service, _]) => service);
-    
-    let overallStatus: 'healthy' | 'degraded' | 'down' = 'healthy';
-    
-    if (unhealthyServices.length > 0) {
-      const downServices = services.filter(s => s.consecutiveFailures >= 5);
-      overallStatus = downServices.length > 0 ? 'down' : 'degraded';
-    }
-
-    const circuitBreakerStatus: Record<string, CircuitBreakerState> = {};
-    this.circuitBreakers.forEach((state, name) => {
-      circuitBreakerStatus[name] = { ...state };
-    });
 
     return {
-      status: overallStatus,
-      timestamp: Date.now(),
-      services,
-      circuitBreakers: circuitBreakerStatus,
-      overallHealth: {
-        isHealthy: unhealthyServices.length === 0,
-        unhealthyServices,
-        totalServices: services.length,
-        healthyServices: services.length - unhealthyServices.length
-      }
+      isHealthy: unhealthyServices.length === 0,
+      unhealthyServices,
+      totalServices: allServices.length,
+      healthyServices: allServices.length - unhealthyServices.length
     };
-  }
-
-  /**
-   * Handle critical system errors
-   */
-  handleCriticalError(error: Error, context: string): void {
-    if (!this.isEnabled) return;
-
-    logger.session.error(
-      'Critical system error',
-      'ProductionHealthMonitor',
-      error,
-      {
-        context,
-        timestamp: Date.now(),
-        systemHealth: this.getSystemHealth().status
-      }
-    );
-
-    // Trigger emergency protocols if needed
-    this.triggerEmergencyProtocol(error, context);
-  }
-
-  /**
-   * Monitor API performance
-   */
-  monitorApiPerformance(endpoint: string, method: string, statusCode: number, responseTime: number): void {
-    if (!this.isEnabled) return;
-
-    const isSuccess = statusCode >= 200 && statusCode < 400;
-    const isSlowResponse = responseTime > 2000;
-    
-    if (!isSuccess || isSlowResponse) {
-      logger.session.warn(
-        'API performance issue',
-        'ProductionHealthMonitor',
-        {
-          endpoint,
-          method,
-          statusCode,
-          responseTime,
-          threshold: 2000
-        }
-      );
-    }
   }
 
   /**
@@ -380,16 +176,16 @@ export class ProductionHealthMonitor {
    * Performs periodic health check and alerts
    */
   private performHealthCheck(): void {
-    const systemHealth = this.getSystemHealth();
+    const overallHealth = this.getOverallHealth();
     
-    if (!systemHealth.overallHealth.isHealthy) {
-      logger.session.warn(
+    if (!overallHealth.isHealthy) {
+      logger.warn(
         "System Health Alert: Unhealthy services detected",
-        "ProductionHealthMonitor",
         {
-          unhealthyServices: systemHealth.overallHealth.unhealthyServices,
-          totalServices: systemHealth.overallHealth.totalServices,
-          healthyServices: systemHealth.overallHealth.healthyServices,
+          context: "ProductionHealthMonitor",
+          unhealthyServices: overallHealth.unhealthyServices,
+          totalServices: overallHealth.totalServices,
+          healthyServices: overallHealth.healthyServices,
           timestamp: Date.now()
         }
       );
@@ -413,13 +209,13 @@ export class ProductionHealthMonitor {
       circuitState: status.circuitState
     }));
 
-    logger.session.info(
+    logger.info(
       "Production Health Summary",
-      "ProductionHealthMonitor",
       {
+        context: "ProductionHealthMonitor",
         timestamp: new Date().toISOString(),
         services,
-        overallHealth: this.getSystemHealth().overallHealth
+        overallHealth: this.getOverallHealth()
       }
     );
   }
@@ -446,25 +242,6 @@ export class ProductionHealthMonitor {
   }
 
   /**
-   * Emergency protocol for critical failures
-   */
-  private triggerEmergencyProtocol(error: Error, context: string): void {
-    // In production, implement:
-    // - Circuit breaker activation
-    // - Graceful degradation
-    // - External alert systems
-    logger.session.error(
-      'Emergency protocol triggered',
-      'ProductionHealthMonitor',
-      error,
-      {
-        context,
-        action: 'emergency_protocol_activated'
-      }
-    );
-  }
-
-  /**
    * Stops health monitoring
    */
   stopMonitoring(): void {
@@ -476,12 +253,4 @@ export class ProductionHealthMonitor {
 }
 
 // Singleton instance for production monitoring
-export const productionMonitor = ProductionHealthMonitor.getInstance();
-
-// Export types for external use
-export type { 
-  SystemHealthReport, 
-  ServiceHealthStatus, 
-  APIHealthMetrics,
-  CircuitBreakerState 
-};
+export const productionMonitor = new ProductionHealthMonitor();

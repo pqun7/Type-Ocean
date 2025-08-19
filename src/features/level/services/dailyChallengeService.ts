@@ -21,24 +21,23 @@ async function withRetry<T>(
   fn: () => Promise<T>,
   maxAttempts: number = MAX_RETRY_ATTEMPTS
 ): Promise<T> {
-  let lastError: Error;
-  
+  let lastError: Error = new Error("Unknown error");
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      
+
       if (attempt === maxAttempts) {
         logger.challenge.error(
-          `Final retry attempt failed`, 
-          "dailyChallengeService", 
-          lastError, 
-          { attempt, maxAttempts, errorMessage: lastError.message }
+          `Final retry attempt failed`,
+          "dailyChallengeService",
+          lastError
         );
         throw lastError;
       }
-      
+
       // Calculate delay with exponential backoff and jitter
       const baseDelay = Math.min(
         BASE_RETRY_DELAY * Math.pow(RETRY_MULTIPLIER, attempt - 1),
@@ -46,24 +45,18 @@ async function withRetry<T>(
       );
       const jitter = Math.random() * 0.1 * baseDelay; // 10% jitter
       const delay = baseDelay + jitter;
-      
+
       logger.challenge.warn(
         `Retry attempt ${attempt}/${maxAttempts} after ${delay}ms`,
-        "dailyChallengeService",
-        { 
-          attempt, 
-          maxAttempts, 
-          delay, 
-          errorMessage: lastError.message,
-          errorStack: lastError.stack 
-        }
+        "dailyChallengeService"
       );
-      
-      await new Promise(resolve => setTimeout(resolve, delay));
+
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  
-  throw lastError!;
+
+  // This line is now reachable only if maxAttempts is 0 or negative
+  throw lastError;
 }
 
 /**
@@ -80,25 +73,18 @@ export const fetchDailyChallenge = async (
 ): Promise<DailyChallenge> => {
   try {
     return await withRetry(async () => {
-      return await authFetch<DailyChallenge>(
-        `/api/challenge/v1/daily`,
-        {
-          signal: abortController?.signal,
-          userId,
-          requestId,
-        }
-      );
+      return await authFetch<DailyChallenge>(`/api/challenge/v1/daily`, {
+        signal: abortController?.signal,
+        userId,
+        requestId,
+      });
     });
   } catch (error) {
     logger.challenge.warn(
       "API fetch failed, generating fallback challenge",
       "dailyChallengeService",
-      { 
-        errorMessage: error instanceof Error ? error.message : String(error),
-        errorStack: error instanceof Error ? error.stack : undefined
-      }
-    );
-    
+      );
+
     // Client-side fallback challenge generation
     const userLevel = await getUserLevelWithFallback(userId);
     return generateDailyChallenge(userId, userLevel);
@@ -143,26 +129,19 @@ export const createDailyChallenge = async (
 ): Promise<DailyChallenge> => {
   try {
     return await withRetry(async () => {
-      return await authFetch<DailyChallenge>(
-        `/api/challenge/v1/daily`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userLevel }),
-          userId,
-        }
-      );
+      return await authFetch<DailyChallenge>(`/api/challenge/v1/daily`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userLevel }),
+        userId,
+      });
     });
   } catch (error) {
     logger.challenge.warn(
       "Challenge creation API failed, generating locally",
       "dailyChallengeService",
-      {
-        errorMessage: error instanceof Error ? error.message : String(error),
-        errorStack: error instanceof Error ? error.stack : undefined
-      }
     );
-    
+
     // Fallback to local generation
     return generateDailyChallenge(userId, userLevel);
   }
@@ -174,22 +153,24 @@ export const createDailyChallenge = async (
  * @returns Boolean indicating if challenge is valid
  */
 export const validateChallengeData = (challenge: DailyChallenge): boolean => {
-  if (!challenge || typeof challenge !== 'object') return false;
-  
-  const requiredFields = ['id', 'date', 'type', 'target', 'xp', 'status'];
-  const hasAllFields = requiredFields.every(field => field in challenge);
-  
+  if (!challenge || typeof challenge !== "object") return false;
+
+  const requiredFields = ["id", "date", "type", "target", "xp", "status"];
+  const hasAllFields = requiredFields.every((field) => field in challenge);
+
   if (!hasAllFields) return false;
-  
+
   // Type-specific validation
   switch (challenge.type) {
-    case 'speedCombo':
-      return typeof challenge.target === 'object' && 
-             'wpm' in challenge.target && 
-             'accuracy' in challenge.target;
-    case 'marathon':
-    case 'timeAttack':
-      return typeof challenge.target === 'number' && challenge.target > 0;
+    case "speedCombo":
+      return (
+        typeof challenge.target === "object" &&
+        "wpm" in challenge.target &&
+        "accuracy" in challenge.target
+      );
+    case "marathon":
+    case "timeAttack":
+      return typeof challenge.target === "number" && challenge.target > 0;
     default:
       return false;
   }
@@ -210,6 +191,6 @@ export const sanitizeSessionData = (session: SessionData): SessionData => {
     dailyAvgWpm: Math.max(0, Number(session.dailyAvgWpm) || 0),
     dailyAvgAcc: Math.max(0, Number(session.dailyAvgAcc) || 0),
     sessionsCount: Math.max(0, Number(session.sessionsCount) || 0),
-    textType: session.textType
+    textType: session.textType,
   };
 };

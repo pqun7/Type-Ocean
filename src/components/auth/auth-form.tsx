@@ -8,7 +8,15 @@ import { useAuth } from "@/contexts/auth-context";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { useSearchParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
+import ClientOnly from "@/components/ui/ClientOnly";
+
+// Dynamically import Lottie with no SSR to prevent hydration issues
+const Lottie = dynamic(() => import("lottie-react"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-6 h-6 animate-spin border-2 border-blue-500 border-t-transparent rounded-full" />
+  ),
+});
 
 // Import custom UI components and styles
 import {
@@ -19,6 +27,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Loader } from "@/assets";
 import { Button } from "@/components/ui/button";
 
@@ -32,8 +41,6 @@ import { signUp } from "@/features/auth/lib/actions";
 import { signIn } from "next-auth/react";
 import { useAlert } from "@/contexts/alert-context";
 
-import { logger } from "@/log/clientLogger";
-
 /**
  * Authentication form component handling both login and signup states
  * with animated transitions between form states.
@@ -41,11 +48,11 @@ import { logger } from "@/log/clientLogger";
 export function AuthForm() {
   // State management
   const router = useRouter();
-
+  const [mounted, setMounted] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const searchParams = useSearchParams();
   const formParam = searchParams.get("form");
-  const [isLogin, setIsLogin] = useState(formParam === "signup" ? false : true);
+  const [isLogin, setIsLogin] = useState(true); // Default to prevent hydration mismatch
   const [error, setError] = useState<string>("");
   const formRef = useRef<HTMLFormElement>(null);
   const [successMessage, setSuccessMessage] = useState("");
@@ -54,13 +61,19 @@ export function AuthForm() {
   const { showAlert } = useAlert();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const filePath = "src/components/auth/auth-form.tsx";
 
+  // Prevent hydration mismatch by only reading search params after mount
+  useEffect(() => {
+    setMounted(true);
+    if (formParam === "signup") {
+      setIsLogin(false);
+    }
+  }, [formParam]);
 
   useEffect(() => {
     if (error) showAlert(error, "error");
     if (successMessage) showAlert(successMessage, "success");
-  }, [error, successMessage]);
+  }, [error, successMessage, showAlert]);
 
   // Handle form submission state
   useEffect(() => {
@@ -84,54 +97,29 @@ export function AuthForm() {
   const handleSignup = async (formData: FormData) => {
     try {
       const result = await signUp(formData);
-      logger.auth.debug(
-        "Signup API response", 
-        filePath,
-        { success: result?.success }
-      );
 
       if (result?.success) {
         formRef.current?.reset();
         setIsLogin(true);
         setError("");
-        logger.auth.info(
-          "User account created successfully",
-          filePath,
-          { username: formData.get("username") }
+        // setSuccessMessage("Account created successfully.");
+        showAlert(
+          "Account created successfully. Please check your email for verification.",
+          "success"
         );
-        showAlert("Account created successfully. Please check your email for verification.", "success");
         setFieldErrors({});
       } else {
         if (result?.details?.fieldErrors) {
-          logger.auth.warn(
-            "Signup validation failed",
-            filePath,
-            {
-              fieldErrors: result.details.fieldErrors,
-              username: formData.get("username")
-            }
+          setFieldErrors(
+            result.details.fieldErrors as Record<string, string[]>
           );
-          setFieldErrors(result.details.fieldErrors as Record<string, string[]>);
           setError("");
         } else {
-          const errorMsg = result?.error || "An error occurred during signup";
-          logger.auth.error(
-            "Signup failed",
-            filePath,
-            new Error(errorMsg),
-            { username: formData.get("username") }
-          );
-          setError(errorMsg);
+          setError(result?.error || "An error occurred during signup");
           setFieldErrors({});
         }
       }
     } catch (err) {
-      logger.auth.error(
-        "Unexpected signup error",
-        filePath,
-        err instanceof Error ? err : new Error(String(err)),
-        { username: formData.get("username") }
-      );
       setError("An unexpected error occurred");
       setFieldErrors({});
     }
@@ -139,68 +127,42 @@ export function AuthForm() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     const formData = new FormData(e.currentTarget);
-    const username = formData.get("username")?.toString() || '';
 
     e.preventDefault();
     setIsSubmitting(true);
-    setFieldErrors({});
-    setError("");
-    setSuccessMessage("");
+    setFieldErrors({}); // Reset field errors on submit
+    setError(""); // Reset error message on submit
+    setSuccessMessage(""); // Reset success message on submit
 
-    logger.auth.info(
-      "Auth form submitted",
-      filePath,
-      {
-        type: isLogin ? 'login' : 'signup',
-        username: username
-      }
-    );
-
+    // Validate required fields
+    if (!formData.get("username") || !formData.get("password")) {
+      setError("Please fill in all fields");
+      setIsSubmitting(false);
+      return;
+    }
     try {
       if (isLogin) {
         const res = await signIn("credentials", {
           redirect: false,
-          username: username,
-          password: formData.get("password")
+          username: formData.get("username"),
+          password: formData.get("password"),
         });
 
         if (res?.error) {
-          const errorMessage = res.error === "NO_PASSWORD_SET"
-            ? "This account doesn't have a password. Please use social login."
-            : "Invalid username or password.";
-          
-          logger.auth.warn(
-            "Login failed",
-            filePath,
-            {
-              errorType: res.error,
-              username: username
-            }
-          );
-          
+          const errorMessage =
+            res.error === "NO_PASSWORD_SET"
+              ? "This account doesn't have a password. Please use social login."
+              : "Invalid username or password.";
           setError(errorMessage);
         } else {
-          logger.auth.info(
-            "Login successful",
-            filePath,
-            { username: username }
-          );
           router.push("/auth");
         }
       } else {
         await handleSignup(formData);
       }
     } catch (err) {
-      logger.auth.error(
-        "Form submission error",
-        filePath,
-        err instanceof Error ? err : new Error(String(err)),
-        {
-          username: username,
-          formType: isLogin ? 'login' : 'signup'
-        }
-      );
       setError("An unexpected error occurred");
+      console.error("[AuthForm] Submission error:", err);
     } finally {
       setIsSubmitting(false);
     }
@@ -213,6 +175,25 @@ export function AuthForm() {
     exit: { opacity: 0, x: 20, scale: 0.95 },
     transition: { type: "spring", stiffness: 300, damping: 20 },
   };
+
+  // Don't render form content until mounted to prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-4 md:p-6">
+        <div className="flex w-full max-w-sm flex-col gap-6">
+          <Card className="bg-[#0a0a1f]/50 backdrop-blur-lg border border-[#ffffff15] shadow-xl relative overflow-hidden">
+            <CardHeader className="text-center">
+              <div className="flex flex-col items-center gap-4 animate-pulse">
+                <div className="w-16 h-16 bg-gray-700 rounded-full"></div>
+                <div className="w-32 h-6 bg-gray-700 rounded"></div>
+                <div className="w-48 h-4 bg-gray-700 rounded"></div>
+              </div>
+            </CardHeader>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-4 md:p-6">
@@ -228,15 +209,6 @@ export function AuthForm() {
                   {isLogin
                     ? "Please enter your credentials to access your account."
                     : "Fill in your details to create your account and get started."}
-                  {/* {successMessage && (
-                    <p className="text-green-400 text-sm mt-2">
-                      {successMessage}
-                    </p>
-                  )}
-
-                  {error && (
-                    <p className="text-red-400 text-sm mt-2">{error}</p>
-                  )} */}
                 </CardDescription>
               </motion.div>
             </CardHeader>
@@ -257,9 +229,6 @@ export function AuthForm() {
                 <div className="grid gap-6">
                   <div className="grid gap-6">
                     <motion.div key="username" className="grid gap-2">
-                      {/* <Label htmlFor="username" className="text-[#E0E7FF]">
-                        Username
-                      </Label> */}
                       <Input
                         id="username"
                         name="username"
@@ -283,9 +252,6 @@ export function AuthForm() {
                           key="email"
                           {...exclusiveAnim}
                         >
-                          {/* <Label htmlFor="email" className="text-[#E0E7FF]">
-                            Email
-                          </Label> */}
                           <Input
                             id="email"
                             name="email"
@@ -394,17 +360,19 @@ export function AuthForm() {
                     </AnimatePresence>
 
                     <motion.div layout>
-                      <Button
-                        disabled={isSubmitting}
-                        // className="font-medium rounded-lg py-5 w-full border-2 border-[#69d0ff]/60 hover:border-[#69d0ff] bg-[#69d0ff]/10 hover:bg-[#69d0ff]/20 text-[#69d0ff] hover:text-[#b3e9ff] transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#69d0ff] focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a0a1f]/50"
-                        className="py-5 btn-main"
-                      >
+                      <Button disabled={isSubmitting} className="py-5 btn-main">
                         {isSubmitting ? (
-                          <Lottie
-                            animationData={Loader}
-                            loop
-                            className="w-6 h-6"
-                          />
+                          <ClientOnly
+                            fallback={
+                              <div className="w-6 h-6 animate-spin border-2 border-white border-t-transparent rounded-full" />
+                            }
+                          >
+                            <Lottie
+                              animationData={Loader}
+                              loop
+                              className="w-6 h-6"
+                            />
+                          </ClientOnly>
                         ) : isLogin ? (
                           "Login"
                         ) : (

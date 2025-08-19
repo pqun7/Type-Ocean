@@ -1,5 +1,5 @@
-import { auth } from "@/features/auth/auth";
-import { prisma } from "@/lib/prisma";
+import { auth } from "@/features/auth/lib/auth";
+import prisma from "@/features/auth/lib/db";
 import {
   logRequestError,
   logRequestStart,
@@ -13,14 +13,12 @@ const SERVICE_TYPE = "USER-API";
 const FILE_PATH = "src/app/api/user/route.ts";
 
 const UpdateUserSchema = z.object({
-  name: z.string().min(1).max(50).optional(),
+  username: z.string().min(1).max(50).optional(),
   email: z.string().email().optional(),
-  preferences: z
+  profileData: z
     .object({
-      theme: z.enum(["light", "dark", "system"]).optional(),
-      language: z.string().optional(),
-      notifications: z.boolean().optional(),
-      soundEnabled: z.boolean().optional(),
+      username: z.string().min(1).max(50).optional(),
+      avatar: z.string().optional(),
     })
     .optional(),
 });
@@ -46,19 +44,19 @@ export async function GET(req: NextRequest) {
       where: { id: session.user.id },
       select: {
         id: true,
-        name: true,
+        username: true, // Changed from 'name' to 'username'
         email: true,
         emailVerified: true,
         createdAt: true,
         updatedAt: true,
-        playerProfile: {
+        profile: { // Changed from 'playerProfile' to 'profile'
           select: {
+            id: true,
+            username: true,
             level: true,
-            experience: true,
-            wordsPerMinute: true,
-            accuracy: true,
-            gamesPlayed: true,
-            preferences: true,
+            xp: true,
+            achievements: true,
+            avatar: true,
           },
         },
       },
@@ -73,19 +71,19 @@ export async function GET(req: NextRequest) {
 
     logRequestSuccess(requestId, SERVICE_TYPE, "GET", FILE_PATH, {
       userId: user.id,
-      hasProfile: !!user.playerProfile,
+      hasProfile: !!user.profile,
     });
 
     return NextResponse.json({
       user: {
         ...user,
-        playerProfile: user.playerProfile || {
+        profile: user.profile || { // Changed from 'playerProfile' to 'profile'
+          id: null,
+          username: user.username,
           level: 1,
-          experience: 0,
-          wordsPerMinute: 0,
-          accuracy: 0,
-          gamesPlayed: 0,
-          preferences: {},
+          xp: 0,
+          achievements: [],
+          avatar: null,
         },
       },
     });
@@ -131,7 +129,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const { name, email, preferences } = validationResult.data;
+    const { username, email, profileData } = validationResult.data;
 
     // Check if email is already taken by another user
     if (email) {
@@ -153,39 +151,33 @@ export async function PATCH(req: NextRequest) {
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
       data: {
-        ...(name && { name }),
+        ...(username && { username }),
         ...(email && { email, emailVerified: null }), // Reset verification if email changed
       },
       select: {
         id: true,
-        name: true,
+        username: true,
         email: true,
         emailVerified: true,
         updatedAt: true,
       },
     });
 
-    // Update player preferences if provided
-    if (preferences) {
+    // Update player profile if provided
+    if (profileData) {
       await prisma.playerProfile.upsert({
         where: { userId: session.user.id },
         update: {
-          preferences: {
-            ...(await prisma.playerProfile.findUnique({
-              where: { userId: session.user.id },
-              select: { preferences: true },
-            }))?.preferences,
-            ...preferences,
-          },
+          ...(profileData.username && { username: profileData.username }),
+          ...(profileData.avatar !== undefined && { avatar: profileData.avatar }),
         },
         create: {
           userId: session.user.id,
+          username: profileData.username || updatedUser.username,
           level: 1,
-          experience: 0,
-          wordsPerMinute: 0,
-          accuracy: 0,
-          gamesPlayed: 0,
-          preferences,
+          xp: 0,
+          achievements: [],
+          avatar: profileData.avatar || null,
         },
       });
     }
@@ -236,13 +228,23 @@ export async function DELETE(req: NextRequest) {
         where: { userId: session.user.id },
       });
 
+      // Delete session stats
+      await tx.sessionStat.deleteMany({
+        where: { userId: session.user.id },
+      });
+
       // Delete user sessions
       await tx.session.deleteMany({
         where: { userId: session.user.id },
       });
 
-      // Delete password reset requests
-      await tx.passwordResetRequest.deleteMany({
+      // Delete accounts
+      await tx.account.deleteMany({
+        where: { userId: session.user.id },
+      });
+
+      // Delete authenticators
+      await tx.authenticator.deleteMany({
         where: { userId: session.user.id },
       });
 

@@ -4,65 +4,78 @@ if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
   throw new Error("ServerLogger should not be imported on the client side. Use ClientLogger instead.");
 }
 
- import * as Sentry from "@sentry/nextjs";
- import winston, { format } from "winston";
- import TransportStream from "winston-transport";
- import { SyncRedactor } from 'redact-pii';
- 
- // 1. إعدادات الأمان المتقدمة
- const SENSITIVE_FIELDS = new Set(['password', 'token', 'apiKey', 'authorization', 'creditCard']);
- const MAX_LOG_SIZE = 1024 * 1024 * 5; // 5MB
- const MAX_LOG_FILES = 5;
- const LOG_ARCHIVE_ENABLED = process.env.LOG_ARCHIVE === 'true';
- 
- const redactor = new SyncRedactor({
- 
-   globalReplaceWith: '*****'
- });
- 
- // 2. تنسيقات مخصصة مع تحسينات الأداء
- const { combine, timestamp, printf, colorize, errors } = format;
- 
- const sensitiveDataFormatter = format((info) => {
-   const cleanMetadata = (obj: Record<string, unknown>): Record<string, unknown> => {
-     return Object.entries(obj).reduce((acc, [key, value]) => {
-       if (SENSITIVE_FIELDS.has(key)) {
-         acc[key] = redactor.redact(String(value));
-         return acc;
-       }
-       
-       if (typeof value === 'object' && value !== null) {
-         acc[key] = cleanMetadata(value as Record<string, unknown>);
-       } else {
-         acc[key] = value;
-       }
-       
-       return acc;
-     }, {} as Record<string, unknown>);
-   };
- 
-   if (info.metadata && typeof info.metadata === 'object') {
-     info.metadata = cleanMetadata(info.metadata as Record<string, unknown>);
-   }
-   
-   return info;
- });
- 
- const productionFormat = printf((info) => {
-   // إضافة مسار الملف إلى السجلات
-   const { timestamp, level, message, metadata = {} } = info;
-   const { filePath = 'unknown', ...restMeta } = metadata as Record<string, unknown>;
-   
-   return JSON.stringify({
-     timestamp,
-     level: level.toUpperCase(),
-     message,
-     env: process.env.NODE_ENV,
-     filePath, 
-     ...restMeta 
-   });
- });
- 
+import * as Sentry from "@sentry/nextjs";
+import winston, { format } from "winston";
+import TransportStream from "winston-transport";
+
+// 1. إعدادات الأمان المتقدمة
+const SENSITIVE_FIELDS = new Set(['password', 'token', 'apiKey', 'authorization', 'creditCard']);
+const MAX_LOG_SIZE = 1024 * 1024 * 5; // 5MB
+const MAX_LOG_FILES = 5;
+const LOG_ARCHIVE_ENABLED = process.env.LOG_ARCHIVE === 'true';
+
+// Simple client-safe data redaction without Google Cloud DLP
+const simpleRedactor = {
+  redact: (text: string): string => {
+    // Basic regex patterns for common sensitive data
+    return text
+      .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[EMAIL_REDACTED]')
+      .replace(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g, '[CARD_REDACTED]')
+      .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[SSN_REDACTED]')
+      .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/g, 'Bearer [TOKEN_REDACTED]')
+      .replace(/password["\s]*[:=]["\s]*[^"\s,}]+/gi, 'password: "[REDACTED]"');
+  }
+};
+
+// 2. تنسيقات مخصصة مع تحسينات الأداء
+const { combine, timestamp, printf, colorize, errors } = format;
+
+const sensitiveDataFormatter = format((info) => {
+  const cleanMetadata = (obj: Record<string, unknown>): Record<string, unknown> => {
+    return Object.entries(obj).reduce((acc, [key, value]) => {
+      if (SENSITIVE_FIELDS.has(key)) {
+        acc[key] = '*****';
+        return acc;
+      }
+      
+      if (typeof value === 'object' && value !== null) {
+        acc[key] = cleanMetadata(value as Record<string, unknown>);
+      } else if (typeof value === 'string') {
+        acc[key] = simpleRedactor.redact(value);
+      } else {
+        acc[key] = value;
+      }
+      
+      return acc;
+    }, {} as Record<string, unknown>);
+  };
+
+  if (info.metadata && typeof info.metadata === 'object') {
+    info.metadata = cleanMetadata(info.metadata as Record<string, unknown>);
+  }
+  
+  // Also redact the main message
+  if (typeof info.message === 'string') {
+    info.message = simpleRedactor.redact(info.message);
+  }
+  
+  return info;
+});
+
+const productionFormat = printf((info) => {
+  // إضافة مسار الملف إلى السجلات
+  const { timestamp, level, message, metadata = {} } = info;
+  const { filePath = 'unknown', ...restMeta } = metadata as Record<string, unknown>;
+  
+  return JSON.stringify({
+    timestamp,
+    level: level.toUpperCase(),
+    message,
+    env: process.env.NODE_ENV,
+    filePath, 
+    ...restMeta 
+  });
+});
 
 const developmentFormat = printf(({ level, message, timestamp, stack, metadata = {} }) => {
   const { filePath = 'unknown', ...restMeta } = metadata as Record<string, unknown>;
@@ -78,7 +91,7 @@ const developmentFormat = printf(({ level, message, timestamp, stack, metadata =
   return output;
 });
 
- 
+
  // 3. تحسينات Sentry مع إدارة السياق
  class SentryTransport extends TransportStream {
    private readonly levelMap = new Map<string, Sentry.SeverityLevel>([

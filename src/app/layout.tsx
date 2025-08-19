@@ -6,7 +6,6 @@ import Background from "@/components/ui/Background";
 import { LevelProvider } from "@/features/level/context/LevelProvider";
 import { AlertProvider } from "@/contexts/alert-context";
 import { AlertState } from "@/components/ui/alert-state";
-import { AnimatePresence } from "framer-motion";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,25 +26,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en">
       <body
-        className={`${inter.className} antialiased bg-n-11 font-sans text-n-1 text-base min-h-full relative`}
+        className={`${inter.className} antialiased bg-n-11 font-sans text-n-1 text-base`}
+        suppressHydrationWarning={true}
       >
-        <Background className="fixed inset-0 pointer-events-none -z-10" />
+        <Background className="fixed inset-0 pointer-events-none z-0" />
 
-        <LevelProvider>
-          <AlertProvider>
-            {/* <Header /> */}
-            <main className="relative z-10 min-h-screen overflow-hidden pointer-events-auto">
-              <AnimatePresence mode="wait">
-                <AlertState />
-              </AnimatePresence>
-              {children}
-            </main>
-          </AlertProvider>
-        </LevelProvider>
-
-        <Footer />
+        <div className="relative z-10 min-h-screen flex flex-col">
+          <LevelProvider>
+            <AlertProvider>
+              <AlertState />
+              <main className="flex-grow">{children}</main>
+              <Footer />
+            </AlertProvider>
+          </LevelProvider>
+        </div>
       </body>
     </html>
   );

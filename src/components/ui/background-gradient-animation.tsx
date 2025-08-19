@@ -1,6 +1,7 @@
 "use client";
 import { cn } from "@/lib/utils";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import ClientOnly from "./ClientOnly";
 
 export const BackgroundGradientAnimation = ({
   gradientBackgroundStart = "rgb(30, 70, 100)",
@@ -9,13 +10,11 @@ export const BackgroundGradientAnimation = ({
   secondColor = "140, 200, 240",
   pointerColor = "120, 110, 230",
   largeCircleColor = "200, 240, 255",
-
   size = "60%",
   blendingValue = "soft-light",
   children,
   className,
   interactive = true,
-  // containerClassName,
 }: {
   gradientBackgroundStart?: string;
   gradientBackgroundEnd?: string;
@@ -32,102 +31,151 @@ export const BackgroundGradientAnimation = ({
 }) => {
   const interactiveRef = useRef<HTMLDivElement>(null);
   const largeCircleRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // Set CSS variables for dynamic gradient and colors
-    document.body.style.setProperty(
-      "--gradient-background-start",
-      gradientBackgroundStart
-    );
-    document.body.style.setProperty(
-      "--gradient-background-end",
-      gradientBackgroundEnd
-    );
-    document.body.style.setProperty("--first-color", firstColor);
-    document.body.style.setProperty("--second-color", secondColor);
-    document.body.style.setProperty("--pointer-color", pointerColor);
-    document.body.style.setProperty("--large-circle-color", largeCircleColor);
-    document.body.style.setProperty("--size", size);
-    document.body.style.setProperty("--blending-value", blendingValue);
-  }, []);
+    setMounted(true);
 
-  // gradientBackgroundStart,
-  //   gradientBackgroundEnd,
-  //   firstColor,
-  //   secondColor,
-  //   pointerColor,
-  //   largeCircleColor,
-  //   size,
-  //   blendingValue,
+    // Only set CSS variables after mount to prevent hydration mismatch
+    if (typeof window !== "undefined") {
+      document.body.style.setProperty(
+        "--gradient-background-start",
+        gradientBackgroundStart
+      );
+      document.body.style.setProperty(
+        "--gradient-background-end",
+        gradientBackgroundEnd
+      );
+      document.body.style.setProperty("--first-color", firstColor);
+      document.body.style.setProperty("--second-color", secondColor);
+      document.body.style.setProperty("--pointer-color", pointerColor);
+      document.body.style.setProperty("--large-circle-color", largeCircleColor);
+      document.body.style.setProperty("--size", size);
+      document.body.style.setProperty("--blending-value", blendingValue);
+    }
+  }, [
+    gradientBackgroundStart,
+    gradientBackgroundEnd,
+    firstColor,
+    secondColor,
+    pointerColor,
+    largeCircleColor,
+    size,
+    blendingValue,
+  ]);
 
   // Function to move the large circle based on mouse movement
   const handleMouseMove = (event: MouseEvent) => {
-    if (largeCircleRef.current) {
-      largeCircleRef.current.style.transform = `translate(${
-        event.clientX - largeCircleRef.current.offsetWidth / 2
-      }px, ${event.clientY - largeCircleRef.current.offsetHeight / 2}px)`;
+    if (!mounted || !interactive) return;
+
+    const largeCircle = largeCircleRef.current;
+    if (largeCircle) {
+      const rect = largeCircle.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      largeCircle.style.transform = `translate(${x}px, ${y}px)`;
     }
   };
 
   useEffect(() => {
-    if (interactive) {
-      window.addEventListener("mousemove", handleMouseMove);
-      return () => window.removeEventListener("mousemove", handleMouseMove);
+    if (!mounted || !interactive) return;
+
+    const interactiveElement = interactiveRef.current;
+    if (interactiveElement) {
+      interactiveElement.addEventListener("mousemove", handleMouseMove);
+      return () => {
+        interactiveElement.removeEventListener("mousemove", handleMouseMove);
+      };
     }
-  }, [interactive]);
+  }, [interactive, mounted]);
 
   return (
-    <div
-  className={cn(
-    "fixed inset-0 bg-[linear-gradient(40deg,var(--gradient-background-start),var(--gradient-background-end))] z-[-1]"
-  )}
->
+    <ClientOnly>
+      <div
+        className={cn(
+          "h-screen w-screen relative overflow-hidden top-0 left-0",
+          className
+        )}
+        ref={interactiveRef}
+      >
+        <svg className="hidden">
+          <defs>
+            <filter id="blurMe">
+              <feGaussianBlur
+                in="SourceGraphic"
+                stdDeviation="10"
+                result="blur"
+              />
+              <feColorMatrix
+                in="blur"
+                mode="matrix"
+                values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -8"
+                result="goo"
+              />
+              <feBlend in="SourceGraphic" in2="goo" />
+            </filter>
+          </defs>
+        </svg>
+        <div className="gradients-container h-full w-full blur-lg">
+          <div
+            className={cn(
+              `absolute [background:radial-gradient(circle_at_center,_var(--first-color)_0,_var(--first-color)_50%)_no-repeat]`,
+              `[mix-blend-mode:var(--blending-value)] w-[var(--size)] h-[var(--size)] top-[calc(50%-var(--size)/2)] left-[calc(50%-var(--size)/2)]`,
+              `[transform-origin:center_center]`,
+              `animate-first`,
+              `opacity-100`
+            )}
+          ></div>
+          <div
+            className={cn(
+              `absolute [background:radial-gradient(circle_at_center,_rgba(var(--second-color),_0.8)_0,_rgba(var(--second-color),_0)_50%)_no-repeat]`,
+              `[mix-blend-mode:var(--blending-value)] w-[var(--size)] h-[var(--size)] top-[calc(50%-var(--size)/2)] left-[calc(50%-var(--size)/2)]`,
+              `[transform-origin:calc(50%-400px)]`,
+              `animate-second`,
+              `opacity-100`
+            )}
+          ></div>
+          <div
+            className={cn(
+              `absolute [background:radial-gradient(circle_at_center,_rgba(var(--third-color),_0.8)_0,_rgba(var(--third-color),_0)_50%)_no-repeat]`,
+              `[mix-blend-mode:var(--blending-value)] w-[var(--size)] h-[var(--size)] top-[calc(50%-var(--size)/2)] left-[calc(50%-var(--size)/2)]`,
+              `[transform-origin:calc(50%+400px)]`,
+              `animate-third`,
+              `opacity-100`
+            )}
+          ></div>
+          <div
+            className={cn(
+              `absolute [background:radial-gradient(circle_at_center,_rgba(var(--fourth-color),_0.8)_0,_rgba(var(--fourth-color),_0)_50%)_no-repeat]`,
+              `[mix-blend-mode:var(--blending-value)] w-[var(--size)] h-[var(--size)] top-[calc(50%-var(--size)/2)] left-[calc(50%-var(--size)/2)]`,
+              `[transform-origin:calc(50%-200px)]`,
+              `animate-fourth`,
+              `opacity-70`
+            )}
+          ></div>
+          <div
+            className={cn(
+              `absolute [background:radial-gradient(circle_at_center,_rgba(var(--fifth-color),_0.8)_0,_rgba(var(--fifth-color),_0)_50%)_no-repeat]`,
+              `[mix-blend-mode:var(--blending-value)] w-[var(--size)] h-[var(--size)] top-[calc(50%-var(--size)/2)] left-[calc(50%-var(--size)/2)]`,
+              `[transform-origin:calc(50%-800px)_calc(50%+800px)]`,
+              `animate-fifth`,
+              `opacity-100`
+            )}
+          ></div>
 
-
-      <div className={cn("", className)}>{children}</div>
-      <div className="w-full h-full gradients-container blur-lg">
-        {/* First moving gradient circle */}
-        <div
-          className={cn(
-            `absolute [background:radial-gradient(circle_at_center,_rgba(var(--first-color),_0.6)_0,_rgba(var(--first-color),_0)_50%)_no-repeat]`,
-            `[mix-blend-mode:var(--blending-value)] w-[var(--size)] h-[var(--size)] top-[calc(50%-var(--size)/2)] left-[calc(50%-var(--size)/2)]`,
-            `animate-first opacity-80`
-          )}
-        ></div>
-        {/* Second moving gradient circle */}
-        <div
-          className={cn(
-            `absolute [background:radial-gradient(circle_at_center,_rgba(var(--second-color),_0.6)_0,_rgba(var(--second-color),_0)_50%)_no-repeat]`,
-            `[mix-blend-mode:var(--blending-value)] w-[var(--size)] h-[var(--size)] top-[calc(50%-var(--size)/2)] right-[10%]`,
-            `animate-fourth opacity-80`
-          )}
-        ></div>
-        {interactive && (
-          <>
-            {/* Pointer-following small circle */}
-            <div
-              ref={interactiveRef}
-              className={cn(
-                `absolute [background:radial-gradient(circle_at_center,_rgba(var(--pointer-color),_0.6)_0,_rgba(var(--pointer-color),_0)_50%)_no-repeat]`,
-                `[mix-blend-mode:var(--blending-value)] w-full h-full -top-1/2 -left-1/2`,
-                `opacity-60`
-              )}
-            ></div>
-            {/* Large circle that smoothly follows the mouse */}
+          {interactive && (
             <div
               ref={largeCircleRef}
               className={cn(
-                `absolute [background:radial-gradient(circle_at_center,_rgba(var(--large-circle-color),_0.5)_0,_rgba(var(--large-circle-color),_0)_50%)_no-repeat]`,
-                `[mix-blend-mode:var(--blending-value)] w-[calc(var(--size)*1.5)] h-[calc(var(--size)*1.5)]`,
-                `opacity-50 blur-2xl transition-transform ease-out duration-300`
+                `absolute [background:radial-gradient(circle_at_center,_rgba(var(--pointer-color),_0.8)_0,_rgba(var(--pointer-color),_0)_50%)_no-repeat]`,
+                `[mix-blend-mode:var(--blending-value)] w-full h-full -top-1/2 -left-1/2`,
+                `opacity-70`
               )}
             ></div>
-          </>
-        )}
+          )}
+        </div>
+        {children}
       </div>
-      {/* <div className="absolute inset-0 bg-cyan-900/60 [mask-image:radial-gradient(ellipse_at_center,transparent_40%,white)] z-[-5]" /> */}
-
-      
-    </div>
+    </ClientOnly>
   );
 };

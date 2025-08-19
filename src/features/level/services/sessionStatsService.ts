@@ -1,7 +1,6 @@
 // src/features/level/services/sessionStatsService.ts
 import { authFetch } from "@/features/auth/utils/authFetch";
-import { sessionStatsCircuit } from "@/monitoring/circuitBreaker";
-import { productionMonitor } from "@/monitoring/productionHealthMonitor";
+import { sessionStatsCircuit, productionMonitor } from "@/monitoring/circuitBreaker";
 import { sanitizeSessionData } from "./dailyChallengeService";
 import { logger } from "@/log/clientLogger";
 import * as Sentry from "@sentry/nextjs";
@@ -96,12 +95,11 @@ export const sessionStatsService = {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",
-              "X-Session-ID": sessionId,
-              "X-Request-Priority": "high" // إشارة للأولوية العالية
+              "X-Session-ID": sessionId
             },
             body: JSON.stringify(sessionPayload),
             userId,
-            timeout: 5000, // تقليل timeout لسرعة أكبر
+            timeout: 8000, // Reduced timeout for faster response
           });
         },
         // Fallback function for circuit breaker
@@ -111,27 +109,30 @@ export const sessionStatsService = {
             "sessionStatsService",
             { userId, sessionId }
           );
-          
-          // Return calculated fallback values matching LongTermStats structure
+
+          // Construct fallback LongTermStats
+          const fallbackLongTermStats: LongTermStats = {
+            totalSessions: 1,
+            totalTimeTyped: sessionPayload.timeSpent,
+            totalWordsTyped: Math.round(wpm * (sessionPayload.timeSpent / 60)),
+            totalCharactersTyped: sessionPayload.textLength,
+            averageWPM: wpm,
+            averageAccuracy: accuracy,
+            bestWPM: wpm,
+            bestWPMDate: new Date().toISOString(),
+            bestAccuracy: accuracy,
+            bestAccuracyDate: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+          };
+
+          // Return a full SessionResponse
           return {
             success: false,
             sessionId,
-            longTermStats: {
-              totalSessions: 1,
-              totalTimeTyped: sessionPayload.timeSpent,
-              totalWordsTyped: Math.round(wpm * (sessionPayload.timeSpent / 60)),
-              totalCharactersTyped: sessionPayload.textLength,
-              averageWPM: wpm,
-              averageAccuracy: accuracy,
-              bestWPM: wpm,
-              bestWPMDate: new Date().toISOString(),
-              bestAccuracy: accuracy,
-              bestAccuracyDate: new Date().toISOString(),
-              lastUpdated: new Date().toISOString(),
-            },
+            longTermStats: fallbackLongTermStats,
             sessionStored: false,
             timestamp: new Date().toISOString(),
-          };
+          } as SessionResponse;
         }
       );
 
@@ -155,7 +156,7 @@ export const sessionStatsService = {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       // Record failed API health metrics
-      productionMonitor.recordApiHealth('SessionStats', '/api/session-stats/v1', 'failure', duration, errorMessage);
+      productionMonitor.recordApiHealth('SessionStats', '/api/session-stats/v1', 'failure', duration);
 
       // Enhanced error logging with context
       logger.session.error(

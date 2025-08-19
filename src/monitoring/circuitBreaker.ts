@@ -5,7 +5,7 @@
  */
 
 import { productionMonitor } from "./productionHealthMonitor";
-import { logging } from "@/log/ServerLogger";
+import { logger } from "@/log/ServerLogger";
 
 type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
@@ -50,6 +50,17 @@ export class CircuitBreaker {
       onStateChange: () => {},
       ...config
     };
+
+    // Validate configuration
+    if (this.config.failureThreshold <= 0 || this.config.failureThreshold > 100) {
+      throw new Error(`Invalid failureThreshold: ${this.config.failureThreshold}. Must be between 1 and 100.`);
+    }
+    if (this.config.resetTimeout <= 0) {
+      throw new Error(`Invalid resetTimeout: ${this.config.resetTimeout}. Must be greater than 0.`);
+    }
+    if (this.config.minimumRequests <= 0) {
+      throw new Error(`Invalid minimumRequests: ${this.config.minimumRequests}. Must be greater than 0.`);
+    }
   }
 
   /**
@@ -75,8 +86,9 @@ export class CircuitBreaker {
       const errorObj = error instanceof Error ? error : new Error(String(error));
       this.onFailure(errorObj);
       
-      // استخدام fallback فقط في حالة فشل العملية
-      if (fallback) {
+      // Check if circuit opened after failure and use fallback if available
+      // Use type assertion since onFailure() can change state to OPEN
+      if (fallback && (this.state as CircuitState) === 'OPEN') {
         return await fallback();
       }
       throw error;
@@ -111,9 +123,8 @@ export class CircuitBreaker {
       return false;
     }
 
-    const failureRate = this.metrics.failureCount / this.metrics.requestCount;
-    // إصلاح: استخدام نسبة الفشل الصحيحة (0-1) بدلاً من النسبة المئوية
-    return failureRate >= (this.config.failureThreshold / this.config.minimumRequests);
+    const failureRate = (this.metrics.failureCount / this.metrics.requestCount) * 100;
+    return failureRate >= this.config.failureThreshold;
   }
 
   private shouldAttemptReset(): boolean {
@@ -212,10 +223,10 @@ export const sessionStatsCircuit = new CircuitBreaker('SessionStats', {
   resetTimeout: 30000,
   monitoringWindow: 60000,
   onStateChange: (state, error) => {
-    logging.warn(
+    logger.warn(
       `SessionStats Circuit Breaker state changed to ${state}`,
       { 
-        component: "circuitBreaker",
+        context: "circuitBreaker",
         state, 
         error: error?.message, 
         timestamp: Date.now() 
@@ -229,10 +240,10 @@ export const dailyChallengeCircuit = new CircuitBreaker('DailyChallenge', {
   resetTimeout: 60000,
   monitoringWindow: 120000,
   onStateChange: (state, error) => {
-    logging.warn(
+    logger.warn(
       `DailyChallenge Circuit Breaker state changed to ${state}`,
       { 
-        component: "circuitBreaker",
+        context: "circuitBreaker",
         state, 
         error: error?.message, 
         timestamp: Date.now() 
@@ -250,10 +261,10 @@ export const enhancedSessionStatsCircuit = new EnhancedCircuitBreaker({
   serviceName: "SessionStats",
   endpoint: "/api/session-stats/v1",
   onStateChange: (state, error) => {
-    logging.warn(
+    logger.warn(
       `Enhanced SessionStats Circuit Breaker state changed to ${state}`,
       { 
-        component: "enhancedCircuitBreaker",
+        context: "enhancedCircuitBreaker",
         state, 
         error: error?.message, 
         timestamp: Date.now(),
@@ -272,10 +283,10 @@ export const enhancedDailyChallengeCircuit = new EnhancedCircuitBreaker({
   serviceName: "DailyChallenge",
   endpoint: "/api/daily-challenge/v1",
   onStateChange: (state, error) => {
-    logging.warn(
+    logger.warn(
       `Enhanced DailyChallenge Circuit Breaker state changed to ${state}`,
       { 
-        component: "enhancedCircuitBreaker",
+        context: "enhancedCircuitBreaker",
         state, 
         error: error?.message, 
         timestamp: Date.now(),
