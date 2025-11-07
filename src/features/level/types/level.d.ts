@@ -116,6 +116,7 @@ export type LevelAction =
     level: number;
     userXP: number;
     nextLevelXP: number;
+    userId?: string | null;
     dailyChallenge: DailyChallenge | null;
     achievements: Achievement[];
     addXP: (amount: number) => void;
@@ -125,6 +126,7 @@ export type LevelAction =
     addXPMessage: (text: string, value: number, type: XPMessageType) => void;
     clearXPMessages?: () => void;
     recordSessionStats?: (...args: any[]) => any;
+    isLoadingSession?: boolean;
   }
 
 

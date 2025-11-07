@@ -3,7 +3,6 @@
 import { useCallback, useState } from "react";
 import { DailyChallenge, SessionData } from "../types/level";
 import { updateDailyChallenge } from "../services/dailyChallengeService";
-import { logger } from "@/log/clientLogger";
 import { calculateChallengeStatus } from "../utils/challengeHelpers";
 
 /**
@@ -21,7 +20,6 @@ export const useChallengeHandler = (
   const [error, setError] = useState<Error | null>(null);
   const [optimisticChallenge, setOptimisticChallenge] =
     useState(currentChallenge);
-  const filePath = "hooks/useChallengeHandler";
 
   /**
    * Handles challenge progress updates with optimistic UI pattern

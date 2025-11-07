@@ -79,7 +79,7 @@ export const fetchDailyChallenge = async (
         requestId,
       });
     });
-  } catch (error) {
+  } catch {
     logger.challenge.warn(
       "API fetch failed, generating fallback challenge",
       "dailyChallengeService",
@@ -136,7 +136,7 @@ export const createDailyChallenge = async (
         userId,
       });
     });
-  } catch (error) {
+  } catch {
     logger.challenge.warn(
       "Challenge creation API failed, generating locally",
       "dailyChallengeService",

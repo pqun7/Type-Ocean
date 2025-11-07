@@ -18,8 +18,9 @@ export const useXPMessages = () => {
 
   // Cleanup timers on unmount
   useEffect(() => {
+    const timeouts = timeoutsRef.current;
     return () => {
-      Object.values(timeoutsRef.current).forEach(clearTimeout);
+      Object.values(timeouts).forEach(clearTimeout);
     };
   }, []);
 

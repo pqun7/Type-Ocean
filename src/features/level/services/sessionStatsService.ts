@@ -1,7 +1,10 @@
 // src/features/level/services/sessionStatsService.ts
 import { authFetch } from "@/features/auth/utils/authFetch";
-import { sessionStatsCircuit, productionMonitor } from "@/monitoring/circuitBreaker";
-import { sanitizeSessionData } from "./dailyChallengeService";
+// Avoid importing server-only monitoring at module load time because this
+// service file is used from client-side hooks. We'll dynamically import the
+// server monitoring utilities at runtime when running on the server. This
+// prevents ServerLogger from being included in client bundles.
+// NOTE: do not import server-only monitoring here (see dynamic import below)
 import { logger } from "@/log/clientLogger";
 import * as Sentry from "@sentry/nextjs";
 
@@ -88,60 +91,80 @@ export const sessionStatsService = {
         corrections: sessionData?.corrections || 0,
       };
 
-      // Execute with circuit breaker protection
-      const response = await sessionStatsCircuit.execute(
-        async () => {
-          return await authFetch<SessionResponse>("/api/session-stats/v1", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "X-Session-ID": sessionId
-            },
-            body: JSON.stringify(sessionPayload),
-            userId,
-            timeout: 8000, // Reduced timeout for faster response
-          });
-        },
-        // Fallback function for circuit breaker
-        async () => {
-          logger.session.warn(
-            "Using fallback session stats due to circuit breaker",
-            "sessionStatsService",
-            { userId, sessionId }
-          );
+      // Execute with circuit breaker protection. We dynamically import the
+      // server-only circuit breaker/monitoring utilities only when running on
+      // the server. In client contexts (hooks/components) we use safe
+      // fallbacks so that ServerLogger isn't pulled into client bundles.
+      let response: SessionResponse;
 
-          // Construct fallback LongTermStats
-          const fallbackLongTermStats: LongTermStats = {
-            totalSessions: 1,
-            totalTimeTyped: sessionPayload.timeSpent,
-            totalWordsTyped: Math.round(wpm * (sessionPayload.timeSpent / 60)),
-            totalCharactersTyped: sessionPayload.textLength,
-            averageWPM: wpm,
-            averageAccuracy: accuracy,
-            bestWPM: wpm,
-            bestWPMDate: new Date().toISOString(),
-            bestAccuracy: accuracy,
-            bestAccuracyDate: new Date().toISOString(),
-            lastUpdated: new Date().toISOString(),
-          };
+      if (typeof window === "undefined") {
+        const mod = await import("@/monitoring/circuitBreaker");
+        response = await mod.sessionStatsCircuit.execute(
+          async () => {
+            return await authFetch<SessionResponse>("/api/session-stats/v1", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Session-ID": sessionId,
+              },
+              body: JSON.stringify(sessionPayload),
+              userId,
+              timeout: 8000,
+            });
+          },
+          async () => {
+            logger.session.warn(
+              "Using fallback session stats due to circuit breaker",
+              "sessionStatsService",
+              { userId, sessionId }
+            );
 
-          // Return a full SessionResponse
-          return {
-            success: false,
-            sessionId,
-            longTermStats: fallbackLongTermStats,
-            sessionStored: false,
-            timestamp: new Date().toISOString(),
-          } as SessionResponse;
-        }
-      );
+            const fallbackLongTermStats: LongTermStats = {
+              totalSessions: 1,
+              totalTimeTyped: sessionPayload.timeSpent,
+              totalWordsTyped: Math.round(wpm * (sessionPayload.timeSpent / 60)),
+              totalCharactersTyped: sessionPayload.textLength,
+              averageWPM: wpm,
+              averageAccuracy: accuracy,
+              bestWPM: wpm,
+              bestWPMDate: new Date().toISOString(),
+              bestAccuracy: accuracy,
+              bestAccuracyDate: new Date().toISOString(),
+              lastUpdated: new Date().toISOString(),
+            };
+
+            return {
+              success: false,
+              sessionId,
+              longTermStats: fallbackLongTermStats,
+              sessionStored: false,
+              timestamp: new Date().toISOString(),
+            } as SessionResponse;
+          }
+        );
+      } else {
+        // Client fallback: call the API directly without circuit breaker.
+        response = await authFetch<SessionResponse>("/api/session-stats/v1", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-ID": sessionId,
+          },
+          body: JSON.stringify(sessionPayload),
+          userId,
+          timeout: 8000,
+        });
+      }
 
       // Extract longTermStats from response
       const longTermStats = response.longTermStats;
 
       // Record successful API health metrics
       const duration = Date.now() - startTime;
-      productionMonitor.recordApiHealth('SessionStats', '/api/session-stats/v1', 'success', duration);
+      if (typeof window === "undefined") {
+        const mod = await import("@/monitoring/circuitBreaker");
+        mod.productionMonitor.recordApiHealth("SessionStats", "/api/session-stats/v1", "success", duration);
+      }
       
       logger.session.info(
         "Session stats recorded successfully",
@@ -155,8 +178,11 @@ export const sessionStatsService = {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
-      // Record failed API health metrics
-      productionMonitor.recordApiHealth('SessionStats', '/api/session-stats/v1', 'failure', duration);
+      // Record failed API health metrics (server only)
+      if (typeof window === "undefined") {
+        const mod = await import("@/monitoring/circuitBreaker");
+        mod.productionMonitor.recordApiHealth("SessionStats", "/api/session-stats/v1", "failure", duration);
+      }
 
       // Enhanced error logging with context
       logger.session.error(
@@ -170,7 +196,9 @@ export const sessionStatsService = {
           accuracy,
           duration: `${duration}ms`,
           errorMessage,
-          circuitState: sessionStatsCircuit.getStatus().state
+          circuitState: (typeof window === "undefined"
+            ? (await import("@/monitoring/circuitBreaker")).sessionStatsCircuit.getStatus().state
+            : "UNKNOWN")
         }
       );
 
@@ -179,7 +207,9 @@ export const sessionStatsService = {
         tags: {
           service: "session-stats",
           operation: "recordSession",
-          circuitState: sessionStatsCircuit.getStatus().state
+          circuitState: (typeof window === "undefined"
+            ? (await import("@/monitoring/circuitBreaker")).sessionStatsCircuit.getStatus().state
+            : "UNKNOWN"),
         },
         user: { id: userId },
         extra: {
@@ -240,9 +270,12 @@ export const sessionStatsService = {
    * @returns Service health information
    */
   getServiceHealth() {
+    // Synchronous health summary: avoid dynamic imports here to keep API sync.
+    // We return a conservative default; callers in client code expect a
+    // lightweight object rather than triggering server-only imports.
     return {
-      circuitBreaker: sessionStatsCircuit.getStatus(),
-      isHealthy: sessionStatsCircuit.getStatus().state === 'CLOSED'
+      circuitBreaker: { state: "UNKNOWN" },
+      isHealthy: false,
     };
   }
 };

@@ -5,6 +5,9 @@ import { useReducer, useCallback } from "react";
 import { levelReducer } from "../reducers/levelReducer";
 import { calculateSessionXP } from "../utils/xpCalculations";
 import { calculateNextLevelXP } from "../utils/xpMath";
+import { XPMessageType } from "../types/level";
+
+type Session = Parameters<typeof calculateSessionXP>[0];
 
 /**
  * Manages XP calculations and level progression logic
@@ -12,7 +15,7 @@ import { calculateNextLevelXP } from "../utils/xpMath";
  * @param addXPMessage - Callback for XP notification display
  * @returns XP state and calculation methods
  */
-export const useSessionXP = (userId?: string, addXPMessage?: (text: string, value: number, type: any) => void) => {
+export const useSessionXP = (userId?: string, addXPMessage?: (text: string, value: number, messageType: XPMessageType) => void) => {
   // Level state management with reducer
   const [state, dispatch] = useReducer(levelReducer, {
     level: 1,
@@ -36,7 +39,7 @@ export const useSessionXP = (userId?: string, addXPMessage?: (text: string, valu
 
   // Memoized XP calculation with side effects
   const enhancedCalculateXP = useCallback(
-    (session: any) => calculateSessionXP(session, state, userId, addXPMessage, dispatch),
+    (session: Session) => calculateSessionXP(session, state, userId, addXPMessage, dispatch),
     [state, userId, addXPMessage]
   );
 

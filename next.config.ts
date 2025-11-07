@@ -28,8 +28,6 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@prisma/client",
     "bcryptjs", 
-    "winston", 
-    "winston-transport",
     "google-auth-library",
     "google-p12-pem",
     "gtoken",

@@ -7,16 +7,16 @@ export type AnimatedNumberProps = {
   value: number;
   className?: string;
   springOptions?: SpringOptions;
-  as?: React.ElementType;
+  element?: 'span' | 'div' | 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 };
 
 export function AnimatedNumber({
   value,
   className,
   springOptions,
-  as = 'span',
+  element: Element = 'span',
 }: AnimatedNumberProps) {
-  const MotionComponent = motion.create(as as keyof JSX.IntrinsicElements);
+  const MotionElement = motion[Element];
 
   const spring = useSpring(value, springOptions);
   const display = useTransform(spring, (current) =>
@@ -28,8 +28,8 @@ export function AnimatedNumber({
   }, [spring, value]);
 
   return (
-    <MotionComponent className={cn('tabular-nums', className)}>
+    <MotionElement className={cn('tabular-nums', className)}>
       {display}
-    </MotionComponent>
+    </MotionElement>
   );
 }
