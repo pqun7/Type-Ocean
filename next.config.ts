@@ -40,7 +40,7 @@ const nextConfig: NextConfig = {
   // Add transpile packages for better compatibility
   transpilePackages: ['next-font'],
   
-  webpack: (config, { isServer, webpack, dev }) => {
+  webpack: (config, { isServer, webpack }) => {
     // Fix for font loading issues
     config.resolve.alias = {
       ...(config.resolve.alias || {}),

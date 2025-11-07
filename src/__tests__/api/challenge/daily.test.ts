@@ -9,7 +9,7 @@ import { GET as getChallengeById, PUT as putChallengeById } from '@/app/api/chal
 import redisMock, { resetRedisMock, mockChallengeData, mockSessionData } from '@/__tests__/helpers/redis.mock';
 
 // Mock dependencies
-jest.mock('@/lib/redis', () => require('@/__tests__/helpers/redis.mock').default);
+jest.mock('@/lib/redis', () => ({ __esModule: true, default: redisMock }));
 jest.mock('@/features/level/server-utils/userCache', () => ({
   getUserLevel: jest.fn().mockResolvedValue({ level: 5, xp: 1250 }),
 }));
@@ -24,7 +24,7 @@ jest.mock('@/log/loggingUtils', () => ({
 }));
 
 // Helper function to create mock requests
-const createMockRequest = (headers: Record<string, string> = {}, body?: any): NextRequest => {
+const createMockRequest = (headers: Record<string, string> = {}, body?: unknown): NextRequest => {
   const url = 'http://localhost:3000/api/challenge/v1/daily';
   const defaultHeaders = {
     'x-user-id': 'test-user-123',
@@ -40,21 +40,21 @@ const createMockRequest = (headers: Record<string, string> = {}, body?: any): Ne
 
   // Mock the json() method for requests with body
   if (body) {
-    (request as any).json = jest.fn().mockResolvedValue(body);
+    (request as unknown as { json?: () => Promise<unknown> }).json = jest.fn().mockResolvedValue(body);
   }
 
   return request;
 };
 
 // Helper to create params for challengeId routes
-const createMockParams = (challengeId: string) => Promise.resolve({ challengeId });
+const createMockParams = (challengeId: string) => ({ challengeId });
 
 describe('Daily Challenge API', () => {
   beforeEach(() => {
     resetRedisMock();
     jest.clearAllMocks();
-    process.env.NODE_ENV = 'test';
-    process.env.API_INTERNAL_SECRET = 'test-secret';
+    (process as unknown as { env: Record<string, string | undefined> }).env.NODE_ENV = 'test';
+    (process as unknown as { env: Record<string, string | undefined> }).env.API_INTERNAL_SECRET = 'test-secret';
   });
 
   describe('GET /daily - Fetch Daily Challenge', () => {
@@ -382,7 +382,7 @@ describe('Daily Challenge API', () => {
   describe('Error Handling and Edge Cases', () => {
     it('should handle malformed JSON requests', async () => {
       const request = createMockRequest();
-      (request as any).json = jest.fn().mockRejectedValue(new Error('Invalid JSON'));
+      (request as unknown as { json?: () => Promise<unknown> }).json = jest.fn().mockRejectedValue(new Error('Invalid JSON'));
 
       const response = await POST(request);
 

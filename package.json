@@ -62,7 +62,7 @@
     "unique-forge": "^1.6.0",
     "uuid": "^11.1.0",
     "web-streams-polyfill": "^4.1.0",
-    "winston": "^3.17.0",
+    "winston": "^3.18.3",
     "zod": "^3.24.3",
     "zustand": "^5.0.3"
   },

@@ -1,5 +1,3 @@
-import { jest } from '@jest/globals';
-
 /**
  * Production-ready Redis mock for comprehensive testing
  */
@@ -131,8 +129,8 @@ class MockRedis {
     return this.store.size;
   }
 
-  getAll(): Record<string, any> {
-    const result: Record<string, any> = {};
+  getAll(): Record<string, { value: string; ttl?: number; expires?: number }> {
+    const result: Record<string, { value: string; ttl?: number; expires?: number }> = {};
     for (const [key, item] of this.store.entries()) {
       result[key] = item;
     }

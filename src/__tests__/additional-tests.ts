@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { NextRequest, NextResponse } from 'next/server';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { NextRequest } from 'next/server';
 import { GET, POST, DELETE } from '@/app/api/challenge/v1/daily/route';
 import redis from '@/lib/redis';
 import { generateDailyChallenge } from '@/features/level/utils/challengeHelpers';
@@ -15,9 +15,9 @@ jest.mock('@/features/auth/utils/timeUtils', () => ({
   getLocalMidnightTTL: jest.fn(() => 86400),
 }));
 
-const mockedRedis = redis as jest.Mocked<typeof redis>;
-const mockedGenerateDailyChallenge = generateDailyChallenge as jest.Mock;
-const mockedGetUserLevel = getUserLevel as jest.Mock;
+const mockedRedis = redis as unknown as jest.Mocked<typeof redis>;
+const mockedGenerateDailyChallenge = generateDailyChallenge as unknown as jest.MockedFunction<(userId: string, level: number) => Promise<unknown>>;
+const mockedGetUserLevel = getUserLevel as unknown as jest.MockedFunction<() => Promise<number>>;
 
 describe('Daily Challenge API Production Tests', () => {
   beforeEach(() => {
@@ -95,14 +95,14 @@ describe('Daily Challenge API Production Tests', () => {
   });
 
   describe('POST /api/challenge/v1/daily - Challenge Updates', () => {
-    const createUpdateRequest = (body: any, userId = 'user-123') =>
+    const createUpdateRequest = (body: unknown, userId = 'user-123') =>
       new NextRequest('http://localhost/api/challenge/v1/daily', {
         method: 'POST',
         headers: { 
           'x-user-id': userId,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body as unknown as Record<string, unknown>)
       });
 
     it('should update challenge progress correctly', async () => {
@@ -406,7 +406,7 @@ describe("Production Features - Additional Tests", () => {
         { input: undefined, expected: "" }
       ];
       
-      const sanitizeInput = (input: any): string => {
+      const sanitizeInput = (input: unknown): string => {
         if (typeof input !== 'string') return '';
         return input
           .replace(/<[^>]*>/g, '') // Remove HTML tags
@@ -420,21 +420,22 @@ describe("Production Features - Additional Tests", () => {
     });
 
     it("should validate challenge progress data", () => {
-      const validateProgress = (data: any): boolean => {
-        if (!data || typeof data !== 'object') return false;
+      const validateProgress = (data: unknown): boolean => {
+        if (!data || typeof data !== 'object' || data === null) return false;
+        const d = data as Record<string, unknown>;
         
         // WPM validation
-        if (typeof data.wpm !== 'number' || data.wpm < 0 || data.wpm > 300) {
+        if (typeof d.wpm !== 'number' || d.wpm < 0 || d.wpm > 300) {
           return false;
         }
         
         // Accuracy validation
-        if (typeof data.accuracy !== 'number' || data.accuracy < 0 || data.accuracy > 100) {
+        if (typeof d.accuracy !== 'number' || d.accuracy < 0 || d.accuracy > 100) {
           return false;
         }
         
         // Text length validation
-        if (typeof data.textLength !== 'number' || data.textLength < 0) {
+        if (typeof d.textLength !== 'number' || d.textLength < 0) {
           return false;
         }
         
@@ -553,3 +554,9 @@ describe("Production Features - Additional Tests", () => {
     });
   });
 });
+
+function createMockRequest(userId = 'user-123'): NextRequest {
+  return new NextRequest('http://localhost/api/challenge/v1/daily', {
+    headers: { 'x-user-id': userId }
+  });
+}

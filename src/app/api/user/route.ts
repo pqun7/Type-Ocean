@@ -26,7 +26,7 @@ const UpdateUserSchema = z.object({
 /**
  * GET - Get current user profile
  */
-export async function GET(req: NextRequest) {
+export async function GET() {
   const requestId = uuidv4();
 
   try {
@@ -207,7 +207,7 @@ export async function PATCH(req: NextRequest) {
 /**
  * DELETE - Delete user account
  */
-export async function DELETE(req: NextRequest) {
+export async function DELETE() {
   const requestId = uuidv4();
 
   try {

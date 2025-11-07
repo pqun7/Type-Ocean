@@ -7,7 +7,6 @@ import { GET, PUT } from "@/app/api/challenge/v1/daily/[challengeId]/route";
 import { NextRequest } from "next/server";
 import redis from "@/lib/redis";
 import { calculateChallengeStatus } from "@/features/level/utils/challengeHelpers";
-import { getTodayDate } from "@/features/auth/utils/timeUtils";
 
 // Mock dependencies
 jest.mock("@/lib/redis");
@@ -28,16 +27,30 @@ describe("/api/challenge/v1/daily/[challengeId] Routes", () => {
     mockedCalculateStatus.mockReturnValue(1); // Default to completed
   });
 
-  const mockRequest = (body?: any, headers = {}) =>
-    ({
-      headers: new Headers({
-        "x-user-id": "user-123",
-        ...headers,
-      }),
-      json: () => Promise.resolve(body || {}),
-    }) as NextRequest;
+  const mockRequest = (body?: unknown, headers: Record<string, string | undefined> = {}) => {
+    const combined = { "x-user-id": "user-123", ...headers } as Record<string, string | undefined>;
+    const hdr = new Headers();
+    Object.entries(combined).forEach(([k, v]) => {
+      if (v !== undefined) hdr.set(k, v);
+    });
 
-  const mockParams = { params: Promise.resolve({ challengeId: "challenge-123" }) };
+    return ({
+      headers: hdr,
+      json: () => Promise.resolve(body || {}),
+    }) as unknown as NextRequest;
+  };
+
+  const mockParams = { params: { challengeId: "challenge-123" } };
+
+  const defaultMockChallenge = {
+    id: "challenge-123",
+    date: "2024-01-01",
+    type: "marathon",
+    target: 1000,
+    status: 0,
+    xp: 200,
+    data: { charactersTyped: 0 },
+  } as const;
 
   describe("GET /api/challenge/v1/daily/[challengeId]", () => {
     it("should return specific challenge by ID", async () => {
@@ -51,7 +64,7 @@ describe("/api/challenge/v1/daily/[challengeId] Routes", () => {
         data: {}
       };
 
-      mockedRedis.get.mockResolvedValue(JSON.stringify(mockChallenge));
+  mockedRedis.get.mockResolvedValue(JSON.stringify(defaultMockChallenge));
 
       const response = await GET(mockRequest(), mockParams);
       const data = await response.json();
@@ -383,7 +396,7 @@ describe("/api/challenge/v1/daily/[challengeId] Routes", () => {
     });
 
     it("should validate numeric session data bounds", async () => {
-      mockedRedis.get.mockResolvedValue(JSON.stringify(mockChallenge));
+      mockedRedis.get.mockResolvedValue(JSON.stringify(defaultMockChallenge));
 
       const invalidSession = {
         wpm: -50, // Invalid negative

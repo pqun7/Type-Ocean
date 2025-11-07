@@ -1,38 +1,23 @@
 // api/challenge/v1/daily/[challengeId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { calculateChallengeStatus } from "@/features/level/utils/challengeHelpers";
-import redis, { connectIfNeeded } from "@/lib/redis";
-import { getTodayDate, getLocalMidnightTTL } from "@/features/auth/utils/timeUtils";
 import { DailyChallenge } from "@/features/level/types/level";
 import { v4 as uuidv4 } from "uuid";
 import {
+  redis,
+  connectIfNeeded,
+  getCacheKey,
+  getCacheTTL,
+  authorizeRequest,
   logRequestStart,
   logRequestSuccess,
   logRequestError,
-} from "@/log/loggingUtils";
+} from "@/app/api/challenge/v1/shared";
+import { getTodayDate } from "@/app/api/challenge/v1/shared";
 
 const SERVICE_TYPE = "DAILY-CHALLENGE-UPDATE";
-const CACHE_TTL = process.env.NODE_ENV === "development" ? 60 : getLocalMidnightTTL();
+const CACHE_TTL = getCacheTTL();
 const FILE_PATH = "src/app/api/challenge/v1/daily/[challengeId]/route.ts";
-
-// Helper function for authorization
-const authorizeRequest = (req: NextRequest) => {
-  const userId = req.headers.get("x-user-id");
-  const authHeader = req.headers.get("authorization");
-  
-  if (!userId) return false;
-  
-  // Validate internal requests
-  if (typeof window === "undefined" && 
-      authHeader !== `Bearer ${process.env.API_INTERNAL_SECRET}`) {
-    return false;
-  }
-  
-  return userId;
-};
-
-const getCacheKey = (userId: string) =>
-  `dailyChallenge:${userId}:${getTodayDate()}`;
 
 interface RouteParams {
   params: {
@@ -44,7 +29,7 @@ interface RouteParams {
 export async function PUT(req: NextRequest, { params }: RouteParams) {
   const requestId = uuidv4();
   const userId = authorizeRequest(req);
-  const { challengeId } = await params; // Fix: await params before destructuring
+  const { challengeId } = params;
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -204,7 +189,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const requestId = uuidv4();
   const userId = authorizeRequest(req);
-  const { challengeId } = await params; // Fix: await params before destructuring
+  const { challengeId } = params;
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
