@@ -20,7 +20,7 @@ const PROTECTED_ROUTES = [
   "/settings"
 ]
 
-export default auth(async (req, ctx) => {
+export default auth(async (req) => {
   const { pathname } = req.nextUrl
   const ip = getClientIP(req)
   const userAgent = req.headers.get('user-agent') || 'unknown'

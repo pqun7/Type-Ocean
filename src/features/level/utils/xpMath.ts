@@ -5,7 +5,7 @@ import {
   LINEAR_GROWTH_END_LEVEL,
   EXP_GROWTH_END_LEVEL,
   MAX_XP_MULTIPLIER,
-  CHALLENGE_TYPE_WEIGHTS,
+  
 } from "@/features/level/constants/level";
 
 export const calculateNextLevelXP = (level: number): number => {

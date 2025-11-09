@@ -19,7 +19,6 @@ export const useSessionStats = () => {
         if (!userId) {
           logger.session.warn(
             "No user ID available - skipping stats recording",
-            filePath,
             { context: "SESSION_STATS", sessionId: sessionData?.sessionId }
           );
           
@@ -44,7 +43,6 @@ export const useSessionStats = () => {
           const error = new Error("Invalid stats values");
           logger.session.error(
             "Invalid stats values provided",
-            filePath,
             error,
             {
               userId,
@@ -62,7 +60,6 @@ export const useSessionStats = () => {
           const error = new Error(`Invalid WPM value: ${wpm}`);
           logger.session.error(
             "Invalid WPM value provided",
-            filePath,
             error,
             {
               userId,
@@ -79,7 +76,6 @@ export const useSessionStats = () => {
           const error = new Error(`Invalid accuracy value: ${accuracy}`);
           logger.session.error(
             "Invalid accuracy value provided",
-            filePath,
             error,
             {
               userId,
@@ -94,7 +90,7 @@ export const useSessionStats = () => {
 
         logger.session.info(
           "Recording session stats",
-          filePath,
+          
           {
             userId,
             wpm,
@@ -121,7 +117,6 @@ export const useSessionStats = () => {
         if (!sessionStatsService.validateLongTermStats(result)) {
           logger.session.warn(
             "Received invalid long-term stats response",
-            filePath,
             { userId, sessionId: sessionData?.sessionId, result, context: "SESSION_STATS" }
           );
           
@@ -143,7 +138,7 @@ export const useSessionStats = () => {
         
         logger.session.info(
           "Session stats recorded successfully",
-          filePath,
+          
           {
             userId,
             sessionId: sessionData?.sessionId,
@@ -159,7 +154,7 @@ export const useSessionStats = () => {
         
         logger.session.error(
           "Failed to record session stats",
-          filePath,
+          
           error instanceof Error ? error : new Error(String(error)),
           {
             userId,
@@ -179,7 +174,6 @@ export const useSessionStats = () => {
           
           logger.session.warn(
             "Network/service issue detected, providing fallback stats",
-            filePath,
             { userId, sessionId: sessionData?.sessionId, context: "SESSION_STATS", errorType: "network" }
           );
           

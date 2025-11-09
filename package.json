@@ -8,7 +8,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "jest --watch"
+    "test": "jest --watch",
+  "dev:redis": "npm run redis:start && next dev",
+  "redis:start": "node ./scripts/redis-start.js",
+    "redis:status": "sudo service redis-server status",
+    "redis:restart": "sudo service redis-server restart",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "prisma:generate": "prisma generate",
+    "prisma:dbpush": "prisma db push"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.9.0",

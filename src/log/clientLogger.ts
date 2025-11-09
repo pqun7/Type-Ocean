@@ -1,5 +1,4 @@
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
-type LogContext = 'AUTH' | 'PERF' | 'XP' | 'CHALLENGE' | 'SESSION' | 'ERROR';
 import { XPMessage } from "@/features/level/types/level";
 
 const LOG_CONFIG = {
@@ -52,32 +51,29 @@ class ClientLogger {
   private formatMessage(
     level: LogLevel,
     message: string,
-    filePath: string, // إجبارية
     meta?: Record<string, unknown>
   ): string {
     const logEntry = {
       timestamp: new Date().toISOString(),
       level: level.toUpperCase(),
       context: this.context,
-      filePath, // استخدام المسار الممرر مباشرة
       message,
       ...(meta && { meta: this.sanitizeData(meta) }),
     };
 
     return process.env.NODE_ENV === 'production'
       ? JSON.stringify(logEntry)
-      : `[${logEntry.timestamp}] ${logEntry.level} ${logEntry.context} ${logEntry.filePath} - ${logEntry.message}`;
+      : `[${logEntry.timestamp}] ${logEntry.level} ${logEntry.context} - ${logEntry.message}`;
   }
 
   log(
     level: LogLevel,
     message: string,
-    filePath: string, // إجبارية
     meta?: Record<string, unknown>
   ): void {
     if (!this.shouldLog(level)) return;
 
-    const formattedMessage = this.formatMessage(level, message, filePath, meta);
+    const formattedMessage = this.formatMessage(level, message, meta);
     const consoleMethod = console[level] || console.log;
     
     if (level === 'error' && meta?.error instanceof Error) {
@@ -94,35 +90,31 @@ class ClientLogger {
 
   debug(
     message: string,
-    filePath: string, // إجبارية
     meta?: Record<string, unknown>
   ): void {
-    this.log('debug', message, filePath, meta);
+    this.log('debug', message, meta);
   }
 
   info(
     message: string,
-    filePath: string, // إجبارية
     meta?: Record<string, unknown>
   ): void {
-    this.log('info', message, filePath, meta);
+    this.log('info', message, meta);
   }
 
   warn(
     message: string,
-    filePath: string, // إجبارية
     meta?: Record<string, unknown>
   ): void {
-    this.log('warn', message, filePath, meta);
+    this.log('warn', message, meta);
   }
 
   error(
     message: string,
-    filePath: string, // إجبارية
     error?: Error,
     meta?: Record<string, unknown>
   ): void {
-    this.log('error', message, filePath, { ...meta, error });
+    this.log('error', message, { ...meta, error });
   }
 }
 
@@ -138,9 +130,8 @@ export const logger = {
 
 // XP-specific utilities
 export const logXPEvent = (
-  userId: string | undefined, 
+  userId: string | undefined,
   event: XPMessage,
-  filePath: string, // إجبارية
   metadata?: Record<string, unknown>
 ): void => {
   if (!userId) return;
@@ -153,7 +144,6 @@ export const logXPEvent = (
   ) {
     logger.xp.info(
       `XP Event: ${event.type}`,
-      filePath, // تمرير filePath
       {
         userId,
         eventType: event.type,

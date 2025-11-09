@@ -1,6 +1,6 @@
 "use client";
 import useSWR from 'swr';
-import { logger } from '@/log/clientLogger';
+import { logger } from "@/log/clientLogger";
 import { useEffect, useState } from 'react';
 
 const fetcher = async (url: string) => {
@@ -22,13 +22,12 @@ const fetcher = async (url: string) => {
     return await response.json();
   } catch (error) {
     const loggedError = error instanceof Error ? error : new Error(String(error));
-    logger.auth.error("Session fetch failed", "hooks/useUserSession.ts", loggedError);
+    logger.auth.error("Session fetch failed", loggedError);
     throw loggedError;
   }
 };
 
 export const useUserSession = () => {
-  const filePath = "hooks/useUserSession.ts";
   const [mounted, setMounted] = useState(false);
   
   // Prevent hydration mismatch by only running SWR after mount
@@ -56,7 +55,7 @@ export const useUserSession = () => {
 
   // Only log actual errors, not authentication failures
   if (error && !error.message?.includes('401')) {
-    logger.auth.error("Session fetch error", filePath, error);
+    logger.auth.error("Session fetch error", error);
   }
 
   // Return consistent state during SSR and initial client render

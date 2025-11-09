@@ -32,7 +32,6 @@ async function withRetry<T>(
       if (attempt === maxAttempts) {
         logger.challenge.error(
           `Final retry attempt failed`,
-          "dailyChallengeService",
           lastError
         );
         throw lastError;
@@ -48,7 +47,6 @@ async function withRetry<T>(
 
       logger.challenge.warn(
         `Retry attempt ${attempt}/${maxAttempts} after ${delay}ms`,
-        "dailyChallengeService"
       );
 
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -82,7 +80,6 @@ export const fetchDailyChallenge = async (
   } catch {
     logger.challenge.warn(
       "API fetch failed, generating fallback challenge",
-      "dailyChallengeService",
       );
 
     // Client-side fallback challenge generation
@@ -139,7 +136,6 @@ export const createDailyChallenge = async (
   } catch {
     logger.challenge.warn(
       "Challenge creation API failed, generating locally",
-      "dailyChallengeService",
     );
 
     // Fallback to local generation

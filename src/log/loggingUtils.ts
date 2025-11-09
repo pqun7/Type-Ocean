@@ -8,12 +8,10 @@ import { logging } from "@/log/ServerLogger";
 export const createLogMetadata = (
   requestId: string,
   type: string,
-  filePath: string, // إجبارية
   metadata?: object
 ) => ({
   type: type.toUpperCase(),
   requestId,
-  filePath, // استخدام المسار الممرر مباشرة
   ...metadata,
 });
 
@@ -21,7 +19,6 @@ export const logRequestStart = (
   requestId: string,
   type: string,
   method: string,
-  filePath: string, // إجبارية
   userId?: string | null
 ) => {
   logging.info(
@@ -29,7 +26,6 @@ export const logRequestStart = (
     createLogMetadata(
       requestId,
       type,
-      filePath, // تمرير filePath
       { userId, operation: "request_start" }
     )
   );
@@ -39,7 +35,6 @@ export const logRequestSuccess = (
   requestId: string,
   type: string,
   method: string,
-  filePath: string, // إجبارية
   metadata?: object
 ) => {
   logging.info(
@@ -47,7 +42,6 @@ export const logRequestSuccess = (
     createLogMetadata(
       requestId,
       type,
-      filePath, // تمرير filePath
       {
         ...metadata,
         operation: "request_complete"
@@ -60,7 +54,6 @@ export const logRequestError = (
   requestId: string,
   type: string,
   error: unknown,
-  filePath: string, // إجبارية
   metadata?: object
 ) => {
   const errorObj = error instanceof Error ? error : new Error(String(error));
@@ -70,7 +63,6 @@ export const logRequestError = (
     createLogMetadata(
       requestId,
       type,
-      filePath, // تمرير filePath
       {
         ...metadata,
         operation: "request_error"

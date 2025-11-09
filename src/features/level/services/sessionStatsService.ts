@@ -115,7 +115,6 @@ export const sessionStatsService = {
           async () => {
             logger.session.warn(
               "Using fallback session stats due to circuit breaker",
-              "sessionStatsService",
               { userId, sessionId }
             );
 
@@ -167,8 +166,7 @@ export const sessionStatsService = {
       }
       
       logger.session.info(
-        "Session stats recorded successfully",
-        "sessionStatsService",
+        "Session stats recorded successfull
         { userId, sessionId, duration: `${duration}ms`, stats: longTermStats }
       );
 
@@ -186,8 +184,7 @@ export const sessionStatsService = {
 
       // Enhanced error logging with context
       logger.session.error(
-        "Failed to record session stats",
-        "sessionStatsService",
+        "Failed to record session stat
         error instanceof Error ? error : new Error(String(error)),
         {
           userId,

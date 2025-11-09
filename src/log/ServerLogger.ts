@@ -24,7 +24,6 @@ interface LogEntry {
   metadata?: Record<string, unknown>;
   stack?: string;
   service?: string;
-  filePath?: string;
 }
 
 interface LoggerInterface {
@@ -160,9 +159,7 @@ class ConsoleTransport {
   log(entry: LogEntry) {
     const color = this.colors[entry.level] || this.colors.reset;
     const timestamp = entry.timestamp;
-    const filePath = entry.filePath || 'unknown';
-    
-    let output = `${color}[${timestamp}] [${entry.level.toUpperCase()}] ${filePath} - ${entry.message}${this.colors.reset}`;
+    let output = `${color}[${timestamp}] [${entry.level.toUpperCase()}] ${entry.message}${this.colors.reset}`;
     
     if (entry.stack) {
       output += `\n${entry.stack}`;
@@ -185,7 +182,7 @@ class FileTransport {
       level: entry.level.toUpperCase(),
       message: entry.message,
       env: process.env.NODE_ENV,
-      filePath: entry.filePath,
+      service: entry.service,
       service: entry.service,
       ...entry.metadata,
       ...(entry.stack && { stack: entry.stack })
@@ -249,9 +246,6 @@ class ServerLogger {
     // تنظيف الرسالة
     const cleanMessage = simpleRedactor.redact(message);
 
-    // الحصول على مسار الملف (لـ stack tracing)
-    const filePath = this.getCallerFilePath();
-
     return {
       timestamp,
       level,
@@ -259,25 +253,9 @@ class ServerLogger {
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       stack,
       service: process.env.SERVICE_NAME || 'backend-service',
-      filePath
     };
   }
 
-  private getCallerFilePath(): string {
-    const error = new Error();
-    const stackLines = error.stack?.split('\n') || [];
-    
-    // البحث عن أول سطر لا يحتوي على serverLogger.ts
-    for (let i = 3; i < stackLines.length; i++) {
-      const line = stackLines[i].trim();
-      const match = line.match(/\(?(.+):\d+:\d+\)?$/);
-      if (match && !match[1].includes('serverLogger.ts')) {
-        return path.relative(process.cwd(), match[1]);
-      }
-    }
-    
-    return 'unknown';
-  }
 
   private log(level: LogLevel, message: string, meta?: LogMeta) {
     if (!this.shouldLog(level)) return;

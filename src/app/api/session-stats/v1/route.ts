@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  logRequestStart(requestId, SERVICE_TYPE, "POST", LOG_FILE, userId);
+  logRequestStart(requestId, SERVICE_TYPE, "POST", userId);
 
   // Rate limiting
   try {
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
 
     // Log success asynchronously to avoid blocking response
     setImmediate(() => {
-      logRequestSuccess(requestId, SERVICE_TYPE, "POST", LOG_FILE, {
+      logRequestSuccess(requestId, SERVICE_TYPE, "POST", {
         userId,
         sessionId: enrichedSession.id,
         wpm: sanitizedSession.wpm,
@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
       errorMessage,
     });
 
-    logRequestError(requestId, SERVICE_TYPE, error, LOG_FILE, {
+    logRequestError(requestId, SERVICE_TYPE, error, {
       endpoint: "session-stats",
       userId,
       operationPhase: "session_recording",
@@ -212,7 +212,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  logRequestStart(requestId, SERVICE_TYPE, "GET", LOG_FILE, userId);
+  logRequestStart(requestId, SERVICE_TYPE, "GET", userId);
 
   try {
     await connectIfNeeded();
@@ -235,7 +235,7 @@ export async function GET(req: NextRequest) {
       userId,
     };
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "GET", LOG_FILE, {
+    logRequestSuccess(requestId, SERVICE_TYPE, "GET", {
       userId,
       sessionCount: response.sessionHistory.length,
     });
@@ -248,7 +248,7 @@ export async function GET(req: NextRequest) {
       userId,
     });
 
-    logRequestError(requestId, SERVICE_TYPE, error, LOG_FILE, {
+    logRequestError(requestId, SERVICE_TYPE, error, {
       userId,
       operationPhase: "stats_retrieval",
     });

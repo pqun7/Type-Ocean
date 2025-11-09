@@ -27,7 +27,7 @@ export const calculateSessionXP = (
   const filePath = "utils/xpCalculations.ts";
 
   try {
-    logger.perf.debug("Starting XP calculation", filePath, {
+    logger.perf.debug("Starting XP calculation", {
       sessionId,
       userId,
     });
@@ -170,7 +170,7 @@ export const calculateSessionXP = (
     }
 
     // Performance logging
-    logger.xp.info("Session XP calculated",filePath ,{
+    logger.xp.info("Session XP calculated" ,{
       sessionId,
       totalXP,
       duration: `${performance.now() - calculationStart}ms`,
@@ -180,7 +180,7 @@ export const calculateSessionXP = (
   } catch (error) {
     // Error handling and diagnostics
     logger.xp.error(
-      "XP calculation failed",filePath,
+      "XP calculation failed",
       error instanceof Error ? error : undefined,
       {
         sessionId,
