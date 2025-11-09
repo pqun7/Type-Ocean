@@ -11,7 +11,6 @@ import { logger } from "@/log/clientLogger";
  */
 export const useSessionStats = () => {
   const { userId } = useUserSession();
-  const filePath = "src/features/level/hooks/useSessionStats.ts";
 
   const recordSessionStats = useCallback(
     async (wpm: number, accuracy: number, sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number }): Promise<LongTermStats> => {

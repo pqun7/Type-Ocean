@@ -166,7 +166,7 @@ export const sessionStatsService = {
       }
       
       logger.session.info(
-        "Session stats recorded successfull
+        "Session stats recorded successfully",
         { userId, sessionId, duration: `${duration}ms`, stats: longTermStats }
       );
 
@@ -183,30 +183,32 @@ export const sessionStatsService = {
       }
 
       // Enhanced error logging with context
+      // Compute circuit state once (server-only dynamic import)
+      const circuitState =
+        typeof window === "undefined"
+          ? (await import("@/monitoring/circuitBreaker")).sessionStatsCircuit.getStatus().state
+          : "UNKNOWN";
+      
       logger.session.error(
-        "Failed to record session stat
-        error instanceof Error ? error : new Error(String(error)),
+        "Failed to record session stats",
         {
+          error: error instanceof Error ? error : new Error(String(error)),
           userId,
           sessionId,
           wpm,
           accuracy,
           duration: `${duration}ms`,
           errorMessage,
-          circuitState: (typeof window === "undefined"
-            ? (await import("@/monitoring/circuitBreaker")).sessionStatsCircuit.getStatus().state
-            : "UNKNOWN")
+          circuitState,
         }
       );
-
+      
       // Capture error in Sentry with enhanced context
       Sentry.captureException(error, {
         tags: {
           service: "session-stats",
           operation: "recordSession",
-          circuitState: (typeof window === "undefined"
-            ? (await import("@/monitoring/circuitBreaker")).sessionStatsCircuit.getStatus().state
-            : "UNKNOWN"),
+          circuitState,
         },
         user: { id: userId },
         extra: {
