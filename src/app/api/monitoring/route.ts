@@ -1,15 +1,22 @@
-// src/app/api/monitoring/route.ts
 import { monitoring } from "@/monitoring/monitoringSystem";
 import { NextResponse } from "next/server";
 import { PerformanceAnalyzer } from "@/monitoring/kpis";
 import { logging } from "@/log/ServerLogger";
 
-// src/app/api/monitoring/route.ts
 export async function GET() {
+  const requestId = `monitoring-${Date.now()}`;
+  
+  try {
+    logging.debugSensitive("Monitoring report generation started", {
+      requestId,
+      operation: "performance_report"
+    });
+
     const metrics = monitoring.getPerformanceReport();
     const stats = PerformanceAnalyzer.calculateStats(metrics.apiMetrics);
     
     logging.info('Generated Performance Report', {
+      requestId,
       reportStats: {
         uptime: process.uptime(),
         memoryUsage: process.memoryUsage().rss,
@@ -17,6 +24,22 @@ export async function GET() {
         challengesGenerated: metrics.challengeMetrics.length
       }
     });
+
+    // Log detailed metrics only in development
+    logging.debugSensitive("Performance metrics details", {
+      requestId,
+    });
   
     return NextResponse.json({ metrics, stats });
+  } catch (error) {
+    logging.error("Monitoring report generation failed", error, {
+      requestId,
+      operation: "performance_report"
+    });
+    
+    return NextResponse.json(
+      { error: "Failed to generate monitoring report" },
+      { status: 500 }
+    );
   }
+}

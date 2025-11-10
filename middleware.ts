@@ -5,19 +5,29 @@ import { rateLimiter } from "@/lib/rate-limiter"
 import { securityHeaders } from "@/lib/security-headers"
 import { logger } from "@/log/ServerLogger"
 
-// 1. قائمة بالنقاط الطرفية التي تحتاج Rate Limiting
+// 1. Rate limited endpoints (NON-API only since APIs are skipped)
 const RATE_LIMITED_ENDPOINTS = [
-  '/api/auth',
-  // '/api/auth/resend-verification',
-  // '/api/auth/reset-password',
-  // '/api/session-stats/v1'
+  '/auth', // Only non-API auth pages
 ]
 
-// 2. قائمة بالمسارات المحمية
+// 2. Protected routes (page routes only)
 const PROTECTED_ROUTES = [
   "/dashboard",
   "/profile",
   "/settings"
+]
+
+// 3. Public routes that don't require authentication
+const PUBLIC_ROUTES = [
+  "/",
+  "/auth",
+  "/auth/login",
+  "/auth/register",
+  "/auth/verify",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+  "/about",
+  "/contact"
 ]
 
 export default auth(async (req) => {
@@ -28,13 +38,18 @@ export default auth(async (req) => {
   // session is available as req.auth
   const session = req.auth
 
+  // CRITICAL FIX: Skip middleware for ALL API routes entirely
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.next();
+  }
+
   try {
-    // 3. تطبيق Rate Limiting على نقاط نهاية محددة
+    // 3. Apply Rate Limiting to specific non-API endpoints only
     if (RATE_LIMITED_ENDPOINTS.some(endpoint => pathname.startsWith(endpoint))) {
       const endpointConfig = RATE_LIMITED_ENDPOINTS.find(e => pathname.startsWith(e))!
       
       const { allowed, headers: rateLimitHeaders } = await rateLimiter.applyRateLimit(
-        `${ip}-${userAgent}`, // استخدام مزيج من IP و User Agent كمعرف
+        `${ip}-${userAgent}`, // Use combination of IP and User Agent as identifier
         endpointConfig
       )
 
@@ -55,32 +70,55 @@ export default auth(async (req) => {
       }
     }
 
-    // 4. التحقق من الصفحات المحمية
+    // 4. Check protected pages (non-API routes only)
     const isProtected = PROTECTED_ROUTES.some(route => pathname.startsWith(route))
     
-    // 5. معالجة المستخدمين غير المسجلين
+    // 5. Handle unauthenticated users for protected pages
     if (isProtected && !session?.user) {
+      logger.warn('Unauthorized access attempt to protected route', {
+        ip,
+        pathname,
+        userAgent
+      })
+      
       const loginUrl = new URL("/auth", req.url)
       loginUrl.searchParams.set("callbackUrl", req.url)
       return redirectWithSecurity(loginUrl)
     }
 
-    // 6. التحقق من البريد الإلكتروني المؤكد
-    if (session?.user && !session.user.emailVerified && !pathname.startsWith('/auth/verify')) {
+    // 6. Email verification check ONLY for non-API routes
+    // Allow access to public routes even if email is not verified
+    const isPublicRoute = PUBLIC_ROUTES.some(route => pathname.startsWith(route))
+    const isEmailVerificationRoute = pathname.startsWith('/auth/verify')
+    
+    if (session?.user && 
+        !session.user.emailVerified && 
+        !isPublicRoute && 
+        !isEmailVerificationRoute &&
+        !pathname.startsWith('/auth/logout')) {
+      
+      logger.info('Redirecting unverified user to verification page', {
+        userId: session.user.id,
+        pathname
+      })
+      
       return redirectWithSecurity(new URL("/auth/verify", req.url));
     }
 
-    
-
-    // 7. إضافة رؤوس الأمان وتحسينات الأداء
+    // 7. Add security headers and performance optimizations
     const response = NextResponse.next()
     Object.entries(securityHeaders).forEach(([key, value]) => {
       response.headers.set(key, value)
     })
 
-    // 8. تحسينات التخزين المؤقت للطلبات الثابتة
+    // 8. Cache optimizations for static requests
     if (pathname.startsWith('/_next/static')) {
       response.headers.set('Cache-Control', 'public, max-age=31536000, immutable')
+    }
+
+    // Add cache headers for public assets
+    if (pathname.match(/\.(jpg|jpeg|png|gif|ico|css|js)$/)) {
+      response.headers.set('Cache-Control', 'public, max-age=86400') // 1 day
     }
 
     return response
@@ -93,7 +131,7 @@ export default auth(async (req) => {
       userAgent
     })
 
-    // 9. الصفحة العامة للأخطاء في الإنتاج
+    // 9. General error page in production
     if (process.env.NODE_ENV === 'production') {
       return NextResponse.redirect(new URL('/500', req.url))
     }
@@ -102,7 +140,7 @@ export default auth(async (req) => {
   }
 })
 
-// 10. دالة مساعدة للحصول على IP العميل
+// 10. Helper function to get client IP
 function getClientIP(req: NextRequest): string {
   return (
     req.headers.get('x-real-ip') ||
@@ -112,7 +150,7 @@ function getClientIP(req: NextRequest): string {
   )
 }
 
-// 11. دالة مساعدة للتحويل مع الحفاظ على الرؤوس الأمنية
+// 11. Helper function for redirect with security headers
 function redirectWithSecurity(url: URL): NextResponse {
   const response = NextResponse.redirect(url)
   Object.entries(securityHeaders).forEach(([key, value]) => {
@@ -121,9 +159,18 @@ function redirectWithSecurity(url: URL): NextResponse {
   return response
 }
 
-// 12. تكوين Middleware
+// 12. Middleware configuration - UPDATED to exclude ALL API routes
 export const config = {
   matcher: [
-    "/((?!api/healthcheck|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|@prisma).*)"
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api/ (all API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico, robots.txt, sitemap.xml
+     * - public images and assets
+     * - prisma studio
+     */
+    "/((?!api/|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|@prisma).*)"
   ]
 }

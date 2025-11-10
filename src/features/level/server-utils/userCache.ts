@@ -15,7 +15,7 @@ export async function cacheLevel(userId: string, level: number): Promise<void> {
   try {
     await connectIfNeeded();
     const cacheKey = `user:${userId}:level`;
-    await client.setEx(cacheKey, PROFILE_CACHE_TTL, level.toString());
+    await client.setex(cacheKey, PROFILE_CACHE_TTL, level.toString());
   } catch (error) {
     logging.error(`Level caching failed for user ${userId}:`, error);
   }
@@ -30,7 +30,7 @@ export async function cacheXP(userId: string, xp: number): Promise<void> {
   try {
     await connectIfNeeded();
     const cacheKey = `user:${userId}:xp`;
-    await client.setEx(cacheKey, PROFILE_CACHE_TTL, xp.toString());
+    await client.setex(cacheKey, PROFILE_CACHE_TTL, xp.toString());
   } catch (error) {
     logging.error(`XP caching failed for user ${userId}:`, error);
   }
@@ -47,7 +47,7 @@ export async function cacheProfile(
 ): Promise<void> {
   try {
     await connectIfNeeded();
-    await client.setEx(cacheKey, PROFILE_CACHE_TTL, JSON.stringify({
+    await client.setex(cacheKey, PROFILE_CACHE_TTL, JSON.stringify({
       _readOnly: true,
       ...profile,
       createdAt: profile.createdAt.toISOString(),
@@ -146,7 +146,7 @@ export async function getUserLevel(userId: string): Promise<number> {
     }
 
     // Update cache
-    await client.setEx(CACHE_KEY, PROFILE_CACHE_TTL, profile.level.toString());
+    await client.setex(CACHE_KEY, PROFILE_CACHE_TTL, profile.level.toString());
     return profile.level;
 
   } catch (error) {

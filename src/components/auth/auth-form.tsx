@@ -149,10 +149,8 @@ export function AuthForm() {
         });
 
         if (res?.error) {
-          const errorMessage =
-            res.error === "NO_PASSWORD_SET"
-              ? "This account doesn't have a password. Please use social login."
-              : "Invalid username or password.";
+          // Generic error message to prevent user enumeration
+          const errorMessage = "Invalid username or password.";
           setError(errorMessage);
         } else {
           router.push("/auth");

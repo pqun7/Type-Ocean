@@ -1,4 +1,3 @@
-// serverLogger.ts
 // حماية من التنفيذ في المتصفح
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
   throw new Error("ServerLogger should not be imported on the client side. Use ClientLogger instead.");
@@ -7,7 +6,10 @@ if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
 import * as Sentry from "@sentry/nextjs";
 
 // 1. إعدادات الأمان المتقدمة
-const SENSITIVE_FIELDS = new Set(['password', 'token', 'apiKey', 'authorization', 'creditCard']);
+const SENSITIVE_FIELDS = new Set([
+  'password', 'token', 'apiKey', 'authorization', 'creditCard',
+  'sessionToken', 'refreshToken', 'privateKey', 'secret'
+]);
 const MAX_LOG_SIZE = 1024 * 1024 * 5; // 5MB
 const MAX_LOG_FILES = 5;
 
@@ -22,6 +24,7 @@ interface LogEntry {
   metadata?: Record<string, unknown>;
   stack?: string;
   service?: string;
+  environment?: string;
 }
 
 interface LoggerInterface {
@@ -29,21 +32,78 @@ interface LoggerInterface {
   error(message: string, error: Error | unknown, meta?: LogMeta): void;
   warn(message: string, meta?: LogMeta): void;
   debug(message: string, meta?: LogMeta): void;
+  debugSensitive(operation: string, data: Record<string, unknown>): void;
 }
 
-// 3. إعدادات التنسيق والتنقية
+// 3. نظام التصحيح الآمن للبيانات الحساسة
+class SafeDebugLogger {
+  private isDevelopment: boolean;
+  private debugEnabled: boolean;
+
+  constructor() {
+    this.isDevelopment = process.env.NODE_ENV === 'development';
+    this.debugEnabled = process.env.DEBUG_SENSITIVE !== 'false';
+  }
+
+  logSensitive(operation: string, data: Record<string, unknown>): void {
+    const shouldLogSensitive = this.isDevelopment && this.debugEnabled;
+    
+    if (shouldLogSensitive) {
+      console.log(`[DEV-SENSITIVE] ${operation}:`, data);
+    } else {
+      // في الإنتاج، طباعة نسخة معدلة
+      const redactedData = this.redactSensitiveData(data);
+      const envLabel = this.isDevelopment ? 'DEV' : 'PROD';
+      console.log(`[${envLabel}] ${operation}:`, redactedData);
+    }
+  }
+
+  private redactSensitiveData(data: Record<string, unknown>): Record<string, unknown> {
+    const redacted = { ...data };
+    const sensitiveFields = ['email', 'username', 'password', 'token', 'ip', 'phone'];
+    
+    sensitiveFields.forEach(field => {
+      if (redacted[field]) {
+        redacted[field] = '[REDACTED]';
+      }
+    });
+    
+    return redacted;
+  }
+
+  createDevelopmentMetadata(meta: Record<string, unknown>): Record<string, unknown> {
+    if (this.isDevelopment && this.debugEnabled) {
+      return meta; // إرجاع البيانات الكاملة في التطوير
+    }
+    return this.redactSensitiveData(meta); // تعديل البيانات في الإنتاج
+  }
+}
+
+// 4. إعدادات التنسيق والتنقية
 const simpleRedactor = {
   redact: (text: string): string => {
+    // إذا كنا في وضع التطوير والتصحيح مفعل، لا تقم بالتعديل
+    if (process.env.NODE_ENV === 'development' && process.env.DEBUG_SENSITIVE !== 'false') {
+      return text;
+    }
+    
     return text
       .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[EMAIL_REDACTED]')
       .replace(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g, '[CARD_REDACTED]')
       .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[SSN_REDACTED]')
       .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/g, 'Bearer [TOKEN_REDACTED]')
-      .replace(/password["\s]*[:=]["\s]*[^"\s,}]+/gi, 'password: "[REDACTED]"');
+      .replace(/password["\s]*[:=]["\s]*[^"\s,}]+/gi, 'password: "[REDACTED]"')
+      .replace(/(username|user)["\s]*[:=]["\s]*[^"\s,}]+/gi, '$1: "[REDACTED]"');
   }
 };
 
 const cleanMetadata = (obj: Record<string, unknown>): Record<string, unknown> => {
+  const isDevDebug = process.env.NODE_ENV === 'development' && process.env.DEBUG_SENSITIVE !== 'false';
+  
+  if (isDevDebug) {
+    return obj; // في التطوير مع التصحيح، إرجاع البيانات كما هي
+  }
+  
   return Object.entries(obj).reduce((acc, [key, value]) => {
     if (SENSITIVE_FIELDS.has(key)) {
       acc[key] = '*****';
@@ -62,7 +122,7 @@ const cleanMetadata = (obj: Record<string, unknown>): Record<string, unknown> =>
   }, {} as Record<string, unknown>);
 };
 
-// 4. نظام إدارة الملفات للـ Logs
+// 5. نظام إدارة الملفات للـ Logs
 type FsModule = typeof import("fs");
 type PathModule = typeof import("path");
 
@@ -143,12 +203,15 @@ class FileLogManager {
 
       fs.appendFileSync(filePath, entry + "\n", "utf8");
     } catch (error) {
-      console.error("Failed to write log file:", error);
+      // Avoid printing in production
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Failed to write log file:", error);
+      }
     }
   }
 }
 
-// 5. نظام النقل (Transports)
+// 6. نظام النقل (Transports)
 class SentryTransport {
   private readonly levelMap = new Map<string, Sentry.SeverityLevel>([
     ['error', 'error'],
@@ -187,6 +250,9 @@ class ConsoleTransport {
   };
 
   log(entry: LogEntry) {
+    // No printing in production for console (we use file transport instead)
+    if (process.env.NODE_ENV === "production") return;
+
     const color = this.colors[entry.level] || this.colors.reset;
     const timestamp = entry.timestamp;
     let output = `${color}[${timestamp}] [${entry.level.toUpperCase()}] ${entry.message}${this.colors.reset}`;
@@ -208,15 +274,15 @@ class FileTransport {
 
   log(entry: LogEntry) {
     if (!canUseFileSystem) return;
-    const logEntry = JSON.stringify({
-      timestamp: entry.timestamp,
-      level: entry.level.toUpperCase(),
-      message: entry.message,
-      env: process.env.NODE_ENV,
-      service: entry.service,
-      ...entry.metadata,
-      ...(entry.stack && { stack: entry.stack })
-    });
+    
+    // تأكد من تعديل البيانات الحساسة في ملفات السجل دائماً
+    const safeEntry = {
+      ...entry,
+      metadata: cleanMetadata(entry.metadata || {}),
+      environment: process.env.NODE_ENV
+    };
+    
+    const logEntry = JSON.stringify(safeEntry);
 
     this.fileManager.writeToFile("combined.log", logEntry);
 
@@ -226,15 +292,17 @@ class FileTransport {
   }
 }
 
-// 6. الـ Logger الرئيسي
+// 7. الـ Logger الرئيسي المحسن
 class ServerLogger {
   private level: LogLevel;
   private transports: (ConsoleTransport | FileTransport | SentryTransport)[];
   private fileManager: FileLogManager;
+  private safeDebug: SafeDebugLogger;
 
   constructor() {
     this.level = (process.env.LOG_LEVEL as LogLevel) || 'info';
     this.fileManager = new FileLogManager();
+    this.safeDebug = new SafeDebugLogger();
     this.transports = this.initializeTransports();
   }
 
@@ -246,11 +314,13 @@ class ServerLogger {
     if (process.env.NODE_ENV === "production") {
       if (canUseFileSystem) {
         transports.push(new FileTransport());
-      } else {
-        transports.push(new ConsoleTransport());
       }
     } else {
+      // في التطوير، استخدم ConsoleTransport و FileTransport
       transports.push(new ConsoleTransport());
+      if (canUseFileSystem) {
+        transports.push(new FileTransport());
+      }
     }
 
     return transports;
@@ -287,9 +357,9 @@ class ServerLogger {
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       stack,
       service: process.env.SERVICE_NAME || 'backend-service',
+      environment: process.env.NODE_ENV,
     };
   }
-
 
   private log(level: LogLevel, message: string, meta?: LogMeta) {
     if (!this.shouldLog(level)) return;
@@ -327,9 +397,14 @@ class ServerLogger {
   debug(message: string, meta?: LogMeta) {
     this.log('debug', message, meta);
   }
+
+  // دالة جديدة للتصحيح الآمن للبيانات الحساسة
+  debugSensitive(operation: string, data: Record<string, unknown>) {
+    this.safeDebug.logSensitive(operation, data);
+  }
 }
 
-// 7. التهيئة والتصدير
+// 8. التهيئة والتصدير
 export const logger = new ServerLogger();
 
 export const logging: LoggerInterface = {
@@ -337,6 +412,7 @@ export const logging: LoggerInterface = {
   error: (message, error, meta) => logger.error(message, error, meta),
   warn: (message, meta) => logger.warn(message, meta),
   debug: (message, meta) => logger.debug(message, meta),
+  debugSensitive: (operation, data) => logger.debugSensitive(operation, data),
 };
 
 // معالجة الاستثناءات غير المعالجة

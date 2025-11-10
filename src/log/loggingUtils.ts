@@ -1,4 +1,4 @@
-// حماية من التنفيذ في المتصفح
+// loggingUtils.ts
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
   throw new Error("loggingUtils should not be imported on the client side. Use clientLogger instead.");
 }

@@ -1,10 +1,6 @@
 import { auth } from "@/features/auth/lib/auth";
 import prisma from "@/features/auth/lib/db";
-import {
-  logRequestError,
-  logRequestStart,
-  logRequestSuccess,
-} from "@/log/loggingUtils";
+import { logging } from "@/log/ServerLogger";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
@@ -23,6 +19,34 @@ const UpdateUserSchema = z.object({
     .optional(),
 });
 
+// Safe logging utilities for user operations
+const logUserOperation = {
+  start: (requestId: string, operation: string, userId?: string) => {
+    logging.debugSensitive(`User operation started: ${operation}`, {
+      requestId,
+      service: SERVICE_TYPE,
+      userId,
+      operation
+    });
+  },
+  
+  success: (requestId: string, operation: string, metadata?: Record<string, unknown>) => {
+    logging.debugSensitive(`User operation completed: ${operation}`, {
+      requestId,
+      service: SERVICE_TYPE,
+      ...metadata
+    });
+  },
+  
+  error: (requestId: string, operation: string, error: unknown, metadata?: Record<string, unknown>) => {
+    logging.error(`User operation failed: ${operation}`, error, {
+      requestId,
+      service: SERVICE_TYPE,
+      ...metadata
+    });
+  }
+};
+
 /**
  * GET - Get current user profile
  */
@@ -30,26 +54,30 @@ export async function GET() {
   const requestId = uuidv4();
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "GET", FILE_PATH);
-
     const session = await auth();
     if (!session?.user?.id) {
+      logging.warn("Unauthorized user profile access attempt", {
+        requestId,
+        service: SERVICE_TYPE
+      });
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
+    logUserOperation.start(requestId, "get_user_profile", session.user.id);
+
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
         id: true,
-        username: true, // Changed from 'name' to 'username'
+        username: true,
         email: true,
         emailVerified: true,
         createdAt: true,
         updatedAt: true,
-        profile: { // Changed from 'playerProfile' to 'profile'
+        profile: {
           select: {
             id: true,
             username: true,
@@ -63,13 +91,16 @@ export async function GET() {
     });
 
     if (!user) {
+      logUserOperation.error(requestId, "get_user_profile", new Error("User not found"), {
+        userId: session.user.id
+      });
       return NextResponse.json(
         { error: "User not found" },
         { status: 404 }
       );
     }
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "GET", FILE_PATH, {
+    logUserOperation.success(requestId, "get_user_profile", {
       userId: user.id,
       hasProfile: !!user.profile,
     });
@@ -77,7 +108,7 @@ export async function GET() {
     return NextResponse.json({
       user: {
         ...user,
-        profile: user.profile || { // Changed from 'playerProfile' to 'profile'
+        profile: user.profile || {
           id: null,
           username: user.username,
           level: 1,
@@ -88,7 +119,7 @@ export async function GET() {
       },
     });
   } catch (error) {
-    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+    logUserOperation.error(requestId, "get_user_profile", error, {
       operationPhase: "get_user_profile",
     });
 
@@ -106,20 +137,27 @@ export async function PATCH(req: NextRequest) {
   const requestId = uuidv4();
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "PATCH", FILE_PATH);
-
     const session = await auth();
     if (!session?.user?.id) {
+      logging.warn("Unauthorized user profile update attempt", {
+        requestId,
+        service: SERVICE_TYPE
+      });
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
+    logUserOperation.start(requestId, "update_user_profile", session.user.id);
+
     const body = await req.json();
     const validationResult = UpdateUserSchema.safeParse(body);
 
     if (!validationResult.success) {
+      logUserOperation.error(requestId, "update_user_profile", new Error("Validation failed"), {
+        validationErrors: validationResult.error.errors
+      });
       return NextResponse.json(
         {
           error: "Invalid input",
@@ -131,6 +169,17 @@ export async function PATCH(req: NextRequest) {
 
     const { username, email, profileData } = validationResult.data;
 
+    // Safe debug logging for update attempt
+    logging.debugSensitive("User profile update attempt", {
+      requestId,
+      userId: session.user.id,
+      updatingFields: {
+        username: !!username,
+        email: !!email,
+        profileData: !!profileData
+      }
+    });
+
     // Check if email is already taken by another user
     if (email) {
       const existingUser = await prisma.user.findFirst({
@@ -141,6 +190,10 @@ export async function PATCH(req: NextRequest) {
       });
 
       if (existingUser) {
+        logUserOperation.error(requestId, "update_user_profile", new Error("Email already in use"), {
+          userId: session.user.id,
+          attemptedEmail: email
+        });
         return NextResponse.json(
           { error: "Email already in use" },
           { status: 409 }
@@ -182,9 +235,9 @@ export async function PATCH(req: NextRequest) {
       });
     }
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "PATCH", FILE_PATH, {
+    logUserOperation.success(requestId, "update_user_profile", {
       userId: updatedUser.id,
-      fieldsUpdated: Object.keys(validationResult.data),
+      fieldsUpdated: Object.keys(validationResult.data).filter(key => validationResult.data[key as keyof typeof validationResult.data]),
       emailChanged: !!email,
     });
 
@@ -193,7 +246,7 @@ export async function PATCH(req: NextRequest) {
       message: "Profile updated successfully",
     });
   } catch (error) {
-    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+    logUserOperation.error(requestId, "update_user_profile", error, {
       operationPhase: "update_user_profile",
     });
 
@@ -211,15 +264,25 @@ export async function DELETE() {
   const requestId = uuidv4();
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "DELETE", FILE_PATH);
-
     const session = await auth();
     if (!session?.user?.id) {
+      logging.warn("Unauthorized user deletion attempt", {
+        requestId,
+        service: SERVICE_TYPE
+      });
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
+
+    logUserOperation.start(requestId, "delete_user_account", session.user.id);
+
+    // Safe debug logging for account deletion
+    logging.debugSensitive("User account deletion started", {
+      requestId,
+      userId: session.user.id
+    });
 
     // Delete user and all related data (cascade)
     await prisma.$transaction(async (tx) => {
@@ -254,15 +317,22 @@ export async function DELETE() {
       });
     });
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "DELETE", FILE_PATH, {
+    logUserOperation.success(requestId, "delete_user_account", {
       userId: session.user.id,
+    });
+
+    // Production-safe success logging
+    logging.info("User account deleted successfully", {
+      requestId,
+      userId: session.user.id,
+      service: SERVICE_TYPE
     });
 
     return NextResponse.json({
       message: "Account deleted successfully",
     });
   } catch (error) {
-    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+    logUserOperation.error(requestId, "delete_user_account", error, {
       operationPhase: "delete_user_account",
     });
 

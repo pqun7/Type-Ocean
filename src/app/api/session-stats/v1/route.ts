@@ -3,34 +3,50 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { redis, connectIfNeeded } from "@/lib/redis";
+import { connectIfNeeded } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
+import { authorizeRequest } from "@/lib/auth-utils";
 import {
-  logRequestStart,
-  logRequestSuccess,
-  logRequestError,
-} from "@/log/loggingUtils";
+  validateSessionData,
+  sanitizeSessionData,
+  updateLongTermCumulativeStats,
+  storeSessionHistory,
+  getLongTermCumulativeStats,
+  getSessionHistory,
+  getDefaultLongTermStats,
+  NormalizedSessionData
+} from "@/lib/session-stats";
 
 const SERVICE_TYPE = "SESSION-STATS";
-const LONG_TERM_TTL = 2592000; // 30 days for session history
-const MAX_SESSIONS_STORED = 100;
+// Constants now imported from session-stats helper module
 
-// Helper function for authorization with internal API support
-const authorizeRequest = (req: NextRequest) => {
-  const userId = req.headers.get("x-user-id");
-  const authHeader = req.headers.get("authorization");
+// Safe logging utilities for session stats
+const logStatsOperation = {
+  start: (requestId: string, operation: string, userId?: string, metadata?: Record<string, unknown>) => {
+    logging.debugSensitive(`Session stats operation started: ${operation}`, {
+      requestId,
+      service: SERVICE_TYPE,
+      userId,
+      ...metadata
+    });
+  },
   
-  if (!userId) return null;
+  success: (requestId: string, operation: string, metadata?: Record<string, unknown>) => {
+    logging.debugSensitive(`Session stats operation completed: ${operation}`, {
+      requestId,
+      service: SERVICE_TYPE,
+      ...metadata
+    });
+  },
   
-  // Validate internal requests
-  if (typeof window === "undefined" && 
-      authHeader === `Bearer ${process.env.API_INTERNAL_SECRET}`) {
-    return userId;
+  error: (requestId: string, operation: string, error: unknown, metadata?: Record<string, unknown>) => {
+    logging.error(`Session stats operation failed: ${operation}`, error, {
+      requestId,
+      service: SERVICE_TYPE,
+      ...metadata
+    });
   }
-  
-  // For external requests, rely on middleware authentication
-  return userId;
 };
 
 /**
@@ -44,9 +60,10 @@ export async function POST(req: NextRequest) {
   try {
     await connectIfNeeded();
   } catch (error) {
-    logging.error("[STATS] Redis connection failed", error, {
+    logging.error("Redis connection failed for session stats", error, {
       requestId,
       endpoint,
+      service: SERVICE_TYPE
     });
     return NextResponse.json(
       { error: "Database connection failed. Please try again." },
@@ -55,31 +72,47 @@ export async function POST(req: NextRequest) {
   }
 
   // User authentication
-  const userId = authorizeRequest(req);
+  const userId = await authorizeRequest(req);
   if (!userId) {
-    logging.warn("[STATS] Unauthorized stats update attempt", {
+    logging.warn("Unauthorized stats update attempt", {
+      requestId,
+      endpoint,
       ip: req.headers.get("x-forwarded-for") || "unknown",
       userAgent: req.headers.get("user-agent") || "unknown",
-      requestId,
     });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  logRequestStart(requestId, SERVICE_TYPE, "POST", userId);
+  logStatsOperation.start(requestId, "record_session", userId, {
+    endpoint: "POST"
+  });
 
   // Rate limiting
   try {
-    const rateLimitResult = await enforceRateLimit(req, "/api/session-stats/v1");
+    const rateLimitResult = await enforceRateLimit(req, endpoint);
     if (rateLimitResult instanceof NextResponse && rateLimitResult.status === 429) {
+      logStatsOperation.error(requestId, "record_session", new Error("Rate limit exceeded"), {
+        userId,
+        endpoint
+      });
       return rateLimitResult;
     }
   } catch (error) {
-    logging.warn("[STATS] Rate limiting error", { error, requestId, userId });
+    logging.warn("Rate limiting error in session stats", { 
+      error, 
+      requestId, 
+      userId,
+      service: SERVICE_TYPE
+    });
   }
 
   // Content type validation
   const contentType = req.headers.get("content-type");
   if (!contentType || !contentType.includes("application/json")) {
+    logStatsOperation.error(requestId, "record_session", new Error("Invalid content type"), {
+      userId,
+      contentType
+    });
     return NextResponse.json(
       { error: "Invalid content type. Expected application/json" },
       { status: 415 }
@@ -91,10 +124,9 @@ export async function POST(req: NextRequest) {
   try {
     sessionData = await req.json();
   } catch (error) {
-    logging.warn("[STATS] JSON parsing error", {
-      error: error instanceof Error ? error.message : "Unknown error",
-      requestId,
+    logStatsOperation.error(requestId, "record_session", error, {
       userId,
+      operationPhase: "json_parsing"
     });
     return NextResponse.json(
       { error: "Invalid JSON format in request body" },
@@ -105,10 +137,10 @@ export async function POST(req: NextRequest) {
   // Comprehensive data validation
   const validationResult = validateSessionData(sessionData);
   if (!validationResult.isValid) {
-    logging.warn(`[STATS] Invalid session data for ${userId}`, { 
-      errors: validationResult.errors,
-      requestId,
-      data: sessionData
+    logStatsOperation.error(requestId, "record_session", new Error("Invalid session data"), {
+      userId,
+      validationErrors: validationResult.errors,
+      operationPhase: "data_validation"
     });
     return NextResponse.json(
       { error: "Invalid session data", details: validationResult.errors },
@@ -116,8 +148,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Safe debug logging for session data
+  logging.debugSensitive("Session data received", {
+    requestId,
+    userId,
+    sessionSummary: {
+      wpm: sessionData.wpm,
+      accuracy: sessionData.accuracy,
+      textLength: sessionData.textLength,
+      timeSpent: sessionData.timeSpent
+    }
+  });
+
   // Sanitize and enrich session data
-  const sanitizedSession = sanitizeSessionData(sessionData);
+  const sanitizedSession: NormalizedSessionData = sanitizeSessionData(sessionData);
   const timestamp = new Date().toISOString();
 
   const enrichedSession = {
@@ -150,7 +194,7 @@ export async function POST(req: NextRequest) {
 
     // Log success asynchronously to avoid blocking response
     setImmediate(() => {
-      logRequestSuccess(requestId, SERVICE_TYPE, "POST", {
+      logStatsOperation.success(requestId, "record_session", {
         userId,
         sessionId: enrichedSession.id,
         wpm: sanitizedSession.wpm,
@@ -158,11 +202,12 @@ export async function POST(req: NextRequest) {
         endpoint,
       });
 
-      logging.info(`[STATS] Session recorded successfully for ${userId}`, {
-        sessionId: enrichedSession.id,
-        wpm: sanitizedSession.wpm,
-        accuracy: sanitizedSession.accuracy,
+      // Production-safe logging
+      logging.info("Session recorded successfully", {
         requestId,
+        userId,
+        sessionId: enrichedSession.id,
+        service: SERVICE_TYPE
       });
     });
 
@@ -171,17 +216,11 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
-    logging.error(`[STATS] Processing error for ${userId}`, error, {
-      requestId,
+    logStatsOperation.error(requestId, "record_session", error, {
       userId,
       sessionData: sanitizedSession,
       errorMessage,
-    });
-
-    logRequestError(requestId, SERVICE_TYPE, error, {
-      endpoint: "session-stats",
-      userId,
-      operationPhase: "session_recording",
+      operationPhase: "session_processing"
     });
 
     // Check if it's a Redis-specific error
@@ -206,12 +245,19 @@ export async function GET(req: NextRequest) {
   const requestId = uuidv4();
 
   // User authentication
-  const userId = authorizeRequest(req);
+  const userId = await authorizeRequest(req);
   if (!userId) {
+    logging.warn("Unauthorized stats retrieval attempt", {
+      requestId,
+      service: SERVICE_TYPE,
+      ip: req.headers.get("x-forwarded-for") || "unknown"
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  logRequestStart(requestId, SERVICE_TYPE, "GET", userId);
+  logStatsOperation.start(requestId, "retrieve_stats", userId, {
+    endpoint: "GET"
+  });
 
   try {
     await connectIfNeeded();
@@ -219,6 +265,16 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
     const includeHistory = searchParams.get('includeHistory') === 'true';
+
+    // Safe debug logging for request parameters
+    logging.debugSensitive("Stats retrieval parameters", {
+      requestId,
+      userId,
+      parameters: {
+        limit,
+        includeHistory
+      }
+    });
 
     // Fetch data in parallel
     const [longTermStats, sessionHistory] = await Promise.allSettled([
@@ -234,20 +290,24 @@ export async function GET(req: NextRequest) {
       userId,
     };
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "GET", {
+    logStatsOperation.success(requestId, "retrieve_stats", {
       userId,
       sessionCount: response.sessionHistory.length,
+      hasLongTermStats: longTermStats.status === "fulfilled"
+    });
+
+    // Production-safe logging
+    logging.info("Session stats retrieved successfully", {
+      requestId,
+      userId,
+      sessionCount: response.sessionHistory.length,
+      service: SERVICE_TYPE
     });
 
     return NextResponse.json(response);
 
   } catch (error) {
-    logging.error(`[STATS] Retrieval error for ${userId}`, error, {
-      requestId,
-      userId,
-    });
-
-    logRequestError(requestId, SERVICE_TYPE, error, {
+    logStatsOperation.error(requestId, "retrieve_stats", error, {
       userId,
       operationPhase: "stats_retrieval",
     });
@@ -259,189 +319,5 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Helper Functions
 
-/**
- * Comprehensive session data validation
- */
-function validateSessionData(data: any) {
-  const errors: string[] = [];
-
-  // Required fields validation
-  if (typeof data.wpm !== 'number' || data.wpm < 0) {
-    errors.push('WPM must be a non-negative number');
-  }
-
-  if (typeof data.accuracy !== 'number' || data.accuracy < 0 || data.accuracy > 100) {
-    errors.push('Accuracy must be between 0 and 100');
-  }
-
-  // Optional but validated fields
-  if (data.textLength !== undefined && (typeof data.textLength !== 'number' || data.textLength <= 0)) {
-    errors.push('Text length must be a positive number');
-  }
-
-  if (data.timeSpent !== undefined && (typeof data.timeSpent !== 'number' || data.timeSpent <= 0)) {
-    errors.push('Time spent must be a positive number');
-  }
-
-  // Reasonable bounds checking
-  if (data.wpm > 500) {
-    errors.push('WPM seems unrealistically high (>500)');
-  }
-
-  if (data.timeSpent && data.timeSpent > 7200) { // 2 hours
-    errors.push('Session time seems unrealistically long (>2 hours)');
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors,
-  };
-}
-
-/**
- * Sanitize and normalize session data
- */
-function sanitizeSessionData(data: any) {
-  return {
-    wpm: Math.round(data.wpm * 100) / 100,
-    accuracy: Math.round(data.accuracy * 100) / 100,
-    textLength: data.textLength ? Math.max(1, Math.round(data.textLength)) : 0,
-    timeSpent: data.timeSpent ? Math.max(1, Math.round(data.timeSpent)) : 0,
-    language: data.language || 'en',
-    mode: data.mode || 'normal',
-    mistakes: Math.max(0, Math.round(data.mistakes || 0)),
-    corrections: Math.max(0, Math.round(data.corrections || 0)),
-  };
-}
-
-/**
- * Update long-term cumulative statistics (optimized for production)
- */
-async function updateLongTermCumulativeStats(userId: string, session: any) {
-  const statsKey = `user:longterm:${userId}`;
-  const timestamp = new Date().toISOString();
-
-  // 1. حساب بسيط قبل الإرسال
-  const timeSpent = session.timeSpent || 0;
-  const wordsTyped = Math.round(session.wpm * ((session.timeSpent || 60) / 60));
-
-  try {
-    // 2. استدعاء سكربت LUA (رحلة واحدة!)
-    const redisResponse = await redis.updateUserStats(
-      statsKey,
-      String(session.wpm),
-      String(session.accuracy),
-      String(timeSpent),
-      String(session.textLength || 0),
-      String(wordsTyped),
-      timestamp,
-      String(LONG_TERM_TTL)
-    );
-
-    // 3. تحويل الرد (مصفوفة) إلى كائن (Object)
-    const updatedStats: { [key: string]: any } = {};
-    if (!redisResponse) {
-      throw new Error("Redis LUA script returned null or undefined. No data received.");
-    }
-
-    for (let i = 0; i < redisResponse.length; i += 2) {
-      const key = redisResponse[i];
-      const value = redisResponse[i + 1];
-
-      // 4. إعادة تحويل القيم إلى أنواعها الصحيحة
-      if (key.includes("Date") || key === "lastUpdated") {
-        updatedStats[key] = value;
-      } else if (key === "totalSessions" || key === "totalTimeTyped" || key === "totalWordsTyped" || key === "totalCharactersTyped") {
-        updatedStats[key] = parseInt(value, 10) || 0;
-      } else {
-        // (مثل averageWPM, averageAccuracy, bestWPM, bestAccuracy)
-        updatedStats[key] = parseFloat(value) || 0;
-      }
-    }
-    
-    return updatedStats;
-
-  } catch (error) {
-    // إضافة سياق للخطأ لتسهيل التصحيح
-    logging.error(`[STATS] LUA script execution failed for ${userId}`, error, {
-       errorMessage: error instanceof Error ? error.message : "Unknown LUA error",
-       userId,
-       sessionData: session
-    });
-    // رمي الخطأ ليتم التقاطه في الدالة POST الرئيسية
-    throw new Error(`Failed to update long-term stats via LUA: ${error instanceof Error ? error.message : error}`);
-  }
-}
-
-/**
- * Store session in history for detailed tracking
- */
-async function storeSessionHistory(userId: string, session: any) {
-  const sessionsKey = `user:sessions:${userId}`;
-  
-  // Add session to the beginning of the list and trim to max size
-  await redis.lpush(sessionsKey, JSON.stringify(session));
-  await redis.ltrim(sessionsKey, 0, MAX_SESSIONS_STORED - 1);
-  
-  // Set expiration for the sessions list
-  await redis.expire(sessionsKey, LONG_TERM_TTL);
-
-  return session.id;
-}
-
-/**
- * Get long-term cumulative statistics
- */
-async function getLongTermCumulativeStats(userId: string) {
-  const statsKey = `user:longterm:${userId}`;
-  const data = await redis.hgetall(statsKey);
-  
-  if (!data || Object.keys(data).length === 0) {
-    return getDefaultLongTermStats();
-  }
-
-  return {
-    totalSessions: parseInt(String(data.totalSessions) || "0"),
-    totalTimeTyped: parseInt(String(data.totalTimeTyped) || "0"),
-    totalWordsTyped: parseInt(String(data.totalWordsTyped) || "0"),
-    totalCharactersTyped: parseInt(String(data.totalCharactersTyped) || "0"),
-    averageWPM: parseFloat(String(data.averageWPM) || "0"),
-    averageAccuracy: parseFloat(String(data.averageAccuracy) || "0"),
-    bestWPM: parseFloat(String(data.bestWPM) || "0"),
-    bestWPMDate: String(data.bestWPMDate) || null,
-    bestAccuracy: parseFloat(String(data.bestAccuracy) || "0"),
-    bestAccuracyDate: String(data.bestAccuracyDate) || null,
-    lastUpdated: String(data.lastUpdated) || new Date().toISOString(),
-  };
-}
-
-/**
- * Get recent session history
- */
-async function getSessionHistory(userId: string, limit: number = 20) {
-  const sessionsKey = `user:sessions:${userId}`;
-  const sessions = await redis.lrange(sessionsKey, 0, limit - 1);
-  
-  return sessions.map(session => JSON.parse(session));
-}
-
-/**
- * Default long-term statistics structure (without streak)
- */
-function getDefaultLongTermStats() {
-  return {
-    totalSessions: 0,
-    totalTimeTyped: 0,
-    totalWordsTyped: 0,
-    totalCharactersTyped: 0,
-    averageWPM: 0,
-    averageAccuracy: 0,
-    bestWPM: 0,
-    bestWPMDate: null,
-    bestAccuracy: 0,
-    bestAccuracyDate: null,
-    lastUpdated: new Date().toISOString(),
-  };
-}
+// Helper functions removed; now sourced from '@/lib/session-stats'

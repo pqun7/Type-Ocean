@@ -3,7 +3,7 @@ import { XPMessage } from "@/features/level/types/level";
 
 const LOG_CONFIG = {
   LEVEL: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-  SENSITIVE_FIELDS: ['password', 'token', 'authorization'],
+  SENSITIVE_FIELDS: ['password', 'token', 'authorization', 'email', 'username'],
   MAX_STRING_LENGTH: 500,
 };
 
@@ -16,13 +16,44 @@ const LogLevelPriority: Record<LogLevel, number> = {
 
 import { XP_LOGGING_THRESHOLDS } from '@/features/level/constants/level';
 
+// نظام التصحيح الآمن للعميل
+class ClientSafeDebugLogger {
+  private isDevelopment: boolean;
+
+  constructor() {
+    this.isDevelopment = process.env.NODE_ENV === 'development';
+  }
+
+  logSensitive(operation: string, data: Record<string, unknown>): void {
+    if (this.isDevelopment) {
+      console.log(`[CLIENT-DEV] ${operation}:`, data);
+    } else {
+      // في الإنتاج، لا تسجل البيانات الحساسة
+      const redactedData = this.redactSensitiveData(data);
+      console.log(`[CLIENT] ${operation}:`, redactedData);
+    }
+  }
+
+  private redactSensitiveData(data: Record<string, unknown>): Record<string, unknown> {
+    const redacted = { ...data };
+    LOG_CONFIG.SENSITIVE_FIELDS.forEach(field => {
+      if (redacted[field]) {
+        redacted[field] = '[REDACTED]';
+      }
+    });
+    return redacted;
+  }
+}
+
 class ClientLogger {
   private readonly context: string;
   private readonly minLevel: number;
+  private safeDebug: ClientSafeDebugLogger;
 
   constructor(context: string) {
     this.context = `[${context.toUpperCase()}]`;
     this.minLevel = LogLevelPriority[LOG_CONFIG.LEVEL as LogLevel];
+    this.safeDebug = new ClientSafeDebugLogger();
   }
 
   private shouldLog(level: LogLevel): boolean {
@@ -32,16 +63,18 @@ class ClientLogger {
   private sanitizeData(data: unknown): unknown {
     if (process.env.NODE_ENV !== 'production') return data;
     
-    const sanitize = (obj: any): any => {
+    const sanitize = (obj: unknown): unknown => {
       if (typeof obj !== 'object' || obj === null) return obj;
       
-      return Object.entries(obj).reduce((acc, [key, value]) => {
-        acc[key] = LOG_CONFIG.SENSITIVE_FIELDS.includes(key) 
+      const recordObj = obj as Record<string, unknown>;
+      return Object.entries(recordObj).reduce((acc, [key, value]) => {
+        const result = acc as Record<string, unknown>;
+        result[key] = LOG_CONFIG.SENSITIVE_FIELDS.includes(key) 
           ? '***' 
           : typeof value === 'string' 
             ? value.slice(0, LOG_CONFIG.MAX_STRING_LENGTH) 
             : sanitize(value);
-        return acc;
+        return result;
       }, {} as Record<string, unknown>);
     };
 
@@ -115,6 +148,11 @@ class ClientLogger {
     meta?: Record<string, unknown>
   ): void {
     this.log('error', message, { ...meta, error });
+  }
+
+  // دالة التصحيح الآمن للبيانات الحساسة
+  debugSensitive(operation: string, data: Record<string, unknown>) {
+    this.safeDebug.logSensitive(operation, data);
   }
 }
 

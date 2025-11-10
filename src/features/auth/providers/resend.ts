@@ -1,7 +1,9 @@
-// @/providers/resend/resend.ts
 "use server";
 
 import { Resend } from "resend";
+import { logging } from "@/log/ServerLogger";
+import prisma from "@/features/auth/lib/db";
+import { randomBytes, createHash } from "crypto";
 
 // Configure the Resend library using the API Key
 const resendClient = new Resend(process.env.RESEND_API_KEY);
@@ -16,6 +18,21 @@ type EmailTemplateType =
       data: { token: string };
     };
 
+// Safe logging utilities for email operations
+const logEmailOperation = {
+  start: (operation: string, metadata?: Record<string, unknown>) => {
+    logging.debugSensitive(`Email operation started: ${operation}`, metadata || {});
+  },
+  
+  success: (operation: string, metadata?: Record<string, unknown>) => {
+    logging.debugSensitive(`Email operation completed: ${operation}`, metadata || {});
+  },
+  
+  error: (operation: string, error: unknown, metadata?: Record<string, unknown>) => {
+    logging.error(`Email operation failed: ${operation}`, error, metadata);
+  }
+};
+
 /**
  * Send a general email with template support
  * @param to - Recipient email address
@@ -27,7 +44,15 @@ async function sendEmail<T extends EmailTemplateType>(
   template: T["type"],
   data: T["data"]
 ): Promise<{ success: boolean; error?: string }> {
+  const requestId = `email-${template}-${Date.now()}`;
+  
   try {
+    logEmailOperation.start("send_email", {
+      requestId,
+      template,
+      to
+    });
+
     // Get the email content based on the template
     const { subject, html } = await generateEmailContent(template, data);
 
@@ -39,9 +64,37 @@ async function sendEmail<T extends EmailTemplateType>(
       html,
     });
 
-    return error ? { success: false, error: error.toString() } : { success: true };
+    if (error) {
+      logEmailOperation.error("send_email", new Error("Resend API error"), {
+        requestId,
+        template,
+        to,
+        resendError: error.toString()
+      });
+      return { success: false, error: error.toString() };
+    }
+
+    logEmailOperation.success("send_email", {
+      requestId,
+      template,
+      to,
+      status: "email_sent_successfully"
+    });
+
+    // Production-safe logging
+    logging.info("Email sent successfully", {
+      requestId,
+      template,
+      to: "redacted" // Don't log email in production
+    });
+
+    return { success: true };
   } catch (error) {
-    console.error(`Failed to send ${template} email:`, error);
+    logEmailOperation.error("send_email", error, {
+      requestId,
+      template,
+      to
+    });
     return { success: false, error: "EMAIL_SEND_FAILED" };
   }
 }
@@ -88,7 +141,6 @@ async function generateEmailContent(
         `,
       };
 
-
     default:
       throw new Error("UNSUPPORTED_EMAIL_TEMPLATE");
   }
@@ -123,3 +175,174 @@ export const sendVerificationEmail = async (email: string, token: string) =>
     "EMAIL_VERIFICATION",
     { token }
   );
+
+export async function generateResetToken(email: string) {
+  const requestId = `generate-reset-token-${Date.now()}`;
+  
+  if (!email || typeof email !== "string") {
+    logEmailOperation.error("generate_reset_token", new Error("Invalid email"), {
+      requestId,
+      email
+    });
+    throw new Error("INVALID_EMAIL");
+  }
+  
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) {
+    logEmailOperation.error("generate_reset_token", new Error("User not found"), {
+      requestId,
+      email
+    });
+    throw new Error("USER_NOT_FOUND");
+  }
+  
+  if (!user.passwordHash) {
+    logEmailOperation.error("generate_reset_token", new Error("Social auth account"), {
+      requestId,
+      userId: user.id,
+      email
+    });
+    throw new Error("SOCIAL_AUTH_ACCOUNT");
+  }
+
+  const rawToken = randomBytes(32).toString("hex");
+  const hashedToken = createHash("sha256").update(rawToken).digest("hex");
+
+  const resetTokenExpiry = new Date(Date.now() + 3600000);
+
+  await prisma.user.update({
+    where: { email },
+    data: {
+      resetToken: hashedToken,
+      resetTokenExpiry,
+      passwordResetRequests: { increment: 1 },
+    },
+  });
+
+  logEmailOperation.success("generate_reset_token", {
+    requestId,
+    userId: user.id,
+    email,
+    status: "reset_token_generated"
+  });
+
+  return rawToken;
+}
+
+export async function validateResetToken(token: string) {
+  const requestId = `validate-reset-token-${Date.now()}`;
+  
+  const hashedToken = createHash("sha256").update(token).digest("hex");
+  
+  logEmailOperation.start("validate_reset_token", {
+    requestId,
+    hasToken: !!token
+  });
+
+  const user = await prisma.user.findFirst({
+    where: {
+      resetToken: hashedToken,
+      resetTokenExpiry: { gt: new Date() },
+    },
+  });
+
+  if (!user) {
+    logEmailOperation.error("validate_reset_token", new Error("Invalid or expired token"), {
+      requestId
+    });
+    throw new Error("INVALID_OR_EXPIRED_TOKEN");
+  }
+
+  logEmailOperation.success("validate_reset_token", {
+    requestId,
+    userId: user.id,
+    status: "reset_token_validated"
+  });
+
+  return user;
+}
+
+export async function generateEmailVerificationToken(email: string): Promise<string> {
+  const requestId = `generate-email-token-${Date.now()}`;
+  
+  logEmailOperation.start("generate_email_verification_token", {
+    requestId,
+    email
+  });
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  
+  if (!user) {
+    logEmailOperation.error("generate_email_verification_token", new Error("User not found"), {
+      requestId,
+      email
+    });
+    throw new Error("USER_NOT_FOUND");
+  }
+  
+  if (user.emailVerified) {
+    logEmailOperation.error("generate_email_verification_token", new Error("Email already verified"), {
+      requestId,
+      userId: user.id,
+      email
+    });
+    throw new Error("EMAIL_ALREADY_VERIFIED");
+  }
+
+  const rawToken = randomBytes(32).toString("hex");
+  const hashedToken = createHash("sha256").update(rawToken).digest("hex");
+
+  const tokenExpiry = new Date(Date.now() + 24 * 3600 * 1000);
+
+  await prisma.user.update({
+    where: { email },
+    data: {
+      emailVerifyToken: hashedToken,
+      emailVerifyTokenExpiry: tokenExpiry,
+      emailVerificationAttempts: { increment: 1 },
+    },
+  });
+
+  logEmailOperation.success("generate_email_verification_token", {
+    requestId,
+    userId: user.id,
+    email,
+    status: "email_verification_token_generated"
+  });
+
+  return rawToken;
+}
+
+export async function validateEmailToken(token: string) {
+  const requestId = `validate-email-token-${Date.now()}`;
+  
+  logEmailOperation.start("validate_email_token", {
+    requestId,
+    hasToken: !!token
+  });
+
+  const hashedToken = createHash("sha256").update(token).digest("hex");
+  
+  const user = await prisma.user.findFirst({
+    where: {
+      emailVerifyToken: hashedToken,
+      emailVerifyTokenExpiry: { gt: new Date() }
+    }
+  });
+
+  if (!user) {
+    logEmailOperation.error("validate_email_token", new Error("Invalid or expired token"), {
+      requestId
+    });
+    throw new Error("INVALID_OR_EXPIRED_TOKEN");
+  }
+
+  logEmailOperation.success("validate_email_token", {
+    requestId,
+    userId: user.id,
+    status: "email_token_validated"
+  });
+
+  return user;
+}

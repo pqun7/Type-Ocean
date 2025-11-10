@@ -1,26 +1,27 @@
-// app/api/session/route.ts
-// export const runtime = 'edge';
-
 import { auth } from "@/features/auth/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { logging } from '@/log/ServerLogger';
 
 export async function POST(req: NextRequest) {
+  const requestId = `session-${Date.now()}`;
+  
   try {
     const session = await auth();
     
-    // Enhanced logging for debugging
-    logging.debug("Session validation attempt", {
+    // Safe debug logging for development
+    logging.debugSensitive("Session validation attempt", {
+      requestId,
       context: "auth",
       hasSession: !!session,
       hasUser: !!session?.user,
       hasUserId: !!session?.user?.id,
-      userAgent: req.headers.get('user-agent'),
-      ip: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown'
+      userAgent: req.headers.get('user-agent') ? "present" : "missing",
+      ip: "redacted"
     });
     
     if (!session?.user?.id) {
       logging.debug("Unauthenticated session check", {
+        requestId,
         context: "auth",
         severity: "low",
         reason: !session ? "no_session" : !session.user ? "no_user" : "no_user_id"
@@ -31,14 +32,20 @@ export async function POST(req: NextRequest) {
       }, { status: 401 });
     }
 
-    logging.info("Session validation successful", {
+    // Safe logging with user details only in development
+    logging.debugSensitive("Session validation successful", {
+      requestId,
       userId: session.user.id,
-      context: "auth",
-      sessionData: {
-        expires: session.expires,
-        username: session.user.username,
-        emailVerified: session.user.emailVerified
-      }
+      username: session.user.username,
+      email: session.user.email,
+      context: "auth"
+    });
+
+    // Production-safe logging
+    logging.info("Session validation successful", {
+      requestId,
+      userId: session.user.id,
+      context: "auth"
     });
 
     const cacheHeader = {
@@ -56,6 +63,7 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     logging.error("Session validation failure", error, {
+      requestId,
       context: "auth",
       severity: "critical",
       errorMessage: error instanceof Error ? error.message : 'Unknown error'
