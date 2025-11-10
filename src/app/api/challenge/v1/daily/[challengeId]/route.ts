@@ -17,19 +17,17 @@ import { getTodayDate } from "@/app/api/challenge/v1/shared";
 
 const SERVICE_TYPE = "DAILY-CHALLENGE-UPDATE";
 const CACHE_TTL = getCacheTTL();
-const FILE_PATH = "src/app/api/challenge/v1/daily/[challengeId]/route.ts";
 
-interface RouteParams {
-  params: {
-    challengeId: string;
-  };
+
+interface RouteContext {
+  params: Promise<{ challengeId: string }>;
 }
 
 // PUT - Update specific challenge by ID
-export async function PUT(req: NextRequest, { params }: RouteParams) {
+export async function PUT(req: NextRequest, context: RouteContext) {
+  const { challengeId } = await context.params;
   const requestId = uuidv4();
   const userId = authorizeRequest(req);
-  const { challengeId } = params;
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -40,7 +38,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "PUT", FILE_PATH, userId);
+    logRequestStart(requestId, SERVICE_TYPE, "PUT", userId);
     await connectIfNeeded();
 
     const today = getTodayDate();
@@ -162,7 +160,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     // Save updated challenge to cache
     await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(updatedChallenge));
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "PUT", FILE_PATH, {
+    logRequestSuccess(requestId, SERVICE_TYPE, "PUT", {
       userId,
       challengeId,
       challengeType: challenge.type,
@@ -172,7 +170,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(updatedChallenge);
   } catch (error) {
-    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+    logRequestError(requestId, SERVICE_TYPE, error, {
       userId,
       challengeId,
       operationPhase: "challenge_update",
@@ -186,17 +184,17 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 }
 
 // GET - Fetch specific challenge by ID (optional, for completeness)
-export async function GET(req: NextRequest, { params }: RouteParams) {
+export async function GET(req: NextRequest, context: RouteContext) {
+  const { challengeId } = await context.params;
   const requestId = uuidv4();
   const userId = authorizeRequest(req);
-  const { challengeId } = params;
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "GET", FILE_PATH, userId);
+    logRequestStart(requestId, SERVICE_TYPE, "GET", userId);
     await connectIfNeeded();
 
     const cacheKey = getCacheKey(userId);
@@ -218,14 +216,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "GET", FILE_PATH, {
+    logRequestSuccess(requestId, SERVICE_TYPE, "GET", {
       userId,
       challengeId,
     });
 
     return NextResponse.json(challenge);
   } catch (error) {
-    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+    logRequestError(requestId, SERVICE_TYPE, error, {
       userId,
       challengeId,
       operationPhase: "challenge_fetch",

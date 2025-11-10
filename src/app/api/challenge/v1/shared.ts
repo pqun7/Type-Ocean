@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import redis, { connectIfNeeded } from "@/lib/redis";
+import { redis, connectIfNeeded } from "@/lib/redis";
 import { getTodayDate, getLocalMidnightTTL } from "@/features/auth/utils/timeUtils";
 import {
   logRequestStart,

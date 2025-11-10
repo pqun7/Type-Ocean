@@ -253,6 +253,7 @@ export const dailyChallengeCircuit = new CircuitBreaker('DailyChallenge', {
 });
 
 // Enhanced circuit breakers for specific services
+// in circuitBreaker.ts file 
 export const enhancedSessionStatsCircuit = new EnhancedCircuitBreaker({
   failureThreshold: 20,
   resetTimeout: 30000,

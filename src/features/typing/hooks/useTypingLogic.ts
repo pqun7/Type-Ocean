@@ -37,8 +37,7 @@ export default function useTypingLogic(
     elapsedTime: 0,
   });
   const { userId, isLoading } = useUserSession();
-  const filePath = "hooks/useTypingLogic.ts";
-
+ 
   const userIdRef = useRef(userId);
   useEffect(() => {
     if (!isLoading) userIdRef.current = userId;
@@ -142,7 +141,7 @@ export default function useTypingLogic(
 
       // Only for authenticated users
       if (userId) {
-        let sessionData: SessionData = {
+        const sessionData: SessionData = {
           wpm,
           accuracy,
           textLength: text.length,
@@ -169,7 +168,6 @@ export default function useTypingLogic(
           
           logger.session.warn(
             "Session stats recording failed, using fallback values",
-            filePath,
             {
               userId,
               error: errorMessage,
@@ -187,7 +185,6 @@ export default function useTypingLogic(
           } catch (challengeError) {
             logger.session.warn(
               "Daily challenge handling also failed",
-              filePath,
               { userId, challengeError }
             );
             challengeResult = { completed: false, xp: 0 };
@@ -234,7 +231,7 @@ export default function useTypingLogic(
         // Execute all XP updates
         await Promise.all(updates);
 
-        logger.session.info("Session completed for authenticated user",filePath, {
+        logger.session.info("Session completed for authenticated user", {
           userId,
           duration: performance.now() - sessionStartTime,
           wpm,
@@ -243,7 +240,7 @@ export default function useTypingLogic(
         });
       } else {
         // Guest user handling
-        logger.session.info("Guest session completed", filePath,{
+        logger.session.info("Guest session completed", {
           wpm,
           accuracy,
           duration: performance.now() - sessionStartTime,
@@ -260,7 +257,7 @@ export default function useTypingLogic(
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
       logger.session.error(
-        "Session completion failed",filePath,
+        "Session completion failed",
         error instanceof Error ? error : new Error(errorMessage),
         {
           userId,
@@ -288,6 +285,7 @@ export default function useTypingLogic(
     userId, // Added for conditional execution
     state,
     metrics,
+    rollback,
   ]);
 
   // Idle state management
@@ -318,7 +316,7 @@ export default function useTypingLogic(
       const activeTime = getActiveTime();
       const { wpm, accuracy } = calculateMetrics();
 
-      setMetrics((prev) => ({
+      setMetrics(() => ({
         wpm,
         accuracy,
         elapsedTime: Math.floor(activeTime / 1000),

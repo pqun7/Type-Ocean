@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import redis, { connectIfNeeded } from "@/lib/redis";
+import { redis, connectIfNeeded } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import {
@@ -13,7 +13,6 @@ import {
 } from "@/log/loggingUtils";
 
 const SERVICE_TYPE = "SESSION-STATS";
-const LOG_FILE = "src/app/api/session-stats/v1/route.ts";
 const LONG_TERM_TTL = 2592000; // 30 days for session history
 const MAX_SESSIONS_STORED = 100;
 
@@ -322,103 +321,58 @@ function sanitizeSessionData(data: any) {
  */
 async function updateLongTermCumulativeStats(userId: string, session: any) {
   const statsKey = `user:longterm:${userId}`;
-  
-  // Use Redis pipeline for multiple operations to improve performance
-  const pipeline = redis.multi();
-  const exists = await redis.exists(statsKey);
-  
-  if (!exists) {
-    // Initialize new user stats (all values as strings for Redis)
-    const newStats = {
-      totalSessions: "1",
-      totalTimeTyped: String(session.timeSpent || 0),
-      totalWordsTyped: String(Math.round(session.wpm * ((session.timeSpent || 60) / 60))),
-      totalCharactersTyped: String(session.textLength || 0),
-      averageWPM: String(session.wpm),
-      averageAccuracy: String(session.accuracy),
-      bestWPM: String(session.wpm),
-      bestWPMDate: new Date().toISOString(),
-      bestAccuracy: String(session.accuracy),
-      bestAccuracyDate: new Date().toISOString(),
-      lastUpdated: new Date().toISOString(),
-    };
+  const timestamp = new Date().toISOString();
 
-    // Use pipeline for atomic operations
-    pipeline.hSet(statsKey, newStats);
-    pipeline.expire(statsKey, LONG_TERM_TTL);
-    await pipeline.exec();
+  // 1. حساب بسيط قبل الإرسال
+  const timeSpent = session.timeSpent || 0;
+  const wordsTyped = Math.round(session.wpm * ((session.timeSpent || 60) / 60));
 
-    return {
-      totalSessions: 1,
-      totalTimeTyped: session.timeSpent || 0,
-      totalWordsTyped: Math.round(session.wpm * ((session.timeSpent || 60) / 60)),
-      totalCharactersTyped: session.textLength || 0,
-      averageWPM: session.wpm,
-      averageAccuracy: session.accuracy,
-      bestWPM: session.wpm,
-      bestWPMDate: newStats.bestWPMDate,
-      bestAccuracy: session.accuracy,
-      bestAccuracyDate: newStats.bestAccuracyDate,
-      lastUpdated: newStats.lastUpdated,
-    };
+  try {
+    // 2. استدعاء سكربت LUA (رحلة واحدة!)
+    const redisResponse = await redis.updateUserStats(
+      statsKey,
+      String(session.wpm),
+      String(session.accuracy),
+      String(timeSpent),
+      String(session.textLength || 0),
+      String(wordsTyped),
+      timestamp,
+      String(LONG_TERM_TTL)
+    );
+
+    // 3. تحويل الرد (مصفوفة) إلى كائن (Object)
+    const updatedStats: { [key: string]: any } = {};
+    if (!redisResponse) {
+      throw new Error("Redis LUA script returned null or undefined. No data received.");
+    }
+
+    for (let i = 0; i < redisResponse.length; i += 2) {
+      const key = redisResponse[i];
+      const value = redisResponse[i + 1];
+
+      // 4. إعادة تحويل القيم إلى أنواعها الصحيحة
+      if (key.includes("Date") || key === "lastUpdated") {
+        updatedStats[key] = value;
+      } else if (key === "totalSessions" || key === "totalTimeTyped" || key === "totalWordsTyped" || key === "totalCharactersTyped") {
+        updatedStats[key] = parseInt(value, 10) || 0;
+      } else {
+        // (مثل averageWPM, averageAccuracy, bestWPM, bestAccuracy)
+        updatedStats[key] = parseFloat(value) || 0;
+      }
+    }
+    
+    return updatedStats;
+
+  } catch (error) {
+    // إضافة سياق للخطأ لتسهيل التصحيح
+    logging.error(`[STATS] LUA script execution failed for ${userId}`, error, {
+       errorMessage: error instanceof Error ? error.message : "Unknown LUA error",
+       userId,
+       sessionData: session
+    });
+    // رمي الخطأ ليتم التقاطه في الدالة POST الرئيسية
+    throw new Error(`Failed to update long-term stats via LUA: ${error instanceof Error ? error.message : error}`);
   }
-
-  // Get current stats for cumulative calculation
-  const currentStats = await redis.hGetAll(statsKey);
-  
-  if (!currentStats || Object.keys(currentStats).length === 0) {
-    throw new Error(`Corrupted stats data for user: ${userId}`);
-  }
-
-  // Parse current values with validation
-  const totalSessions = parseInt(String(currentStats.totalSessions || "0")) + 1;
-  const currentAvgWPM = parseFloat(String(currentStats.averageWPM || "0"));
-  const currentAvgAcc = parseFloat(String(currentStats.averageAccuracy || "0"));
-  const currentBestWPM = parseFloat(String(currentStats.bestWPM || "0"));
-  const currentBestAcc = parseFloat(String(currentStats.bestAccuracy || "0"));
-
-  if (isNaN(totalSessions) || isNaN(currentAvgWPM) || isNaN(currentAvgAcc)) {
-    throw new Error(`Invalid numeric data in stats for user: ${userId}`);
-  }
-
-  // Calculate new cumulative averages
-  const newAvgWPM = (currentAvgWPM * (totalSessions - 1) + session.wpm) / totalSessions;
-  const newAvgAcc = (currentAvgAcc * (totalSessions - 1) + session.accuracy) / totalSessions;
-
-  // Prepare updated stats (all values as strings for Redis)
-  const updatedStats = {
-    totalSessions: String(totalSessions),
-    totalTimeTyped: String(parseInt(String(currentStats.totalTimeTyped || "0")) + (session.timeSpent || 0)),
-    totalWordsTyped: String(parseInt(String(currentStats.totalWordsTyped || "0")) + Math.round(session.wpm * ((session.timeSpent || 60) / 60))),
-    totalCharactersTyped: String(parseInt(String(currentStats.totalCharactersTyped || "0")) + (session.textLength || 0)),
-    averageWPM: String(Math.round(newAvgWPM * 100) / 100),
-    averageAccuracy: String(Math.round(newAvgAcc * 100) / 100),
-    bestWPM: String(session.wpm > currentBestWPM ? session.wpm : currentBestWPM),
-    bestWPMDate: session.wpm > currentBestWPM ? new Date().toISOString() : String(currentStats.bestWPMDate),
-    bestAccuracy: String(session.accuracy > currentBestAcc ? session.accuracy : currentBestAcc),
-    bestAccuracyDate: session.accuracy > currentBestAcc ? new Date().toISOString() : String(currentStats.bestAccuracyDate),
-    lastUpdated: new Date().toISOString(),
-  };
-
-  // Use pipeline for atomic update and expiration
-  pipeline.hSet(statsKey, updatedStats);
-  pipeline.expire(statsKey, LONG_TERM_TTL);
-  await pipeline.exec();
-
-  // Return parsed numeric values for the response
-  return {
-    totalSessions: parseInt(updatedStats.totalSessions),
-    totalTimeTyped: parseInt(updatedStats.totalTimeTyped),
-    totalWordsTyped: parseInt(updatedStats.totalWordsTyped),
-    totalCharactersTyped: parseInt(updatedStats.totalCharactersTyped),
-    averageWPM: parseFloat(updatedStats.averageWPM),
-    averageAccuracy: parseFloat(updatedStats.averageAccuracy),
-    bestWPM: parseFloat(updatedStats.bestWPM),
-    bestWPMDate: updatedStats.bestWPMDate,
-    bestAccuracy: parseFloat(updatedStats.bestAccuracy),
-    bestAccuracyDate: updatedStats.bestAccuracyDate,
-    lastUpdated: updatedStats.lastUpdated,
-  };
 }
 
 /**
@@ -428,8 +382,8 @@ async function storeSessionHistory(userId: string, session: any) {
   const sessionsKey = `user:sessions:${userId}`;
   
   // Add session to the beginning of the list and trim to max size
-  await redis.lPush(sessionsKey, JSON.stringify(session));
-  await redis.lTrim(sessionsKey, 0, MAX_SESSIONS_STORED - 1);
+  await redis.lpush(sessionsKey, JSON.stringify(session));
+  await redis.ltrim(sessionsKey, 0, MAX_SESSIONS_STORED - 1);
   
   // Set expiration for the sessions list
   await redis.expire(sessionsKey, LONG_TERM_TTL);
@@ -442,7 +396,7 @@ async function storeSessionHistory(userId: string, session: any) {
  */
 async function getLongTermCumulativeStats(userId: string) {
   const statsKey = `user:longterm:${userId}`;
-  const data = await redis.hGetAll(statsKey);
+  const data = await redis.hgetall(statsKey);
   
   if (!data || Object.keys(data).length === 0) {
     return getDefaultLongTermStats();
@@ -468,7 +422,7 @@ async function getLongTermCumulativeStats(userId: string) {
  */
 async function getSessionHistory(userId: string, limit: number = 20) {
   const sessionsKey = `user:sessions:${userId}`;
-  const sessions = await redis.lRange(sessionsKey, 0, limit - 1);
+  const sessions = await redis.lrange(sessionsKey, 0, limit - 1);
   
   return sessions.map(session => JSON.parse(session));
 }

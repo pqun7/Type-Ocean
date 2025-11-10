@@ -5,8 +5,6 @@ if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
 }
 
 import * as Sentry from "@sentry/nextjs";
-import fs from "fs";
-import path from "path";
 
 // 1. إعدادات الأمان المتقدمة
 const SENSITIVE_FIELDS = new Set(['password', 'token', 'apiKey', 'authorization', 'creditCard']);
@@ -65,9 +63,36 @@ const cleanMetadata = (obj: Record<string, unknown>): Record<string, unknown> =>
 };
 
 // 4. نظام إدارة الملفات للـ Logs
+type FsModule = typeof import("fs");
+type PathModule = typeof import("path");
+
+const isNodeRuntime =
+  typeof globalThis.process !== "undefined" &&
+  globalThis.process.release?.name === "node" &&
+  globalThis.process.env?.NEXT_RUNTIME !== "edge";
+
+let fsModule: FsModule | null = null;
+let pathModule: PathModule | null = null;
+
+if (isNodeRuntime) {
+  try {
+    const nodeRequire = eval("require") as typeof require;
+    fsModule = nodeRequire("fs");
+    pathModule = nodeRequire("path");
+  } catch {
+    fsModule = null;
+    pathModule = null;
+  }
+}
+
+const canUseFileSystem = Boolean(fsModule && pathModule);
+
 class FileLogManager {
-  private ensureLogsDirectory() {
-    const logsDir = path.join(process.cwd(), 'logs');
+  private ensureLogsDirectory(): string | null {
+    if (!canUseFileSystem) return null;
+    const path = pathModule!;
+    const fs = fsModule!;
+    const logsDir = path.join(process.cwd(), "logs");
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
     }
@@ -75,6 +100,8 @@ class FileLogManager {
   }
 
   private shouldRotate(filePath: string): boolean {
+    if (!canUseFileSystem) return false;
+    const fs = fsModule!;
     try {
       const stats = fs.statSync(filePath);
       return stats.size >= MAX_LOG_SIZE;
@@ -84,12 +111,12 @@ class FileLogManager {
   }
 
   private rotateFile(filePath: string) {
+    if (!canUseFileSystem) return;
+    const fs = fsModule!;
     if (!fs.existsSync(filePath)) return;
-
     for (let i = MAX_LOG_FILES - 1; i > 0; i--) {
       const oldFile = `${filePath}.${i}`;
       const newFile = `${filePath}.${i + 1}`;
-      
       if (fs.existsSync(oldFile)) {
         if (i === MAX_LOG_FILES - 1) {
           fs.unlinkSync(oldFile);
@@ -98,22 +125,25 @@ class FileLogManager {
         }
       }
     }
-
     fs.renameSync(filePath, `${filePath}.1`);
   }
 
   writeToFile(filename: string, entry: string) {
+    if (!canUseFileSystem) return;
+    const fs = fsModule!;
+    const path = pathModule!;
     try {
       const logsDir = this.ensureLogsDirectory();
+      if (!logsDir) return;
       const filePath = path.join(logsDir, filename);
-      
+
       if (this.shouldRotate(filePath)) {
         this.rotateFile(filePath);
       }
-      
-      fs.appendFileSync(filePath, entry + '\n', 'utf8');
+
+      fs.appendFileSync(filePath, entry + "\n", "utf8");
     } catch (error) {
-      console.error('Failed to write log file:', error);
+      console.error("Failed to write log file:", error);
     }
   }
 }
@@ -177,21 +207,21 @@ class FileTransport {
   private fileManager = new FileLogManager();
 
   log(entry: LogEntry) {
+    if (!canUseFileSystem) return;
     const logEntry = JSON.stringify({
       timestamp: entry.timestamp,
       level: entry.level.toUpperCase(),
       message: entry.message,
       env: process.env.NODE_ENV,
       service: entry.service,
-      service: entry.service,
       ...entry.metadata,
       ...(entry.stack && { stack: entry.stack })
     });
-    
-    this.fileManager.writeToFile('combined.log', logEntry);
-    
-    if (entry.level === 'error') {
-      this.fileManager.writeToFile('errors.log', logEntry);
+
+    this.fileManager.writeToFile("combined.log", logEntry);
+
+    if (entry.level === "error") {
+      this.fileManager.writeToFile("errors.log", logEntry);
     }
   }
 }
@@ -213,8 +243,12 @@ class ServerLogger {
       new SentryTransport()
     ];
 
-    if (process.env.NODE_ENV === 'production') {
-      transports.push(new FileTransport());
+    if (process.env.NODE_ENV === "production") {
+      if (canUseFileSystem) {
+        transports.push(new FileTransport());
+      } else {
+        transports.push(new ConsoleTransport());
+      }
     } else {
       transports.push(new ConsoleTransport());
     }

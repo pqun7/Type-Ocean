@@ -8,7 +8,7 @@ import {
   logRequestError,
 } from "@/log/loggingUtils";
 import { NextRequest, NextResponse } from "next/server";
-import { redisManager } from "@/lib/redis"; // استيراد RedisManager الموحد
+import { redisManager } from "@/lib/redis"; 
 
 const LOG_FILE = "src/lib/rateLimiter.ts";
 
@@ -319,8 +319,6 @@ export async function applyRateLimit(req: NextRequest, endpoint: string) {
     identifier = xRealIp;
   } else if (xForwardedFor) {
     identifier = xForwardedFor.split(",")[0].trim();
-  } else if (req.ip) {
-    identifier = req.ip;
   }
 
   logger.debug("Rate limit identifier", { identifier, endpoint });

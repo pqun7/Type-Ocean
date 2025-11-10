@@ -7,7 +7,6 @@ import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { ZodError } from "zod";
 import { resendVerificationEmail } from "@/actions/email-verification";
 import { mapErrorToMessage } from "@/constants/errors"; 
-import { cacheLevel, cacheXP } from "@/features/level/server-utils/userCache";
 import { logging } from '@/log/ServerLogger'; 
 
 export const signUp = async (formData: FormData) => {

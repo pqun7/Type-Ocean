@@ -25,7 +25,6 @@ const FALLBACK_TTL = 300; // 5 minutes fallback cache
 const SERVICE_TYPE = "DAILY-CHALLENGE";
 const PARALLEL_OPS = process.env.REDIS_PARALLEL === "true";
 
-const FILE_PATH = "src/app/api/challenge/v1/daily/route.ts";
 
 // Helper function to generate default challenge when user level is unavailable
 const generateDefaultChallenge = async (): Promise<DailyChallenge> => {
@@ -54,7 +53,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "GET", FILE_PATH, userId!);
+    logRequestStart(requestId, SERVICE_TYPE, "GET", userId!);
 
     await connectIfNeeded();
     const cacheKey = getCacheKey(userId!);
@@ -67,7 +66,7 @@ export async function GET(req: NextRequest) {
 
     if (cached) {
       const parsed = JSON.parse(cached) as DailyChallenge;
-      logRequestSuccess(requestId, SERVICE_TYPE, "GET", FILE_PATH, {
+      logRequestSuccess(requestId, SERVICE_TYPE, "GET", {
         userId: userId!,
         cacheStatus: "hit",
         challengeId: parsed.id,
@@ -80,15 +79,15 @@ export async function GET(req: NextRequest) {
     if (!cached && !finalUserLevel) {
       // Fallback to default challenge
       const defaultChallenge = await generateDefaultChallenge();
-      await redis.setEx(cacheKey, FALLBACK_TTL, JSON.stringify(defaultChallenge));
+      await redis.setex(cacheKey, FALLBACK_TTL, JSON.stringify(defaultChallenge));
       return NextResponse.json(defaultChallenge);
     }
 
     const newChallenge = await generateDailyChallenge(userId!, finalUserLevel);
 
-    await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(newChallenge));
+    await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(newChallenge));
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "GET", FILE_PATH, {
+    logRequestSuccess(requestId, SERVICE_TYPE, "GET", {
       userId: userId!,
       cacheStatus: "miss",
       challengeId: newChallenge.id,
@@ -97,7 +96,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(newChallenge);
   } catch (error) {
-    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+    logRequestError(requestId, SERVICE_TYPE, error, {
       userId: userId!,
       operationPhase: "challenge_retrieval",
     });
@@ -122,7 +121,7 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
   }
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, method, FILE_PATH, userId);
+    logRequestStart(requestId, SERVICE_TYPE, method, userId);
     await connectIfNeeded();
 
     const today = getTodayDate();
@@ -152,7 +151,7 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
 
     // Validation using Number.isFinite for numeric checks
     if (!progress || !Number.isFinite(progress.wpm) || !Number.isFinite(progress.accuracy)) {
-      logRequestError(requestId, SERVICE_TYPE, "Invalid progress data", FILE_PATH, { userId });
+      logRequestError(requestId, SERVICE_TYPE, "Invalid progress data", { userId });
       return NextResponse.json({ error: "Invalid input data: wpm and accuracy are required and must be numbers" }, { status: 400 });
     }
 
@@ -161,7 +160,6 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
         requestId,
         SERVICE_TYPE,
         new Error("Challenge not found"),
-        FILE_PATH,
         { userId, status: 404 }
       );
       return NextResponse.json({ error: "Challenge not found" }, { status: 404 });
@@ -173,7 +171,6 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
         requestId,
         SERVICE_TYPE,
         new Error("Expired challenge"),
-        FILE_PATH,
         { userId, challengeDate: challenge.date, currentDate: today }
       );
       return NextResponse.json({ error: "Challenge expired" }, { status: 410 });
@@ -221,9 +218,9 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
       };
     }
 
-    await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(updatedChallenge));
+    await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(updatedChallenge));
 
-    logRequestSuccess(requestId, SERVICE_TYPE, method, FILE_PATH, {
+    logRequestSuccess(requestId, SERVICE_TYPE, method, {
       userId,
       challengeId: updatedChallenge.id,
       newStatus: updatedChallenge.status,
@@ -231,7 +228,7 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
 
     return NextResponse.json(updatedChallenge);
   } catch (error) {
-    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+    logRequestError(requestId, SERVICE_TYPE, error, {
       userId,
       operationPhase: `${method.toLowerCase()}_update`,
     });
@@ -255,14 +252,14 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    logRequestStart(requestId, SERVICE_TYPE, "DELETE", FILE_PATH, userId!);
+    logRequestStart(requestId, SERVICE_TYPE, "DELETE", userId!);
     await connectIfNeeded();
 
   const cacheKey = getCacheKey(userId!);
     const exists = await redis.exists(cacheKey);
 
     if (!exists) {
-      logRequestSuccess(requestId, SERVICE_TYPE, "DELETE", FILE_PATH, {
+      logRequestSuccess(requestId, SERVICE_TYPE, "DELETE", {
         userId: userId!,
         message: "No challenge found to delete",
       });
@@ -274,7 +271,7 @@ export async function DELETE(req: NextRequest) {
 
     const deletedCount = await redis.del(cacheKey);
 
-    logRequestSuccess(requestId, SERVICE_TYPE, "DELETE", FILE_PATH, {
+    logRequestSuccess(requestId, SERVICE_TYPE, "DELETE", {
       userId: userId!,
       cacheKey,
       deletedCount,
@@ -287,7 +284,7 @@ export async function DELETE(req: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    logRequestError(requestId, SERVICE_TYPE, error, FILE_PATH, {
+    logRequestError(requestId, SERVICE_TYPE, error, {
       userId: userId!,
       operationPhase: "challenge_deletion",
     });

@@ -1,5 +1,5 @@
 import prisma from '@/features/auth/lib/db';
-import client, { connectIfNeeded } from '@/lib/redis';
+import { redis as client, connectIfNeeded } from '@/lib/redis';
 import { PlayerProfile, User } from '@prisma/client';
 import { logging } from '@/log/ServerLogger';
 
@@ -172,8 +172,8 @@ export const updateUserLevel = async (userId: string, newLevel: number, newXP: n
 
     // Update cache
     logging.debug("Updating cache for level and XP", { userId });
-    await cacheLevel(`user:${userId}:level`, updatedProfile.level);
-    await cacheXP(`user:${userId}:xp`, updatedProfile.xp);
+    await cacheLevel(userId, updatedProfile.level);
+    await cacheXP(userId, updatedProfile.xp);
     logging.debug("Cache updated successfully", { userId });
 
     logging.info("Level update completed successfully", { userId });

@@ -80,16 +80,7 @@ export const sessionStatsService = {
       }
 
       // Prepare session data for API v1
-      const sessionPayload = {
-        wpm,
-        accuracy,
-        textLength: sessionData?.textLength || 100,
-        timeSpent: sessionData?.timeSpent || 60,
-        language: sessionData?.language || 'en',
-        mode: sessionData?.mode || 'normal',
-        mistakes: sessionData?.mistakes || 0,
-        corrections: sessionData?.corrections || 0,
-      };
+      const sessionPayload = await validateAndPrepareSessionData(userId, wpm, accuracy, sessionData);
 
       // Execute with circuit breaker protection. We dynamically import the
       // server-only circuit breaker/monitoring utilities only when running on
@@ -189,10 +180,11 @@ export const sessionStatsService = {
           ? (await import("@/monitoring/circuitBreaker")).sessionStatsCircuit.getStatus().state
           : "UNKNOWN";
       
-      logger.session.error(
-        "Failed to record session stats",
+      const errObj = error instanceof Error ? error : new Error(String(error));
+      logger.session.error("Failed to record session stats", errObj);
+      logger.session.info(
+        "Session error context",
         {
-          error: error instanceof Error ? error : new Error(String(error)),
           userId,
           sessionId,
           wpm,
@@ -278,3 +270,36 @@ export const sessionStatsService = {
     };
   }
 };
+
+
+async function validateAndPrepareSessionData(
+  userId: string, 
+  wpm: number, 
+  accuracy: number, 
+  sessionData?: Partial<EnhancedSessionData>
+) {
+  // تحقق من أن البيانات كاملة
+  if (!userId || typeof wpm !== 'number' || typeof accuracy !== 'number') {
+    throw new Error("Invalid session data: missing required fields");
+  }
+
+  const payload = {
+    wpm: Math.max(0, wpm),
+    accuracy: Math.max(0, Math.min(100, accuracy)),
+    textLength: sessionData?.textLength || 100,
+    timeSpent: sessionData?.timeSpent || 60,
+    language: sessionData?.language || 'en',
+    mode: sessionData?.mode || 'normal',
+    mistakes: sessionData?.mistakes || 0,
+    corrections: sessionData?.corrections || 0,
+  };
+
+  // تحقق إضافي للتأكد من صحة JSON
+  try {
+    JSON.stringify(payload);
+  } catch {
+    throw new Error("Invalid session data: cannot serialize to JSON");
+  }
+
+  return payload;
+}

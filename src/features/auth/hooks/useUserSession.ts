@@ -36,22 +36,22 @@ export const useUserSession = () => {
   }, []);
   
   const { data, error, isLoading, mutate } = useSWR(
-    mounted ? '/api/session' : null, // Only fetch after mount
-    fetcher, 
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: true,
-      refreshInterval: 300000, // 5 minutes
-      shouldRetryOnError: (error) => {
-        // Don't retry on authentication errors
-        if (error?.message?.includes('401')) return false;
-        return true;
-      },
-      errorRetryCount: 2,
-      errorRetryInterval: 5000,
-      dedupingInterval: 60000, // Dedupe requests for 1 minute
-    }
-  );
+  mounted ? '/api/session' : null,
+  fetcher, 
+  {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: true,
+    refreshInterval: 300000,
+    shouldRetryOnError: (error) => {
+      if (error?.message?.includes('401')) return false;
+      if (error?.message?.includes('500')) return false;  
+      return true;
+    },
+    errorRetryCount: 1, // قلل من عدد المحاولات
+    errorRetryInterval: 10000, // زد الفاصل بين المحاولات
+    dedupingInterval: 30000, // زد فترة منع التكرار إلى 30 ثانية
+  }
+);
 
   // Only log actual errors, not authentication failures
   if (error && !error.message?.includes('401')) {

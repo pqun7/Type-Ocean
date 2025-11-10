@@ -1,4 +1,6 @@
 // app/api/session/route.ts
+// export const runtime = 'edge';
+
 import { auth } from "@/features/auth/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { logging } from '@/log/ServerLogger';
