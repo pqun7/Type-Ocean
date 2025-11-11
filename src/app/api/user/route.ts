@@ -6,7 +6,6 @@ import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 
 const SERVICE_TYPE = "USER-API";
-const FILE_PATH = "src/app/api/user/route.ts";
 
 const UpdateUserSchema = z.object({
   username: z.string().min(1).max(50).optional(),

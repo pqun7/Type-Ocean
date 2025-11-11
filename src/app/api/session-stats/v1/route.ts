@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import { connectIfNeeded } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
-import { authorizeRequest } from "@/lib/auth-utils";
+import { authorizeRequest } from "@/app/api/shared";
 import {
   validateSessionData,
   sanitizeSessionData,
@@ -16,11 +16,12 @@ import {
   getSessionHistory,
   getDefaultLongTermStats,
   NormalizedSessionData
-} from "@/lib/session-stats";
+} from "@/helper/session-stats";
 
 const SERVICE_TYPE = "SESSION-STATS";
 // Constants now imported from session-stats helper module
 
+// in api/session-stats/v1/route.ts
 // Safe logging utilities for session stats
 const logStatsOperation = {
   start: (requestId: string, operation: string, userId?: string, metadata?: Record<string, unknown>) => {
@@ -49,6 +50,7 @@ const logStatsOperation = {
   }
 };
 
+// in api/session-stats/v1/route.ts
 /**
  * POST - Record a new typing session with cumulative long-term statistics
  */
@@ -74,11 +76,17 @@ export async function POST(req: NextRequest) {
   // User authentication
   const userId = await authorizeRequest(req);
   if (!userId) {
+
     logging.warn("Unauthorized stats update attempt", {
       requestId,
       endpoint,
       ip: req.headers.get("x-forwarded-for") || "unknown",
       userAgent: req.headers.get("user-agent") || "unknown",
+      headers: {
+        hasUserId: !!req.headers.get("x-user-id"),
+        hasAuth: !!req.headers.get("authorization"),
+        contentType: req.headers.get("content-type")
+      },
     });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -238,6 +246,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// in api/session-stats/v1/route.ts
 /**
  * GET - Retrieve user long-term session statistics and history
  */
@@ -320,4 +329,3 @@ export async function GET(req: NextRequest) {
 }
 
 
-// Helper functions removed; now sourced from '@/lib/session-stats'

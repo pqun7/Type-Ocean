@@ -1,8 +1,9 @@
-// lib/auth-utils.ts
+// shared.ts
 import { NextRequest } from "next/server";
 import { redis, connectIfNeeded } from "@/lib/redis";
 import { getTodayDate, getLocalMidnightTTL } from "@/features/auth/utils/timeUtils";
 import { logging } from "@/log/ServerLogger";
+
 
 // Expose a TTL getter so routes can evaluate it at runtime
 export const getCacheTTL = () =>
@@ -16,6 +17,8 @@ export const authorizeRequest = (req: NextRequest) => {
   const authHeader = req.headers.get("authorization");
 
   if (!userId) return false;
+
+  
 
   // Validate internal requests
   if (typeof window === "undefined" &&
@@ -60,6 +63,4 @@ export const logAuthOperation = {
   }
 };
 
-
-
-export { redis, connectIfNeeded, getTodayDate };
+export { redis, connectIfNeeded, getTodayDate};

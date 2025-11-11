@@ -13,11 +13,13 @@ import {
   getCacheKey,
   getCacheTTL,
   authorizeRequest,
+} from "@/app/api/shared";
+import {
   logRequestStart,
   logRequestSuccess,
   logRequestError,
-} from "@/app/api/challenge/v1/shared";
-import { getTodayDate } from "@/app/api/challenge/v1/shared";
+} from "@/log/loggingUtils";
+import { getTodayDate } from "@/app/api/shared";
 
 // Constants
 const CACHE_TTL = getCacheTTL();

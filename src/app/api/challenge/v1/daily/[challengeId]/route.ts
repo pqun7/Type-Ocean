@@ -9,11 +9,13 @@ import {
   getCacheKey,
   getCacheTTL,
   authorizeRequest,
+} from "@/app/api/shared";
+import {
   logRequestStart,
   logRequestSuccess,
   logRequestError,
-} from "@/app/api/challenge/v1/shared";
-import { getTodayDate } from "@/app/api/challenge/v1/shared";
+} from "@/log/loggingUtils";
+import { getTodayDate } from "@/app/api/shared";
 
 const SERVICE_TYPE = "DAILY-CHALLENGE-UPDATE";
 const CACHE_TTL = getCacheTTL();
@@ -158,7 +160,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
 
     // Save updated challenge to cache
-    await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(updatedChallenge));
+    await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(updatedChallenge));
 
     logRequestSuccess(requestId, SERVICE_TYPE, "PUT", {
       userId,
