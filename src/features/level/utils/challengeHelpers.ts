@@ -1,8 +1,8 @@
 // challengeHelpers.ts
-import { DailyChallenge } from "@/features/level/types/level";
+import type { DailyChallenge, SessionData } from "@/features/level/types/level";
 import { CHALLENGE_TYPE_WEIGHTS } from "../constants/level";
-import { connection } from "next/server";
 import { getChallengeXP } from "@/features/level/utils/xpMath";
+import { UPDATE_CHALLENGE_SCRIPT } from "@/constants/atomic";
 
 // Difficulty scaling factors
 const WPM_SCALE_FACTOR = 0.5;
@@ -29,15 +29,26 @@ export const generateDailyChallenge = async (
   userId: string,
   userLevel: number
 ): Promise<DailyChallenge> => {
-  await connection();
   const today = new Date().toISOString().split("T")[0];
 
   // Non-linear difficulty scaling with diminishing returns
   const challengeConfig = {
-    baseWPM: Math.min(MAX_WPM, MIN_WPM + Math.log1p(userLevel) * WPM_SCALE_FACTOR * 20),
-    baseAccuracy: Math.min(MAX_ACCURACY, 85 + Math.log1p(userLevel) * ACCURACY_SCALE_FACTOR),
-    baseLength: Math.min(MAX_LENGTH, MIN_LENGTH + Math.sqrt(userLevel) * LENGTH_SCALE_FACTOR),
-    baseTime: Math.min(MAX_TIME, MIN_TIME + Math.pow(userLevel, 0.7) * TIME_SCALE_FACTOR)
+    baseWPM: Math.min(
+      MAX_WPM,
+      MIN_WPM + Math.log1p(userLevel) * WPM_SCALE_FACTOR * 20
+    ),
+    baseAccuracy: Math.min(
+      MAX_ACCURACY,
+      85 + Math.log1p(userLevel) * ACCURACY_SCALE_FACTOR
+    ),
+    baseLength: Math.min(
+      MAX_LENGTH,
+      MIN_LENGTH + Math.sqrt(userLevel) * LENGTH_SCALE_FACTOR
+    ),
+    baseTime: Math.min(
+      MAX_TIME,
+      MIN_TIME + Math.pow(userLevel, 0.7) * TIME_SCALE_FACTOR
+    ),
   };
 
   const generateChallengeId = (userId: string, type: string) => {
@@ -53,12 +64,18 @@ export const generateDailyChallenge = async (
       id: generateChallengeId(userId, "speedCombo"),
       type: "speedCombo" as const,
       target: {
-        wpm: Math.min(MAX_WPM, Math.round(
-          challengeConfig.baseWPM * (1.1 + Math.random() * 0.15) // 10-25% above base
-        )),
-        accuracy: Math.min(MAX_ACCURACY, Math.round(
-          challengeConfig.baseAccuracy * (1.02 + Math.random() * 0.03) // 2-5% above base
-        ))
+        wpm: Math.min(
+          MAX_WPM,
+          Math.round(
+            challengeConfig.baseWPM * (1.1 + Math.random() * 0.15) // 10-25% above base
+          )
+        ),
+        accuracy: Math.min(
+          MAX_ACCURACY,
+          Math.round(
+            challengeConfig.baseAccuracy * (1.02 + Math.random() * 0.03) // 2-5% above base
+          )
+        ),
       },
       xp: getChallengeXP(userLevel),
       status: 0,
@@ -68,9 +85,12 @@ export const generateDailyChallenge = async (
     {
       id: generateChallengeId(userId, "marathon"),
       type: "marathon" as const,
-      target: Math.min(MAX_LENGTH, Math.round(
-        challengeConfig.baseLength * (1.2 + Math.random() * 0.3) // 20-50% above base
-      )),
+      target: Math.min(
+        MAX_LENGTH,
+        Math.round(
+          challengeConfig.baseLength * (1.2 + Math.random() * 0.3) // 20-50% above base
+        )
+      ),
       xp: getChallengeXP(userLevel),
       status: 0,
       weight: CHALLENGE_TYPE_WEIGHTS.marathon,
@@ -79,9 +99,12 @@ export const generateDailyChallenge = async (
     {
       id: generateChallengeId(userId, "timeAttack"),
       type: "timeAttack" as const,
-      target: Math.min(MAX_TIME, Math.round(
-        challengeConfig.baseTime * (0.7 + Math.random() * 0.3) // 70-100% of base
-      )),
+      target: Math.min(
+        MAX_TIME,
+        Math.round(
+          challengeConfig.baseTime * (0.7 + Math.random() * 0.3) // 70-100% of base
+        )
+      ),
       xp: getChallengeXP(userLevel),
       status: 0,
       weight: CHALLENGE_TYPE_WEIGHTS.timeAttack,
@@ -97,12 +120,15 @@ export const generateDailyChallenge = async (
     return random <= 0;
   })!;
 
-  // Base challenge structure
+  // Strip internal field 'weight' before constructing the public challenge object
+  const { weight: _ignoredWeight, ...selectedWithoutWeight } = selectedChallenge as any;
+
+  // Base challenge structure without leaking 'weight'
   const baseChallenge = {
-    ...selectedChallenge,
+    ...selectedWithoutWeight,
     date: today,
     difficulty: userLevel,
-    status: 0 as 0,
+    status: 0,
   };
 
   // Add progress tracking
@@ -114,7 +140,7 @@ export const generateDailyChallenge = async (
     case "speedCombo":
       return { ...baseChallenge, data: {} };
     default:
-      return baseChallenge;
+      return baseChallenge as DailyChallenge;
   }
 };
 
@@ -221,5 +247,90 @@ export const getChallengeStatusText = (
       return `Time Spent: ${progress.timeSpent}`;
     default:
       return "";
+  }
+};
+
+
+
+
+export async function atomicChallengeUpdate(
+  userId: string,
+  progress: SessionData,
+  operation: "increment" | "replace"
+): Promise<DailyChallenge> {
+  // Lazy-load server-only helpers to avoid client bundle issues
+  const shared = await import("@/app/api/shared");
+  const { redis, getCacheKey, getTodayDate, getCacheTTL } = shared;
+
+  const key = getCacheKey(userId);
+  const today = getTodayDate();
+  const ttl = getCacheTTL();
+
+  const result = await redis.eval(
+    UPDATE_CHALLENGE_SCRIPT,
+    1,
+    key,
+    JSON.stringify(progress),
+    operation,
+    today,
+    ttl.toString()
+  );
+
+  if (result === false) {
+    throw new Error("Challenge not found");
+  }
+  if (result === "expired") {
+    throw new Error("Challenge expired");
+  }
+
+  return JSON.parse(result as string);
+}
+
+
+export const challengeOperations = {
+  // Use Redis HINCRBY for numeric fields where possible
+  incrementProgress: async (userId: string, updates: Partial<SessionData>) => {
+    const shared = await import("@/app/api/shared");
+    const { redis, getCacheKey } = shared;
+
+    const key = getCacheKey(userId);
+    const pipeline = redis.pipeline();
+    
+    Object.entries(updates).forEach(([field, value]) => {
+      if (typeof value === 'number') {
+        pipeline.hincrby(`${key}:progress`, field, value);
+      }
+    });
+    
+    await pipeline.exec();
+  },
+  
+  // CAS (Compare-and-Set) pattern for complex updates
+  updateWithCAS: async (userId: string, updater: (challenge: DailyChallenge) => DailyChallenge) => {
+    const shared = await import("@/app/api/shared");
+    const { redis, getCacheKey, getCacheTTL } = shared;
+
+    const key = getCacheKey(userId);
+    const maxAttempts = 3;
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await redis.watch(key);
+      const current = await redis.get(key);
+      
+      if (!current) throw new Error('Challenge not found');
+      
+      const updated = updater(JSON.parse(current));
+      const multi = redis.multi();
+      
+      multi.setex(key, getCacheTTL(), JSON.stringify(updated));
+      
+      try {
+        const results = await multi.exec();
+        if (results) return updated;
+      } catch (error) {
+        // CAS conflict, retry
+        if (attempt === maxAttempts - 1) throw error;
+      }
+    }
   }
 };

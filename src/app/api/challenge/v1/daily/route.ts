@@ -20,6 +20,25 @@ import {
   logRequestError,
 } from "@/log/loggingUtils";
 import { getTodayDate } from "@/app/api/shared";
+import { getToken } from 'next-auth/jwt';
+
+
+export async function authenticateRequest(req: NextRequest) {
+  try {
+    const token = await getToken({ 
+      req,
+      secret: process.env.NEXTAUTH_SECRET
+    });
+    
+    if (!token?.sub) {
+      return { error: 'Unauthorized', status: 401 };
+    }
+    
+    return { userId: token.sub };
+  } catch {
+    return { error: 'Authentication failed', status: 500 };
+  }
+}
 
 // Constants
 const CACHE_TTL = getCacheTTL();
@@ -42,12 +61,14 @@ const generateDefaultChallenge = async (): Promise<DailyChallenge> => {
   };
 };
 
-// (authorizeRequest and getCacheKey are imported from shared)
-
 // ███ GET - Fetch daily challenge (optimized) ███
 export async function GET(req: NextRequest) {
   const requestId = uuidv4();
-  const userId = authorizeRequest(req);
+    const authResult = await authenticateRequest(req);
+  if (authResult.error) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+  }
+  const userId = authResult.userId;
 
 
   if (!userId) {
@@ -116,7 +137,7 @@ export const POST = (req: NextRequest) => handleChallengeUpdate(req, "POST");
 // Unified challenge update handler
 export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "PUT") => {
   const requestId = uuidv4();
-  const userId = authorizeRequest(req);
+  const userId = await authorizeRequest(req);
   
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -244,10 +265,35 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
 // Export wrapped handlers
 export const PUT = (req: NextRequest) => handleChallengeUpdate(req, "PUT");
 
+// Updated PATCH handler
+export async function PATCH(req: NextRequest) {
+  const authResult = await authenticateRequest(req);
+  if (authResult.error) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+  }
+
+  const userId = authResult.userId;
+  
+  try {
+    const { progress, operation = 'increment' } = await req.json();
+    
+    if (!progress) {
+      return NextResponse.json({ error: 'Progress data required' }, { status: 400 });
+    }
+
+    // Atomic update using Lua script
+    const result = await atomicChallengeUpdate(userId, progress, operation);
+    
+    return NextResponse.json(result);
+  } catch {
+    // Error handling
+  }
+}
+
 // ███ DELETE - Remove challenge ███
 export async function DELETE(req: NextRequest) {
   const requestId = uuidv4();
-  const userId = authorizeRequest(req);
+  const userId = await authorizeRequest(req);
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

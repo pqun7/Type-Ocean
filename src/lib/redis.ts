@@ -1,6 +1,7 @@
 // src/lib/redis.ts
 import Redis, { RedisOptions } from 'ioredis'; // <--- Fix 1: import RedisOptions
 import { logger } from '@/log/ServerLogger';
+import { LUA_UPDATE_STATS_SCRIPT } from "@/constants/atomic"
 
 // 3. (Important) Define the TypeScript interface
 // Must be in the global scope or here to work
@@ -180,94 +181,6 @@ class RedisManager {
 
   // <--- Fix 2: LUA logic moved here
   private defineLuaCommands() {
-    const LUA_UPDATE_STATS_SCRIPT = `
-    -- KEYS[1] = User stats key (e.g., user:longterm:USER_ID)
-    -- ARGV[1] = New WPM (string)
-    -- ARGV[2] = New Accuracy (string)
-    -- ARGV[3] = TimeSpent (string)
-    -- ARGV[4] = TextLength (string)
-    -- ARGV[5] = WordsTyped (calculated in Node.js) (string)
-    -- ARGV[6] = Current timestamp (ISO string)
-    -- ARGV[7] = TTL (seconds) (string)
-
-    local stats = redis.call('HGETALL', KEYS[1])
-    local current = {}
-    local newStatsPayload = {}
-
-    for i = 1, #stats, 2 do
-      current[stats[i]] = stats[i+1]
-    end
-
-    local newWPM = tonumber(ARGV[1])
-    local newAcc = tonumber(ARGV[2])
-    local timeSpent = tonumber(ARGV[3])
-    local textLength = tonumber(ARGV[4])
-    local wordsTyped = tonumber(ARGV[5])
-
-    local totalSessions
-    if #stats == 0 then
-      -- ===== New user =====
-      totalSessions = 1
-      newStatsPayload = {
-        "totalSessions", "1",
-        "totalTimeTyped", ARGV[3],
-        "totalWordsTyped", ARGV[5],
-        "totalCharactersTyped", ARGV[4],
-        "averageWPM", ARGV[1],
-        "averageAccuracy", ARGV[2],
-        "bestWPM", ARGV[1],
-        "bestWPMDate", ARGV[6],
-        "bestAccuracy", ARGV[2],
-        "bestAccuracyDate", ARGV[6],
-        "lastUpdated", ARGV[6]
-      }
-    else
-      -- ===== Existing user =====
-      local currentTotalSessions = tonumber(current.totalSessions) or 0
-      totalSessions = currentTotalSessions + 1
-      
-      local currentAvgWPM = tonumber(current.averageWPM) or 0
-      local currentAvgAcc = tonumber(current.averageAccuracy) or 0
-      local currentBestWPM = tonumber(current.bestWPM) or 0
-      local currentBestAcc = tonumber(current.bestAccuracy) or 0
-
-      -- Calculate new averages
-      local newAvgWPM = (currentAvgWPM * (totalSessions - 1) + newWPM) / totalSessions
-      local newAvgAcc = (currentAvgAcc * (totalSessions - 1) + newAcc) / totalSessions
-
-      newStatsPayload = {
-        "totalSessions", tostring(totalSessions),
-        "totalTimeTyped", tostring((tonumber(current.totalTimeTyped) or 0) + timeSpent),
-        "totalWordsTyped", tostring((tonumber(current.totalWordsTyped) or 0) + wordsTyped),
-        "totalCharactersTyped", tostring((tonumber(current.totalCharactersTyped) or 0) + textLength),
-        "averageWPM", tostring(math.floor(newAvgWPM * 100 + 0.5) / 100),
-        "averageAccuracy", tostring(math.floor(newAvgAcc * 100 + 0.5) / 100),
-        "lastUpdated", ARGV[6]
-      }
-
-      -- Update best values
-      if newWPM > currentBestWPM then
-        table.insert(newStatsPayload, "bestWPM")
-        table.insert(newStatsPayload, ARGV[1])
-        table.insert(newStatsPayload, "bestWPMDate")
-        table.insert(newStatsPayload, ARGV[6])
-      end
-      
-      if newAcc > currentBestAcc then
-        table.insert(newStatsPayload, "bestAccuracy")
-        table.insert(newStatsPayload, ARGV[2])
-        table.insert(newStatsPayload, "bestAccuracyDate")
-        table.insert(newStatsPayload, ARGV[6])
-      end
-    end
-
-    redis.call('HSET', KEYS[1], unpack(newStatsPayload))
-    redis.call('EXPIRE', KEYS[1], ARGV[7])
-
-    -- Return the updated data
-    return redis.call('HGETALL', KEYS[1])
-    `;
-
     // Define the custom command
     this.client.defineCommand("updateUserStats", {
       numberOfKeys: 1, // KEYS[1]

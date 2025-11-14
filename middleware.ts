@@ -159,6 +159,8 @@ function redirectWithSecurity(url: URL): NextResponse {
   return response
 }
 
+
+
 // 12. Middleware configuration - UPDATED to exclude ALL API routes
 export const config = {
   matcher: [
