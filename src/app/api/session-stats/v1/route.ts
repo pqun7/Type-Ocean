@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { connectIfNeeded } from "@/lib/redis";
+import { connectIfNeeded, redis } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { authorizeRequest } from "@/app/api/shared";
@@ -178,6 +178,29 @@ export async function POST(req: NextRequest) {
     userId,
     timestamp,
   };
+
+  // Idempotency based on X-Session-ID
+  const sessionId = req.headers.get("x-session-id");
+  if (sessionId) {
+    const idemKey = `session:processed:${sessionId}`;
+    try {
+      const already = await redis.get(idemKey);
+      if (already) {
+        const cachedLongTerm = await getLongTermCumulativeStats(userId);
+        return NextResponse.json({
+          success: true,
+          sessionId,
+          longTermStats: cachedLongTerm,
+          sessionStored: false,
+          timestamp: new Date().toISOString(),
+          idempotent: true
+        });
+      }
+      await redis.setex(idemKey, 300, "1");
+    } catch {
+      logging.warn("Idempotency key operation failed", { sessionId, userId });
+    }
+  }
 
   try {
     // Process long-term cumulative statistics and store session in parallel

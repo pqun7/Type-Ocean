@@ -7,16 +7,42 @@ import { v4 as uuidv4 } from "uuid";
 
 const SERVICE_TYPE = "USER-API";
 
+const usernameValidation = z
+  .string()
+  .trim()
+  .min(3, { message: "Username must be at least 3 characters" })
+  .max(20, { message: "Username cannot exceed 20 characters" })
+  .regex(/^[a-zA-Z0-9_]+$/, {
+    message: "Username can only contain letters, numbers, and underscores",
+  });
+
 const UpdateUserSchema = z.object({
-  username: z.string().min(1).max(50).optional(),
+  username: usernameValidation.optional(),
   email: z.string().email().optional(),
   profileData: z
     .object({
-      username: z.string().min(1).max(50).optional(),
-      avatar: z.string().optional(),
+      username: usernameValidation.optional(),
+      avatar: z
+        .string()
+        .url()
+        .max(2048, "Avatar URL too long")
+        .refine((v) => /^https?:\/\//i.test(v), "Avatar URL must be http(s)")
+        .optional(),
     })
     .optional(),
 });
+
+// Minimal CSRF validation for unsafe methods
+function validateCSRF(req: NextRequest): string | null {
+  const origin = req.headers.get("origin") || "";
+  const referer = req.headers.get("referer") || "";
+  const host = new URL(req.url).origin;
+
+  if (origin && origin !== host) return "Invalid origin";
+  if (referer && !referer.startsWith(host)) return "Invalid referer";
+  return null;
+}
+
 
 // Safe logging utilities for user operations
 const logUserOperation = {
@@ -51,6 +77,12 @@ const logUserOperation = {
  */
 export async function GET() {
   const requestId = uuidv4();
+
+   const { allowed, headers } = await applyRateLimit(req, "/api/user:GET");
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers });
+  }
+
 
   try {
     const session = await auth();
@@ -135,6 +167,18 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const requestId = uuidv4();
 
+  // Rate limit writes
+  const rl = await applyRateLimit(req, "/api/user:PATCH");
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: rl.headers });
+  }
+
+  // CSRF for unsafe method
+  const csrfError = validateCSRF(req);
+  if (csrfError) {
+    return NextResponse.json({ error: csrfError }, { status: 403 });
+  }
+
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -178,8 +222,37 @@ export async function PATCH(req: NextRequest) {
         profileData: !!profileData
       }
     });
+    
+    // Load current email for safe compare (avoid de-verifying on same email)
+    const currentUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { email: true },
+    });
+
+    // Username conflict check (missing previously)
+    if (username) {
+      const existingUsername = await prisma.user.findFirst({
+        where: {
+          username: username.toLowerCase(),
+          id: { not: session.user.id },
+        },
+        select: { id: true },
+      });
+      if (existingUsername) {
+        // Use safe debug logger for sensitive values
+        logging.debugSensitive("Username already in use", {
+          requestId,
+          userId: session.user.id,
+        });
+        return NextResponse.json(
+          { error: "Username already in use" },
+          { status: 409 }
+        );
+      }
+    }
 
     // Check if email is already taken by another user
+     // Email conflict check (keep existing, but avoid logging raw email)
     if (email) {
       const existingUser = await prisma.user.findFirst({
         where: {
@@ -189,9 +262,10 @@ export async function PATCH(req: NextRequest) {
       });
 
       if (existingUser) {
-        logUserOperation.error(requestId, "update_user_profile", new Error("Email already in use"), {
+        // Safer PII handling
+        logging.debugSensitive("Email already in use", {
+          requestId,
           userId: session.user.id,
-          attemptedEmail: email
         });
         return NextResponse.json(
           { error: "Email already in use" },

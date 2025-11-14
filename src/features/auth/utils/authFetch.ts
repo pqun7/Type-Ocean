@@ -30,18 +30,24 @@ export async function authFetch<T = unknown>(
   try {
     const headers = new Headers(options.headers);
     
-    // Security: Always validate user ID
-    if (!options.userId) throw new Error("Missing user ID");
-    // Fix: Use lowercase header name to match API expectation
-    headers.set("x-user-id", options.userId);
+    const isServer = typeof window === "undefined";
+    const internalSecret = process.env.API_INTERNAL_SECRET;
+
+    // Server-to-server: require userId + secret
+    if (isServer) {
+      if (!options.userId) {
+        throw new Error("Missing user ID");
+      }
+      if (!internalSecret) {
+        throw new Error("Missing internal secret");
+      }
+      headers.set("x-user-id", options.userId);
+      headers.set("Authorization", `Bearer ${internalSecret}`);
+    }
+    // Client: rely on cookies; do NOT attach spoofable user id header
 
     if (options.requestId) {
       headers.set("x-request-id", options.requestId);
-    }
-
-    // Server-side authentication
-    if (typeof window === "undefined") {
-      headers.set("Authorization", `Bearer ${process.env.API_INTERNAL_SECRET}`);
     }
 
     const response = await fetch(url, {
