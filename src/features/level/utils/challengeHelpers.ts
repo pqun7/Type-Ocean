@@ -1,8 +1,6 @@
-// challengeHelpers.ts
-import type { DailyChallenge, SessionData } from "@/features/level/types/level";
+import type { DailyChallenge } from "@/features/level/types/level";
 import { CHALLENGE_TYPE_WEIGHTS } from "../constants/level";
 import { getChallengeXP } from "@/features/level/utils/xpMath";
-import { UPDATE_CHALLENGE_SCRIPT } from "@/constants/atomic";
 
 // Difficulty scaling factors
 const WPM_SCALE_FACTOR = 0.5;
@@ -18,6 +16,25 @@ const MAX_TIME = 1800; // 30 minutes
 const MIN_WPM = 50;
 const MIN_LENGTH = 300;
 const MIN_TIME = 300; // 5 minutes
+
+// Define proper types for progress objects
+interface SpeedComboProgress {
+  wpm?: number;
+  accuracy?: number;
+  completed?: boolean;
+}
+
+interface MarathonProgress {
+  charactersTyped?: number;
+  completed?: boolean;
+}
+
+interface TimeAttackProgress {
+  timeSpent?: number;
+  completed?: boolean;
+}
+
+type ChallengeProgress = SpeedComboProgress | MarathonProgress | TimeAttackProgress;
 
 /**
  * Generates a personalized daily challenge based on user level
@@ -184,10 +201,17 @@ export const validateChallenge = (challenge: DailyChallenge): boolean => {
  */
 export const calculateChallengeStatus = (
   challenge: DailyChallenge,
-  progress: any
+  progress: ChallengeProgress
 ): 0 | 1 | -1 => {
   if (isChallengeCompleted(challenge, progress)) return 1; // Completed
-  return Object.values(progress).some((v: any) => v > 0) ? -1 : 0; // In progress or not started
+  
+  // Check if any progress values exist
+  const hasProgress = Object.values(progress).some((v) => {
+    if (typeof v === 'number') return v > 0;
+    return false;
+  });
+  
+  return hasProgress ? -1 : 0; // In progress or not started
 };
 
 /**
@@ -198,29 +222,33 @@ export const calculateChallengeStatus = (
  */
 export const isChallengeCompleted = (
   challenge: DailyChallenge,
-  progress: any
+  progress: ChallengeProgress
 ): boolean => {
   switch (challenge.type) {
     case "speedCombo":
+      const speedTarget = challenge.target as { wpm: number; accuracy: number };
+      const speedProgress = progress as SpeedComboProgress;
       return (
-        typeof progress === "object" &&
-        typeof challenge.target === "object" &&
-        progress.wpm >= challenge.target.wpm &&
-        progress.accuracy >= challenge.target.accuracy
+        typeof speedProgress.wpm === 'number' &&
+        typeof speedProgress.accuracy === 'number' &&
+        speedProgress.wpm >= speedTarget.wpm &&
+        speedProgress.accuracy >= speedTarget.accuracy
       );
 
     case "marathon":
+      const marathonTarget = challenge.target as number;
+      const marathonProgress = progress as MarathonProgress;
       return (
-        typeof progress === "object" &&
-        typeof challenge.target === "number" &&
-        progress.charactersTyped >= challenge.target
+        typeof marathonProgress.charactersTyped === 'number' &&
+        marathonProgress.charactersTyped >= marathonTarget
       );
 
     case "timeAttack":
+      const timeTarget = challenge.target as number;
+      const timeProgress = progress as TimeAttackProgress;
       return (
-        typeof progress === "object" &&
-        typeof challenge.target === "number" &&
-        progress.timeSpent >= challenge.target
+        typeof timeProgress.timeSpent === 'number' &&
+        timeProgress.timeSpent >= timeTarget
       );
 
     default:
@@ -236,101 +264,19 @@ export const isChallengeCompleted = (
  */
 export const getChallengeStatusText = (
   challenge: DailyChallenge,
-  progress: any
+  progress: ChallengeProgress
 ): string => {
   switch (challenge.type) {
     case "speedCombo":
-      return `WPM: ${progress.wpm} / Accuracy: ${progress.accuracy}`;
+      const speedProgress = progress as SpeedComboProgress;
+      return `WPM: ${speedProgress.wpm ?? 0} / Accuracy: ${speedProgress.accuracy ?? 0}%`;
     case "marathon":
-      return `Characters Typed: ${progress.charactersTyped}`;
+      const marathonProgress = progress as MarathonProgress;
+      return `Characters Typed: ${marathonProgress.charactersTyped ?? 0}`;
     case "timeAttack":
-      return `Time Spent: ${progress.timeSpent}`;
+      const timeProgress = progress as TimeAttackProgress;
+      return `Time Spent: ${timeProgress.timeSpent ?? 0}s`;
     default:
-      return "";
-  }
-};
-
-
-
-
-export async function atomicChallengeUpdate(
-  userId: string,
-  progress: SessionData,
-  operation: "increment" | "replace"
-): Promise<DailyChallenge> {
-  // Lazy-load server-only helpers to avoid client bundle issues
-  const shared = await import("@/app/api/shared");
-  const { redis, getCacheKey, getTodayDate, getCacheTTL } = shared;
-
-  const key = getCacheKey(userId);
-  const today = getTodayDate();
-  const ttl = getCacheTTL();
-
-  const result = await redis.eval(
-    UPDATE_CHALLENGE_SCRIPT,
-    1,
-    key,
-    JSON.stringify(progress),
-    operation,
-    today,
-    ttl.toString()
-  );
-
-  if (result === false) {
-    throw new Error("Challenge not found");
-  }
-  if (result === "expired") {
-    throw new Error("Challenge expired");
-  }
-
-  return JSON.parse(result as string);
-}
-
-
-export const challengeOperations = {
-  // Use Redis HINCRBY for numeric fields where possible
-  incrementProgress: async (userId: string, updates: Partial<SessionData>) => {
-    const shared = await import("@/app/api/shared");
-    const { redis, getCacheKey } = shared;
-
-    const key = getCacheKey(userId);
-    const pipeline = redis.pipeline();
-    
-    Object.entries(updates).forEach(([field, value]) => {
-      if (typeof value === 'number') {
-        pipeline.hincrby(`${key}:progress`, field, value);
-      }
-    });
-    
-    await pipeline.exec();
-  },
-  
-  // CAS (Compare-and-Set) pattern for complex updates
-  updateWithCAS: async (userId: string, updater: (challenge: DailyChallenge) => DailyChallenge) => {
-    const shared = await import("@/app/api/shared");
-    const { redis, getCacheKey, getCacheTTL } = shared;
-
-    const key = getCacheKey(userId);
-    const maxAttempts = 3;
-    
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await redis.watch(key);
-      const current = await redis.get(key);
-      
-      if (!current) throw new Error('Challenge not found');
-      
-      const updated = updater(JSON.parse(current));
-      const multi = redis.multi();
-      
-      multi.setex(key, getCacheTTL(), JSON.stringify(updated));
-      
-      try {
-        const results = await multi.exec();
-        if (results) return updated;
-      } catch (error) {
-        // CAS conflict, retry
-        if (attempt === maxAttempts - 1) throw error;
-      }
-    }
+      return "No progress data";
   }
 };

@@ -1,3 +1,4 @@
+// src/features/auth/lib/actions.ts
 "use server";
 
 import { signUpSchema } from "@/schemas/authSchema";

@@ -1,4 +1,3 @@
-// api/challenge/v1/daily/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   generateDailyChallenge,
@@ -13,15 +12,15 @@ import {
   getCacheKey,
   getCacheTTL,
   authorizeRequest,
-} from "@/app/api/shared";
+  getTodayDate,
+} from "@/app/api/shared.server"; // Changed import
 import {
   logRequestStart,
   logRequestSuccess,
   logRequestError,
 } from "@/log/loggingUtils";
-import { getTodayDate } from "@/app/api/shared";
 import { getToken } from 'next-auth/jwt';
-
+import { atomicChallengeUpdate } from "@/features/level/utils/challengeServer"; // Changed import
 
 export async function authenticateRequest(req: NextRequest) {
   try {
@@ -46,7 +45,6 @@ const FALLBACK_TTL = 300; // 5 minutes fallback cache
 const SERVICE_TYPE = "DAILY-CHALLENGE";
 const PARALLEL_OPS = process.env.REDIS_PARALLEL === "true";
 
-
 // Helper function to generate default challenge when user level is unavailable
 const generateDefaultChallenge = async (): Promise<DailyChallenge> => {
   return {
@@ -64,12 +62,11 @@ const generateDefaultChallenge = async (): Promise<DailyChallenge> => {
 // ███ GET - Fetch daily challenge (optimized) ███
 export async function GET(req: NextRequest) {
   const requestId = uuidv4();
-    const authResult = await authenticateRequest(req);
+  const authResult = await authenticateRequest(req);
   if (authResult.error) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
   const userId = authResult.userId;
-
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -274,6 +271,11 @@ export async function PATCH(req: NextRequest) {
 
   const userId = authResult.userId;
   
+  // Add null check for userId
+  if (!userId) {
+    return NextResponse.json({ error: "User ID not found" }, { status: 400 });
+  }
+  
   try {
     const { progress, operation = 'increment' } = await req.json();
     
@@ -281,12 +283,25 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Progress data required' }, { status: 400 });
     }
 
+    // Validate progress data structure
+    if (typeof progress !== 'object' || progress === null) {
+      return NextResponse.json({ error: 'Invalid progress data format' }, { status: 400 });
+    }
+
     // Atomic update using Lua script
-    const result = await atomicChallengeUpdate(userId, progress, operation);
+    const result = await atomicChallengeUpdate(userId, progress as SessionData, operation);
     
     return NextResponse.json(result);
-  } catch {
-    // Error handling
+  } catch (error) {
+    logRequestError(uuidv4(), "DAILY-CHALLENGE", error, {
+      userId,
+      operationPhase: "PATCH_update",
+    });
+    
+    return NextResponse.json(
+      { error: "Failed to update challenge" },
+      { status: 500 }
+    );
   }
 }
 

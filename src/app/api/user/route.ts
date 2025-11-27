@@ -4,6 +4,8 @@ import { logging } from "@/log/ServerLogger";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
+import { rateLimiter } from "@/lib/rate-limiter"
+
 
 const SERVICE_TYPE = "USER-API";
 
@@ -75,10 +77,10 @@ const logUserOperation = {
 /**
  * GET - Get current user profile
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const requestId = uuidv4();
 
-   const { allowed, headers } = await applyRateLimit(req, "/api/user:GET");
+   const { allowed, headers } = await rateLimiter.applyRateLimit(req, "/api/user:GET");
   if (!allowed) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers });
   }
@@ -168,7 +170,7 @@ export async function PATCH(req: NextRequest) {
   const requestId = uuidv4();
 
   // Rate limit writes
-  const rl = await applyRateLimit(req, "/api/user:PATCH");
+  const rl = await rateLimiter.applyRateLimit(req, "/api/user:PATCH");
   if (!rl.allowed) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: rl.headers });
   }
@@ -274,11 +276,15 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    // Determine if email actually changed (avoid de-verifying on same email)
+    const emailChanged = !!(email && email !== currentUser?.email);
+
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
       data: {
         ...(username && { username }),
-        ...(email && { email, emailVerified: null }), // Reset verification if email changed
+        ...(email && emailChanged && { email, emailVerified: null }),
+        ...(email && !emailChanged && { email }), // keep verification status
       },
       select: {
         id: true,
@@ -310,8 +316,10 @@ export async function PATCH(req: NextRequest) {
 
     logUserOperation.success(requestId, "update_user_profile", {
       userId: updatedUser.id,
-      fieldsUpdated: Object.keys(validationResult.data).filter(key => validationResult.data[key as keyof typeof validationResult.data]),
-      emailChanged: !!email,
+      fieldsUpdated: Object.keys(validationResult.data).filter(
+        key => validationResult.data[key as keyof typeof validationResult.data]
+      ),
+      emailChanged,
     });
 
     return NextResponse.json({

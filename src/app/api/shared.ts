@@ -1,16 +1,16 @@
-// shared.ts
 import { NextRequest } from "next/server";
-import { redis, connectIfNeeded } from "@/lib/redis";
-import { getTodayDate, getLocalMidnightTTL } from "@/features/auth/utils/timeUtils";
-import { logging } from "@/log/ServerLogger";
 
+// Client-safe utilities only
+export const getCacheTTL = () => {
+  // This is a client-safe version that returns a default
+  // The actual implementation is in shared.server.ts
+  return process.env.NODE_ENV === "development" ? 60 : 86400; // 24 hours in seconds
+};
 
-// Expose a TTL getter so routes can evaluate it at runtime
-export const getCacheTTL = () =>
-  process.env.NODE_ENV === "development" ? 60 : getLocalMidnightTTL();
-
-export const getCacheKey = (userId: string) =>
-  `dailyChallenge:${userId}:${getTodayDate()}`;
+export const getCacheKey = (userId: string) => {
+  const today = new Date().toISOString().split('T')[0];
+  return `dailyChallenge:${userId}:${today}`;
+};
 
 export const authorizeRequest = (req: NextRequest) => {
   const userId = req.headers.get("x-user-id");
@@ -18,9 +18,7 @@ export const authorizeRequest = (req: NextRequest) => {
 
   if (!userId) return false;
 
-  
-
-  // Validate internal requests
+  // Validate internal requests - this will only run on server
   if (typeof window === "undefined" &&
       authHeader !== `Bearer ${process.env.API_INTERNAL_SECRET}`) {
     return false;
@@ -41,26 +39,23 @@ export async function clientAuthFetch<T = unknown>(
   });
 
   if (!response.ok) {
-    // Handle errors...
+    throw new Error(`HTTP error! status: ${response.status}`);
   }
   
   return response.json();
 }
 
-
 // Safe logging utilities for auth operations
 export const logAuthOperation = {
   start: (operation: string, metadata?: Record<string, unknown>) => {
-    logging.debugSensitive(`Auth operation started: ${operation}`, metadata || {});
+    console.log(`Auth operation started: ${operation}`, metadata || {});
   },
   
   success: (operation: string, metadata?: Record<string, unknown>) => {
-    logging.debugSensitive(`Auth operation completed: ${operation}`, metadata || {});
+    console.log(`Auth operation completed: ${operation}`, metadata || {});
   },
   
   error: (operation: string, error: unknown, metadata?: Record<string, unknown>) => {
-    logging.error(`Auth operation failed: ${operation}`, error, metadata);
+    console.error(`Auth operation failed: ${operation}`, error, metadata);
   }
 };
-
-export { redis, connectIfNeeded, getTodayDate};

@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import { connectIfNeeded, redis } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
-import { authorizeRequest } from "@/app/api/shared";
+import { authorizeRequest } from "@/app/api/shared.server";
 import {
   validateSessionData,
   sanitizeSessionData,
