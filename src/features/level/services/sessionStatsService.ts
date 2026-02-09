@@ -5,8 +5,6 @@ import { authFetch } from "@/features/auth/utils/authFetch";
 // server monitoring utilities at runtime when running on the server. This
 // prevents ServerLogger from being included in client bundles.
 // NOTE: do not import server-only monitoring here (see dynamic import below)
-import { logger } from "@/log/clientLogger";
-import * as Sentry from "@sentry/nextjs";
 
 export type LongTermStats = {
   totalSessions: number;
@@ -104,10 +102,10 @@ export const sessionStatsService = {
             });
           },
           async () => {
-            logger.session.warn(
-              "Using fallback session stats due to circuit breaker",
-              { userId, sessionId }
-            );
+            // logger.session.warn(
+            //   "Using fallback session stats due to circuit breaker",
+            //   { userId, sessionId }
+            // );
 
             const fallbackLongTermStats: LongTermStats = {
               totalSessions: 1,
@@ -156,10 +154,10 @@ export const sessionStatsService = {
         mod.productionMonitor.recordApiHealth("SessionStats", "/api/session-stats/v1", "success", duration);
       }
       
-      logger.session.info(
-        "Session stats recorded successfully",
-        { userId, sessionId, duration: `${duration}ms`, stats: longTermStats }
-      );
+      // logger.session.info(
+      //   "Session stats recorded successfully",
+      //   { userId, sessionId, duration: `${duration}ms`, stats: longTermStats }
+      // );
 
       return longTermStats;
 
@@ -181,36 +179,21 @@ export const sessionStatsService = {
           : "UNKNOWN";
       
       const errObj = error instanceof Error ? error : new Error(String(error));
-      logger.session.error("Failed to record session stats", errObj);
-      logger.session.info(
-        "Session error context",
-        {
-          userId,
-          sessionId,
-          wpm,
-          accuracy,
-          duration: `${duration}ms`,
-          errorMessage,
-          circuitState,
-        }
-      );
+      // logger.session.error("Failed to record session stats", errObj);
+      // logger.session.info(
+      //   "Session error context",
+      //   {
+      //     userId,
+      //     sessionId,
+      //     wpm,
+      //     accuracy,
+      //     duration: `${duration}ms`,
+      //     errorMessage,
+      //     circuitState,
+      //   }
+      // );
       
-      // Capture error in Sentry with enhanced context
-      Sentry.captureException(error, {
-        tags: {
-          service: "session-stats",
-          operation: "recordSession",
-          circuitState,
-        },
-        user: { id: userId },
-        extra: {
-          sessionId,
-          wpm,
-          accuracy,
-          duration,
-          errorMessage,
-        },
-      });
+     
 
       // Provide specific error messages based on error type
       if (errorMessage.includes("timeout")) {

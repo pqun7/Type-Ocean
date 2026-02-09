@@ -11,7 +11,7 @@ import { calculateNextLevelXP } from "@/features/level/utils/xpMath";
 export const levelReducer = (state: LevelState, action: LevelAction): LevelState => {
   switch (action.type) {
     case "ADD_XP": {
-      let { userXP: currentXP, level: currentLevel } = state;
+      const { userXP: currentXP, level: currentLevel } = state;
       let totalXP = currentXP + action.amount;
       let nextLevel = currentLevel;
       

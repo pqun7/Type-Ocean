@@ -1,4 +1,3 @@
-import * as Sentry from "@sentry/nextjs";
 
 type AuthFetchOptions = RequestInit & {
   timeout?: number;
@@ -82,16 +81,6 @@ export async function authFetch<T = unknown>(
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error("Request timeout");
     }
-    
-    Sentry.captureException(error, {
-      tags: { endpoint: url },
-      user: { id: options.userId },
-      extra: {
-        timeout,
-        url,
-        method: options.method || 'GET'
-      }
-    });
     
     // Re-throw the original error instead of masking it
     throw error;
