@@ -139,6 +139,23 @@ export default function useTypingLogic(
         elapsedTime: Math.floor(activeTime / 1000),
       }));
 
+      // Persist last result for smarter text selection on the client.
+      try {
+        if (typeof window !== "undefined" && window.localStorage) {
+          window.localStorage.setItem(
+            `typing:lastResult:${selectedLevel}`,
+            JSON.stringify({
+              wpm,
+              accuracy,
+              ts: Date.now(),
+              textLength: text.length,
+            })
+          );
+        }
+      } catch {
+        // Ignore storage failures (private mode, quota, etc.)
+      }
+
       commitSession(); // UI-related commit for all users
 
       // Only for authenticated users
