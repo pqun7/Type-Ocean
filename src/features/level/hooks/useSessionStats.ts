@@ -1,16 +1,39 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { sessionStatsService, type LongTermStats } from "../services/sessionStatsService";
-import { useUserSession } from "@/features/auth/hooks/useUserSession";
 import { logger } from "@/log/clientLogger";
 
 /**
  * Custom hook to record session statistics with enhanced error handling and validation
  * @returns Object containing the recordSessionStats function and service health status
  */
-export const useSessionStats = () => {
-  const { userId } = useUserSession();
+export const useSessionStats = (userId?: string) => {
+
+  const inFlightRef = useRef<Promise<LongTermStats> | null>(null);
+  const pendingRef = useRef<{
+    wpm: number;
+    accuracy: number;
+    sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number };
+  } | null>(null);
+
+  const buildFallback = (
+    wpm: number,
+    accuracy: number,
+    sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number }
+  ): LongTermStats => ({
+    totalSessions: 1,
+    totalTimeTyped: sessionData?.timeSpent || 60,
+    totalWordsTyped: Math.round(wpm * ((sessionData?.timeSpent || 60) / 60)),
+    totalCharactersTyped: sessionData?.textLength || 100,
+    averageWPM: Math.max(0, Math.min(500, wpm)),
+    averageAccuracy: Math.max(0, Math.min(100, accuracy)),
+    bestWPM: Math.max(0, Math.min(500, wpm)),
+    bestWPMDate: new Date().toISOString(),
+    bestAccuracy: Math.max(0, Math.min(100, accuracy)),
+    bestAccuracyDate: new Date().toISOString(),
+    lastUpdated: new Date().toISOString(),
+  });
 
   const recordSessionStats = useCallback(
     async (wpm: number, accuracy: number, sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number }): Promise<LongTermStats> => {
@@ -35,6 +58,18 @@ export const useSessionStats = () => {
             bestAccuracyDate: null,
             lastUpdated: new Date().toISOString(),
           };
+        }
+
+        // Serialize calls: if a previous session is still being recorded,
+        // queue the latest one and return immediately (non-blocking).
+        if (inFlightRef.current) {
+          pendingRef.current = { wpm, accuracy, sessionData };
+          logger.session.debug("Session stats request queued (previous still in-flight)", {
+            userId,
+            sessionId: sessionData?.sessionId,
+            context: "SESSION_STATS",
+          });
+          return buildFallback(wpm, accuracy, sessionData);
         }
 
         // Client-side validation before sending to service
@@ -99,18 +134,21 @@ export const useSessionStats = () => {
           }
         );
 
-        // Use enhanced service with circuit breaker protection
-        const result = await sessionStatsService.recordSession(
-          userId, 
-          wpm, 
+        const requestPromise = sessionStatsService.recordSession(
+          userId,
+          wpm,
           accuracy,
-          { 
-            sessionId: sessionData?.sessionId || crypto.randomUUID(), 
+          {
+            sessionId: sessionData?.sessionId || crypto.randomUUID(),
             timestamp: Date.now(),
             textLength: sessionData?.textLength,
             timeSpent: sessionData?.timeSpent,
           }
         );
+
+        inFlightRef.current = requestPromise;
+
+        const result = await requestPromise;
         
         // Validate response data integrity
         if (!sessionStatsService.validateLongTermStats(result)) {
@@ -150,55 +188,52 @@ export const useSessionStats = () => {
         
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        logger.session.error(
-          "Failed to record session stats",
-          
-          error instanceof Error ? error : new Error(String(error)),
-          {
-            userId,
-            wpm,
-            accuracy,
-            sessionId: sessionData?.sessionId,
-            context: "SESSION_STATS",
-            errorMessage,
-            serviceHealth: sessionStatsService.getServiceHealth()
-          }
-        );
+
+        const isNetworkish =
+          errorMessage.includes("timeout") ||
+          errorMessage.includes("Request timeout") ||
+          errorMessage.includes("connection") ||
+          errorMessage.includes("Circuit breaker") ||
+          errorMessage.includes("Too many requests") ||
+          errorMessage.includes("Server error");
+
+        // Background telemetry: avoid surfacing as a noisy red console error.
+        const meta = {
+          userId,
+          wpm,
+          accuracy,
+          sessionId: sessionData?.sessionId,
+          context: "SESSION_STATS",
+          errorMessage,
+          serviceHealth: sessionStatsService.getServiceHealth(),
+        };
+
+        if (isNetworkish) {
+          logger.session.warn("Failed to record session stats", meta);
+        } else {
+          logger.session.error("Failed to record session stats", new Error(errorMessage), meta);
+        }
         
         // Enhanced fallback handling based on error type
-        if (errorMessage.includes("timeout") || 
-            errorMessage.includes("connection") || 
-            errorMessage.includes("Circuit breaker")) {
-          
-          logger.session.warn(
-            "Network/service issue detected, providing fallback stats",
-            { userId, sessionId: sessionData?.sessionId, context: "SESSION_STATS", errorType: "network" }
-          );
-          
-          // Return calculated fallback values with local validation
-          return { 
-            totalSessions: 1,
-            totalTimeTyped: sessionData?.timeSpent || 60,
-            totalWordsTyped: Math.round(wpm * ((sessionData?.timeSpent || 60) / 60)),
-            totalCharactersTyped: sessionData?.textLength || 100,
-            averageWPM: Math.max(0, Math.min(500, wpm)), 
-            averageAccuracy: Math.max(0, Math.min(100, accuracy)), 
-            bestWPM: wpm,
-            bestWPMDate: new Date().toISOString(),
-            bestAccuracy: accuracy,
-            bestAccuracyDate: new Date().toISOString(),
-            lastUpdated: new Date().toISOString(),
-          };
+        return buildFallback(wpm, accuracy, sessionData);
+      } finally {
+        // Release in-flight lock and flush a single pending request (latest wins)
+        if (inFlightRef.current) {
+          inFlightRef.current = null;
         }
-        
-        // For authentication or validation errors, provide user-friendly message
-        if (errorMessage.includes("Authentication") || errorMessage.includes("Invalid")) {
-          throw new Error("Unable to save session statistics. Please refresh and try again.");
+
+        const pending = pendingRef.current;
+        if (pending && userId) {
+          pendingRef.current = null;
+          // Fire-and-forget: do not block UI; serialize naturally.
+          void (async () => {
+            try {
+              await recordSessionStats(pending.wpm, pending.accuracy, pending.sessionData);
+            } catch {
+              // Swallow: recordSessionStats already handles fallback/logging.
+            }
+          })();
         }
-        
-        // For other errors, provide generic fallback
-        throw new Error("Unable to save session statistics. Your progress is still recorded locally.");
       }
     },
     [userId]

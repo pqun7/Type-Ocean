@@ -11,7 +11,7 @@ export default function useCaret(userInput: string, text: string) {
     const nextCharRef = textRefs.current[caretIndex];
   
     if (!currentCharRef && nextCharRef) {
-      return { x: nextCharRef.offsetLeft, y: nextCharRef.offsetTop + 4 };
+      return { x: nextCharRef.offsetLeft, y: nextCharRef.offsetTop + 6.5 };
     }
   
     if (!currentCharRef) {
@@ -19,12 +19,12 @@ export default function useCaret(userInput: string, text: string) {
     }
   
     if (nextCharRef && nextCharRef.offsetTop > currentCharRef.offsetTop) {
-      return { x: nextCharRef.offsetLeft, y: nextCharRef.offsetTop + 4 };
+      return { x: nextCharRef.offsetLeft, y: nextCharRef.offsetTop + 6.5 };
     }
   
     return {
       x: currentCharRef.offsetLeft + currentCharRef.offsetWidth,
-      y: currentCharRef.offsetTop + 4,
+      y: currentCharRef.offsetTop + 6.5,
     };
   }, [userInput, text]);
 

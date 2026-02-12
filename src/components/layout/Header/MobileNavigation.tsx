@@ -18,6 +18,7 @@ interface MobileNavigationProps {
     isMenuOpen: boolean;
     setIsMenuOpen: (open: boolean) => void;
     isLoggedIn: boolean;
+  isAuthLoading?: boolean;
     scrollY: MotionValue<number>;
   }
   
@@ -27,14 +28,21 @@ const MobileNavigation: React.FC<MobileNavigationProps> = ({
     setIsMenuOpen,
     scrollY,
     isLoggedIn,
+  isAuthLoading,
   }) => {
     const marginAdjust = useSpring(
       useTransform(scrollY, SCROLL_RANGE, [0, -40]),
       SPRING_CONFIG
     );
-    const filteredNavigation = navigation.filter(
-      (item) => !(isLoggedIn && item.isLoggedIn === false)
-    );
+    const filteredNavigation = navigation.filter((item) => {
+      if (isAuthLoading) {
+        // While auth is unknown, show only public links.
+        return item.isLoggedIn === undefined;
+      }
+      if (item.isLoggedIn === true) return isLoggedIn;
+      if (item.isLoggedIn === false) return !isLoggedIn;
+      return true;
+    });
   
     return (
       <>

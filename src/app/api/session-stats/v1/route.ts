@@ -128,23 +128,50 @@ export async function POST(req: NextRequest) {
   }
 
   // JSON parsing with error handling
-  let sessionData;
+  let sessionData: unknown;
   try {
-    sessionData = await req.json();
+    const raw = await req.text();
+    const contentLengthHeader = req.headers.get("content-length");
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : undefined;
+    if (!raw) {
+      logStatsOperation.error(requestId, "record_session", new Error("Empty request body"), {
+        userId,
+        operationPhase: "json_parsing",
+        contentLength,
+      });
+      return NextResponse.json({ error: "Empty request body" }, { status: 400 });
+    }
+
+    try {
+      sessionData = JSON.parse(raw);
+    } catch (error) {
+      logStatsOperation.error(requestId, "record_session", error, {
+        userId,
+        operationPhase: "json_parsing",
+        contentLength,
+        rawLength: raw.length,
+        bodyPreview: raw.slice(0, 200),
+      });
+      return NextResponse.json(
+        { error: "Invalid JSON format in request body" },
+        { status: 400 }
+      );
+    }
   } catch (error) {
     logStatsOperation.error(requestId, "record_session", error, {
       userId,
-      operationPhase: "json_parsing"
+      operationPhase: "json_parsing",
+      contentLength: req.headers.get("content-length"),
     });
     return NextResponse.json(
-      { error: "Invalid JSON format in request body" },
+      { error: "Failed to read request body" },
       { status: 400 }
     );
   }
 
   // Comprehensive data validation
   const validationResult = validateSessionData(sessionData);
-  if (!validationResult.isValid) {
+  if (!validationResult.isValid || !validationResult.data) {
     logStatsOperation.error(requestId, "record_session", new Error("Invalid session data"), {
       userId,
       validationErrors: validationResult.errors,
@@ -156,20 +183,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const typedSessionData = validationResult.data;
+
   // Safe debug logging for session data
   logging.debugSensitive("Session data received", {
     requestId,
     userId,
     sessionSummary: {
-      wpm: sessionData.wpm,
-      accuracy: sessionData.accuracy,
-      textLength: sessionData.textLength,
-      timeSpent: sessionData.timeSpent
+      wpm: typedSessionData.wpm,
+      accuracy: typedSessionData.accuracy,
+      textLength: typedSessionData.textLength,
+      timeSpent: typedSessionData.timeSpent
     }
   });
 
   // Sanitize and enrich session data
-  const sanitizedSession: NormalizedSessionData = sanitizeSessionData(sessionData);
+  const sanitizedSession: NormalizedSessionData = sanitizeSessionData(typedSessionData);
   const timestamp = new Date().toISOString();
 
   const enrichedSession = {
@@ -232,6 +261,18 @@ export async function POST(req: NextRequest) {
         accuracy: sanitizedSession.accuracy,
         endpoint,
       });
+
+      if (response.longTermStats) {
+        logging.debugSensitive("Long-term averages after session", {
+          requestId,
+          userId,
+          totals: {
+            totalSessions: response.longTermStats.totalSessions,
+            averageWPM: response.longTermStats.averageWPM,
+            averageAccuracy: response.longTermStats.averageAccuracy,
+          },
+        });
+      }
 
       // Production-safe logging
       logging.info("Session recorded successfully", {

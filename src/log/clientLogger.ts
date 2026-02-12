@@ -25,13 +25,10 @@ class ClientSafeDebugLogger {
   }
 
   logSensitive(operation: string, data: Record<string, unknown>): void {
-    if (this.isDevelopment) {
-      console.log(`[CLIENT-DEV] ${operation}:`, data);
-    } else {
-      // في الإنتاج، لا تسجل البيانات الحساسة
-      const redactedData = this.redactSensitiveData(data);
-      console.log(`[CLIENT] ${operation}:`, redactedData);
-    }
+    // Dev-only: this is intentionally disabled in production to avoid
+    // performance overhead and accidental client-side logging.
+    if (!this.isDevelopment) return;
+    console.log(`[CLIENT-DEV] ${operation}:`, data);
   }
 
   private redactSensitiveData(data: Record<string, unknown>): Record<string, unknown> {
@@ -99,6 +96,22 @@ class ClientLogger {
       : `[${logEntry.timestamp}] ${logEntry.level} ${logEntry.context} - ${logEntry.message}`;
   }
 
+  private getConsoleMethod(level: LogLevel): ((...args: unknown[]) => void) {
+    const c = (globalThis as unknown as { console?: Console }).console;
+    if (!c) return () => {};
+
+    const candidate = (c as unknown as Record<string, unknown>)[level];
+    if (typeof candidate === "function") {
+      return (candidate as (...args: unknown[]) => void).bind(c);
+    }
+
+    if (typeof c.log === "function") {
+      return c.log.bind(c);
+    }
+
+    return () => {};
+  }
+
   log(
     level: LogLevel,
     message: string,
@@ -107,7 +120,7 @@ class ClientLogger {
     if (!this.shouldLog(level)) return;
 
     const formattedMessage = this.formatMessage(level, message, meta);
-    const consoleMethod = console[level] || console.log;
+    const consoleMethod = this.getConsoleMethod(level);
     
     if (level === 'error' && meta?.error instanceof Error) {
       consoleMethod(formattedMessage, meta.error.stack);

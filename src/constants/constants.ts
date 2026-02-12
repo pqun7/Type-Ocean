@@ -1,6 +1,9 @@
 export const SPRING_CONFIG = { stiffness: 200, damping: 25, mass: 0.5 };
 export const SCROLL_RANGE = [0, 100];
-export const MOBILE_MENU_TRANSITION = { duration: 0.3, ease: "easeInOut" };
+export const MOBILE_MENU_TRANSITION = {
+  duration: 0.3,
+  ease: [0.42, 0, 0.58, 1] as const,
+};
 
 
 export const LEVEL_ANIMATION = {
@@ -14,7 +17,7 @@ export const LEVEL_ANIMATION = {
       opacity: 1,
       y: 0,
       transition: {
-        type: "spring",
+        type: "spring" as const,
         stiffness: 300,
         damping: 15
       }
@@ -22,7 +25,7 @@ export const LEVEL_ANIMATION = {
     hover: {
       scale: 1.05,
       transition: { 
-        type: "spring", 
+        type: "spring" as const, 
         stiffness: 400 
       }
     },
@@ -37,7 +40,7 @@ export const LEVEL_ANIMATION = {
       width: "100%",
       transition: {
         duration: 1,
-        ease: "easeOut"
+        ease: [0, 0, 0.58, 1] as const
       }
     }
   };
@@ -49,8 +52,8 @@ export const LEVEL_ANIMATION = {
       transition: {
         duration: 1.5,
         repeat: Infinity,
-        repeatType: "loop",
-        ease: "linear"
+        repeatType: "loop" as const,
+        ease: [0, 0, 1, 1] as const
       }
     }
   };

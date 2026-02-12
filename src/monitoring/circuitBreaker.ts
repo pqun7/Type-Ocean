@@ -4,6 +4,8 @@
  * Prevents cascading failures and provides fallback mechanisms
  */
 
+import "server-only";
+
 import { productionMonitor } from "./productionHealthMonitor";
 import { logger } from "@/log/ServerLogger";
 

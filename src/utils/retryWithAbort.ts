@@ -32,14 +32,16 @@ export async function withRetry<T>(
         break;
       }
 
-      const delay = Math.min(
+      const exponentialDelay = Math.min(
         baseDelay * Math.pow(2, attempt - 1),
         maxDelay
-      ) + Math.random() * 0.1 * delay;
+      );
+      const jitter = Math.random() * 0.1 * exponentialDelay;
+      const delayMs: number = exponentialDelay + jitter;
 
       // Wait with abort signal support
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(resolve, delay);
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(resolve, delayMs);
         signal?.addEventListener('abort', () => {
           clearTimeout(timeout);
           reject(new Error('Request aborted'));

@@ -1,6 +1,8 @@
 // src/lib/session-stats.ts
 // Centralized helper functions and constants for session statistics
 
+import "server-only";
+
 import { redis } from "@/lib/redis";
 import { logging } from "@/log/ServerLogger";
 
@@ -56,39 +58,93 @@ export interface LongTermStats {
   lastUpdated: string;
 }
 
-export function validateSessionData(data: SessionInputData) {
+export function validateSessionData(data: unknown): {
+  isValid: boolean;
+  errors: string[];
+  data?: SessionInputData;
+} {
   const errors: string[] = [];
 
+  if (typeof data !== "object" || data === null) {
+    return {
+      isValid: false,
+      errors: ["Session data must be an object"],
+    };
+  }
+
+  const obj = data as Record<string, unknown>;
+
   // Required fields validation
-  if (typeof data.wpm !== 'number' || data.wpm < 0) {
+  if (typeof obj.wpm !== "number" || obj.wpm < 0) {
     errors.push('WPM must be a non-negative number');
   }
 
-  if (typeof data.accuracy !== 'number' || data.accuracy < 0 || data.accuracy > 100) {
+  if (typeof obj.accuracy !== "number" || obj.accuracy < 0 || obj.accuracy > 100) {
     errors.push('Accuracy must be between 0 and 100');
   }
 
   // Optional but validated fields
-  if (data.textLength !== undefined && (typeof data.textLength !== 'number' || data.textLength <= 0)) {
+  if (
+    obj.textLength !== undefined &&
+    (typeof obj.textLength !== "number" || obj.textLength <= 0)
+  ) {
     errors.push('Text length must be a positive number');
   }
 
-  if (data.timeSpent !== undefined && (typeof data.timeSpent !== 'number' || data.timeSpent <= 0)) {
+  if (
+    obj.timeSpent !== undefined &&
+    (typeof obj.timeSpent !== "number" || obj.timeSpent <= 0)
+  ) {
     errors.push('Time spent must be a positive number');
   }
 
+  if (obj.language !== undefined && typeof obj.language !== "string") {
+    errors.push("Language must be a string");
+  }
+
+  if (obj.mode !== undefined && typeof obj.mode !== "string") {
+    errors.push("Mode must be a string");
+  }
+
+  if (obj.mistakes !== undefined && typeof obj.mistakes !== "number") {
+    errors.push("Mistakes must be a number");
+  }
+
+  if (obj.corrections !== undefined && typeof obj.corrections !== "number") {
+    errors.push("Corrections must be a number");
+  }
+
   // Reasonable bounds checking
-  if (data.wpm > 500) {
+  if (typeof obj.wpm === "number" && obj.wpm > 500) {
     errors.push('WPM seems unrealistically high (>500)');
   }
 
-  if (data.timeSpent && data.timeSpent > 7200) { // 2 hours
+  if (typeof obj.timeSpent === "number" && obj.timeSpent > 7200) { // 2 hours
     errors.push('Session time seems unrealistically long (>2 hours)');
   }
 
+  if (errors.length > 0) {
+    return {
+      isValid: false,
+      errors,
+    };
+  }
+
+  const parsed: SessionInputData = {
+    wpm: obj.wpm as number,
+    accuracy: obj.accuracy as number,
+    ...(obj.textLength !== undefined ? { textLength: obj.textLength as number } : {}),
+    ...(obj.timeSpent !== undefined ? { timeSpent: obj.timeSpent as number } : {}),
+    ...(obj.language !== undefined ? { language: obj.language as string } : {}),
+    ...(obj.mode !== undefined ? { mode: obj.mode as string } : {}),
+    ...(obj.mistakes !== undefined ? { mistakes: obj.mistakes as number } : {}),
+    ...(obj.corrections !== undefined ? { corrections: obj.corrections as number } : {}),
+  };
+
   return {
-    isValid: errors.length === 0,
-    errors,
+    isValid: true,
+    errors: [],
+    data: parsed,
   };
 }
 
@@ -116,8 +172,9 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
   const timestamp = new Date().toISOString();
 
   // 1. حساب بسيط قبل الإرسال
-  const timeSpent = session.timeSpent || 0;
-  const wordsTyped = Math.round(session.wpm * ((session.timeSpent || 60) / 60));
+  const timeSpent = typeof session.timeSpent === "number" ? session.timeSpent : 0;
+  const timeMinutes = timeSpent > 0 ? timeSpent / 60 : 0;
+  const wordsTyped = Math.max(0, Math.round(session.wpm * timeMinutes));
 
   try {
     // 2. استدعاء سكربت LUA (رحلة واحدة!)
@@ -184,7 +241,7 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
     }
     
     // At this point updatedStats should have all required properties; we coerce with defaults
-    return {
+    const result: LongTermStats = {
       totalSessions: updatedStats.totalSessions ?? 0,
       totalTimeTyped: updatedStats.totalTimeTyped ?? 0,
       totalWordsTyped: updatedStats.totalWordsTyped ?? 0,
@@ -198,12 +255,42 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
       lastUpdated: (updatedStats.lastUpdated as string) ?? new Date().toISOString(),
     };
 
+    // Dev-only verification prints (do not log full payloads)
+    logging.debugSensitive("[STATS] Long-term stats updated", {
+      userId,
+      input: {
+        wpm: session.wpm,
+        accuracy: session.accuracy,
+        timeSpent,
+        textLength: session.textLength,
+        wordsTyped,
+      },
+      updated: {
+        totalSessions: result.totalSessions,
+        averageWPM: result.averageWPM,
+        averageAccuracy: result.averageAccuracy,
+        bestWPM: result.bestWPM,
+        bestAccuracy: result.bestAccuracy,
+        totalTimeTyped: result.totalTimeTyped,
+        totalWordsTyped: result.totalWordsTyped,
+        totalCharactersTyped: result.totalCharactersTyped,
+        lastUpdated: result.lastUpdated,
+      },
+    });
+
+    return result;
+
   } catch (error) {
     // إضافة سياق للخطأ لتسهيل التصحيح
     logging.error(`[STATS] LUA script execution failed for ${userId}`, error, {
        errorMessage: error instanceof Error ? error.message : "Unknown LUA error",
        userId,
-       sessionData: session
+       sessionSummary: {
+         wpm: session.wpm,
+         accuracy: session.accuracy,
+         timeSpent: session.timeSpent,
+         textLength: session.textLength,
+       }
     });
     // رمي الخطأ ليتم التقاطه في الدالة POST الرئيسية
     throw new Error(`Failed to update long-term stats via LUA: ${error instanceof Error ? error.message : error}`);
@@ -217,11 +304,13 @@ export async function storeSessionHistory(userId: string, session: EnrichedSessi
   const sessionsKey = `user:sessions:${userId}`;
   
   // Add session to the beginning of the list and trim to max size
-  await redis.lpush(sessionsKey, JSON.stringify(session));
-  await redis.ltrim(sessionsKey, 0, MAX_SESSIONS_STORED - 1);
-  
-  // Set expiration for the sessions list
-  await redis.expire(sessionsKey, LONG_TERM_TTL);
+  await redis
+    .pipeline()
+    .lpush(sessionsKey, JSON.stringify(session))
+    .ltrim(sessionsKey, 0, MAX_SESSIONS_STORED - 1)
+    // Set expiration for the sessions list
+    .expire(sessionsKey, LONG_TERM_TTL)
+    .exec();
 
   return session.id;
 }
@@ -238,10 +327,10 @@ export async function getLongTermCumulativeStats(userId: string): Promise<LongTe
   }
 
   return {
-    totalSessions: parseInt(String(data.totalSessions) || "0"),
-    totalTimeTyped: parseInt(String(data.totalTimeTyped) || "0"),
-    totalWordsTyped: parseInt(String(data.totalWordsTyped) || "0"),
-    totalCharactersTyped: parseInt(String(data.totalCharactersTyped) || "0"),
+    totalSessions: parseInt(String(data.totalSessions ?? "0"), 10) || 0,
+    totalTimeTyped: parseInt(String(data.totalTimeTyped ?? "0"), 10) || 0,
+    totalWordsTyped: parseInt(String(data.totalWordsTyped ?? "0"), 10) || 0,
+    totalCharactersTyped: parseInt(String(data.totalCharactersTyped ?? "0"), 10) || 0,
     averageWPM: parseFloat(String(data.averageWPM) || "0"),
     averageAccuracy: parseFloat(String(data.averageAccuracy) || "0"),
     bestWPM: parseFloat(String(data.bestWPM) || "0"),

@@ -29,4 +29,4 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./
 
 # 8. تشغيل التطبيق
-CMD ["npm", "start", "dev"]
+CMD ["npm", "run", "start"]

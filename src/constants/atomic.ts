@@ -54,17 +54,48 @@ export const LUA_UPDATE_STATS_SCRIPT = `
     local textLength = tonumber(ARGV[4])
     local wordsTyped = tonumber(ARGV[5])
 
+    if not newWPM then newWPM = 0 end
+    if not newAcc then newAcc = 0 end
+    if not timeSpent then timeSpent = 0 end
+    if not textLength then textLength = 0 end
+    if not wordsTyped then wordsTyped = 0 end
+
     local totalSessions
     if #stats == 0 then
       -- ===== New user =====
       totalSessions = 1
+      local totalTimeTyped = timeSpent
+      local totalWordsTyped = wordsTyped
+      local totalCharactersTyped = textLength
+
+      -- Time-weighted averages
+      local avgWPM = 0
+      if totalTimeTyped > 0 then
+        avgWPM = (totalWordsTyped * 60) / totalTimeTyped
+      end
+
+      local accuracyTimeSum = newAcc * totalTimeTyped
+      local avgAcc = 0
+      if totalTimeTyped > 0 then
+        avgAcc = accuracyTimeSum / totalTimeTyped
+      else
+        avgAcc = newAcc
+      end
+
+      -- Keep an unweighted snapshot for debugging/compat
+      local unweightedAvgWPM = newWPM
+      local unweightedAvgAcc = newAcc
+
       newStatsPayload = {
         "totalSessions", "1",
-        "totalTimeTyped", ARGV[3],
-        "totalWordsTyped", ARGV[5],
-        "totalCharactersTyped", ARGV[4],
-        "averageWPM", ARGV[1],
-        "averageAccuracy", ARGV[2],
+        "totalTimeTyped", tostring(totalTimeTyped),
+        "totalWordsTyped", tostring(totalWordsTyped),
+        "totalCharactersTyped", tostring(totalCharactersTyped),
+        "averageWPM", tostring(math.floor(avgWPM * 100 + 0.5) / 100),
+        "averageAccuracy", tostring(math.floor(avgAcc * 100 + 0.5) / 100),
+        "accuracyTimeSum", tostring(accuracyTimeSum),
+        "unweightedAverageWPM", tostring(math.floor(unweightedAvgWPM * 100 + 0.5) / 100),
+        "unweightedAverageAccuracy", tostring(math.floor(unweightedAvgAcc * 100 + 0.5) / 100),
         "bestWPM", ARGV[1],
         "bestWPMDate", ARGV[6],
         "bestAccuracy", ARGV[2],
@@ -76,22 +107,63 @@ export const LUA_UPDATE_STATS_SCRIPT = `
       local currentTotalSessions = tonumber(current.totalSessions) or 0
       totalSessions = currentTotalSessions + 1
       
-      local currentAvgWPM = tonumber(current.averageWPM) or 0
-      local currentAvgAcc = tonumber(current.averageAccuracy) or 0
       local currentBestWPM = tonumber(current.bestWPM) or 0
       local currentBestAcc = tonumber(current.bestAccuracy) or 0
 
-      -- Calculate new averages
-      local newAvgWPM = (currentAvgWPM * (totalSessions - 1) + newWPM) / totalSessions
-      local newAvgAcc = (currentAvgAcc * (totalSessions - 1) + newAcc) / totalSessions
+      local prevTotalTime = tonumber(current.totalTimeTyped) or 0
+      local prevTotalWords = tonumber(current.totalWordsTyped) or 0
+      local prevTotalChars = tonumber(current.totalCharactersTyped) or 0
+
+      local newTotalTime = prevTotalTime + timeSpent
+      local newTotalWords = prevTotalWords + wordsTyped
+      local newTotalChars = prevTotalChars + textLength
+
+      -- Weighted WPM from totals (seconds)
+      local weightedAvgWPM = 0
+      if newTotalTime > 0 then
+        weightedAvgWPM = (newTotalWords * 60) / newTotalTime
+      end
+
+      -- Weighted accuracy needs an accumulator (accuracy * seconds)
+      local prevAccTimeSum = tonumber(current.accuracyTimeSum)
+      if not prevAccTimeSum then
+        -- Best-effort backfill for older data (previous avg may not have been weighted)
+        local prevAvgAcc = tonumber(current.averageAccuracy) or 0
+        prevAccTimeSum = prevAvgAcc * prevTotalTime
+      end
+
+      local newAccTimeSum = prevAccTimeSum + (newAcc * timeSpent)
+      local weightedAvgAcc = 0
+      if newTotalTime > 0 then
+        weightedAvgAcc = newAccTimeSum / newTotalTime
+      else
+        weightedAvgAcc = newAcc
+      end
+
+      -- Maintain unweighted per-session averages for debugging
+      local currentUnweightedAvgWPM = tonumber(current.unweightedAverageWPM)
+      if not currentUnweightedAvgWPM then
+        currentUnweightedAvgWPM = tonumber(current.averageWPM) or 0
+      end
+
+      local currentUnweightedAvgAcc = tonumber(current.unweightedAverageAccuracy)
+      if not currentUnweightedAvgAcc then
+        currentUnweightedAvgAcc = tonumber(current.averageAccuracy) or 0
+      end
+
+      local newUnweightedAvgWPM = (currentUnweightedAvgWPM * (totalSessions - 1) + newWPM) / totalSessions
+      local newUnweightedAvgAcc = (currentUnweightedAvgAcc * (totalSessions - 1) + newAcc) / totalSessions
 
       newStatsPayload = {
         "totalSessions", tostring(totalSessions),
-        "totalTimeTyped", tostring((tonumber(current.totalTimeTyped) or 0) + timeSpent),
-        "totalWordsTyped", tostring((tonumber(current.totalWordsTyped) or 0) + wordsTyped),
-        "totalCharactersTyped", tostring((tonumber(current.totalCharactersTyped) or 0) + textLength),
-        "averageWPM", tostring(math.floor(newAvgWPM * 100 + 0.5) / 100),
-        "averageAccuracy", tostring(math.floor(newAvgAcc * 100 + 0.5) / 100),
+        "totalTimeTyped", tostring(newTotalTime),
+        "totalWordsTyped", tostring(newTotalWords),
+        "totalCharactersTyped", tostring(newTotalChars),
+        "averageWPM", tostring(math.floor(weightedAvgWPM * 100 + 0.5) / 100),
+        "averageAccuracy", tostring(math.floor(weightedAvgAcc * 100 + 0.5) / 100),
+        "accuracyTimeSum", tostring(newAccTimeSum),
+        "unweightedAverageWPM", tostring(math.floor(newUnweightedAvgWPM * 100 + 0.5) / 100),
+        "unweightedAverageAccuracy", tostring(math.floor(newUnweightedAvgAcc * 100 + 0.5) / 100),
         "lastUpdated", ARGV[6]
       }
 

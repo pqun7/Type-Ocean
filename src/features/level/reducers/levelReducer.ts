@@ -10,6 +10,17 @@ import { calculateNextLevelXP } from "@/features/level/utils/xpMath";
  */
 export const levelReducer = (state: LevelState, action: LevelAction): LevelState => {
   switch (action.type) {
+    case "SET_PROGRESS": {
+      const nextLevel = Math.max(1, action.level);
+      const nextXP = Math.max(0, action.userXP);
+      return {
+        ...state,
+        level: nextLevel,
+        userXP: nextXP,
+        achievements: action.achievements ?? [],
+        nextLevelXP: calculateNextLevelXP(nextLevel),
+      };
+    }
     case "ADD_XP": {
       const { userXP: currentXP, level: currentLevel } = state;
       let totalXP = currentXP + action.amount;
@@ -35,7 +46,7 @@ export const levelReducer = (state: LevelState, action: LevelAction): LevelState
         ...state,
         achievements: exists
           ? state.achievements.map(a => 
-              a.id === action.achievement.id ? { ...a, unlocked: true } : a
+              a.id === action.achievement.id ? { ...a, unlocked: true, progress: action.achievement.progress ?? a.progress } : a
             )
           : [...state.achievements, { ...action.achievement, unlocked: true }]
       };
@@ -49,7 +60,7 @@ export const levelReducer = (state: LevelState, action: LevelAction): LevelState
           ? state.achievements.map(a => 
               a.id === action.achievement.id ? { ...a, progress: action.achievement.progress } : a
             )
-          : [...state.achievements, { ...action.achievement, unlocked: false }]
+          : [...state.achievements, { ...action.achievement, unlocked: action.achievement.unlocked ?? false }]
       };
     }
     

@@ -18,16 +18,23 @@
 
 // export { SignOut };
 import { signOut } from "@/features/auth/lib/auth";
+import { Button } from "@/components/ui/button";
 
 export function SignOut() {
   return (
     <form
       action={async () => {
         "use server";
-        await signOut({ redirectTo: "/auth?login" });
+        await signOut({ redirectTo: "/auth" });
       }}
     >
-      <button type="submit">Sign Out</button>
+      <Button
+        type="submit"
+        variant="destructive"
+        className="w-full"
+      >
+        Sign Out
+      </Button>
     </form>
   );
 }

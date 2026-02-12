@@ -1,9 +1,7 @@
-// components/auth/auth-form.tsx
 "use client";
 
 // Import core React and animation libraries
 import { useState, useRef, useEffect } from "react";
-import { useAuth } from "@/contexts/auth-context";
 
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -27,14 +25,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Loader } from "@/assets";
+import { Loader, github, google } from "@/assets";
 import { Button } from "@/components/ui/button";
 
 // Import icons and assets
-import { GithubAuth } from "@/components/auth/github-button";
-import { GoogleAuth } from "@/components/auth/google-button";
 import { Eye, EyeOff } from "lucide-react";
+import Image from "next/image";
 
 // Import server actions
 import { signUp } from "@/features/auth/lib/actions";
@@ -61,6 +57,13 @@ export function AuthForm() {
   const { showAlert } = useAlert();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // New loading states for social authentication
+  const [isGithubLoading, setIsGithubLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  // Derived state: any auth process in progress
+  const isAnyAuthLoading = isSubmitting || isGithubLoading || isGoogleLoading;
 
   // Prevent hydration mismatch by only reading search params after mount
   useEffect(() => {
@@ -102,7 +105,6 @@ export function AuthForm() {
         formRef.current?.reset();
         setIsLogin(true);
         setError("");
-        // setSuccessMessage("Account created successfully.");
         showAlert(
           "Account created successfully. Please check your email for verification.",
           "success"
@@ -119,7 +121,7 @@ export function AuthForm() {
           setFieldErrors({});
         }
       }
-    } catch (err) {
+    } catch {
       setError("An unexpected error occurred");
       setFieldErrors({});
     }
@@ -153,7 +155,13 @@ export function AuthForm() {
           const errorMessage = "Invalid username or password.";
           setError(errorMessage);
         } else {
-          router.push("/auth");
+          // Notify LevelProvider/Header to refresh auth-derived UI.
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("auth:changed"));
+          }
+
+          router.replace("/home");
+          router.refresh();
         }
       } else {
         await handleSignup(formData);
@@ -166,12 +174,35 @@ export function AuthForm() {
     }
   };
 
+  // Social authentication handlers
+  const handleGithubSignIn = async () => {
+    setIsGithubLoading(true);
+    try {
+      await signIn("github");
+    } catch (error) {
+      console.error("GitHub sign in error:", error);
+    } finally {
+      setIsGithubLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    try {
+      await signIn("google");
+    } catch (error) {
+      console.error("Google sign in error:", error);
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
   // Animation configuration for exclusive elements (username/confirm password)
   const exclusiveAnim = {
     initial: { opacity: 0, x: -20, scale: 0.95 },
     animate: { opacity: 1, x: 0, scale: 1 },
     exit: { opacity: 0, x: 20, scale: 0.95 },
-    transition: { type: "spring", stiffness: 300, damping: 20 },
+    transition: { type: "spring" as const, stiffness: 300, damping: 20 },
   };
 
   // Don't render form content until mounted to prevent hydration mismatch
@@ -212,8 +243,77 @@ export function AuthForm() {
             </CardHeader>
             <CardContent className="space-y-4">
               <motion.div layout className="flex flex-col gap-4">
-                <GithubAuth isLogin={isLogin} />
-                <GoogleAuth isLogin={isLogin} />
+                {/* GitHub Button - Inline replacement with identical styling */}
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={handleGithubSignIn}
+                  disabled={isAnyAuthLoading}
+                  className="font-medium rounded-lg py-5 w-full border-[#8A6BFF] hover:bg-[#8A6BFF]/20 text-[#818cf8] hover:text-[#a5b4fc] transition-colors duration-300 group"
+                >
+                  <div className="flex items-center justify-center">
+                    {isGithubLoading ? (
+                      <ClientOnly
+                        fallback={
+                          <div className="w-6 h-6 animate-spin border-2 border-white border-t-transparent rounded-full" />
+                        }
+                      >
+                        <Lottie
+                          animationData={Loader}
+                          loop
+                          className="w-6 h-6"
+                        />
+                      </ClientOnly>
+                    ) : (
+                      <>
+                        <Image
+                          src={github}
+                          alt={`${isLogin ? "Login" : "Sign up"} with GitHub`}
+                          width={20}
+                          height={20}
+                          className="mr-2 group-hover:scale-110 transition-transform"
+                        />
+                        <span>{isLogin ? "Login" : "Sign up"} with GitHub</span>
+                      </>
+                    )}
+                  </div>
+                </Button>
+
+                {/* Google Button - Inline replacement with identical styling */}
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={isAnyAuthLoading}
+                  className="font-medium rounded-lg py-5 w-full border-[#69d0ff] hover:bg-[#69d0ff]/20 text-[#60a5fa] hover:text-[#93c5fd] transition-colors duration-300 group"
+                >
+                  <div className="flex items-center justify-center">
+                    {isGoogleLoading ? (
+                      <ClientOnly
+                        fallback={
+                          <div className="w-6 h-6 animate-spin border-2 border-white border-t-transparent rounded-full" />
+                        }
+                      >
+                        <Lottie
+                          animationData={Loader}
+                          loop
+                          className="w-6 h-6"
+                        />
+                      </ClientOnly>
+                    ) : (
+                      <>
+                        <Image
+                          src={google}
+                          alt={`${isLogin ? "Login" : "Sign up"} with Google`}
+                          width={20}
+                          height={20}
+                          className="mr-2 group-hover:scale-110 transition-transform"
+                        />
+                        <span>{isLogin ? "Login" : "Sign up"} with Google</span>
+                      </>
+                    )}
+                  </div>
+                </Button>
               </motion.div>
               <motion.div
                 layout
@@ -358,7 +458,10 @@ export function AuthForm() {
                     </AnimatePresence>
 
                     <motion.div layout>
-                      <Button disabled={isSubmitting} className="py-5 btn-main">
+                      <Button
+                        disabled={isAnyAuthLoading}
+                        className="py-5 btn-main"
+                      >
                         {isSubmitting ? (
                           <ClientOnly
                             fallback={

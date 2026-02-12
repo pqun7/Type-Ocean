@@ -1,3 +1,5 @@
+import "server-only";
+
 // حماية من التنفيذ في المتصفح
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
   throw new Error("ServerLogger should not be imported on the client side. Use ClientLogger instead.");
@@ -8,7 +10,8 @@ import * as Sentry from "@sentry/nextjs";
 // 1. إعدادات الأمان المتقدمة
 const SENSITIVE_FIELDS = new Set([
   'password', 'token', 'apiKey', 'authorization', 'creditCard',
-  'sessionToken', 'refreshToken', 'privateKey', 'secret'
+  'sessionToken', 'refreshToken', 'privateKey', 'secret',
+  'ip', 'userAgent'
 ]);
 const MAX_LOG_SIZE = 1024 * 1024 * 5; // 5MB
 const MAX_LOG_FILES = 5;
@@ -42,7 +45,9 @@ class SafeDebugLogger {
 
   constructor() {
     this.isDevelopment = process.env.NODE_ENV === 'development';
-    this.debugEnabled = process.env.DEBUG_SENSITIVE !== 'false';
+    // Opt-in to sensitive logging to avoid leaking secrets in local logs.
+    // Enable explicitly with DEBUG_SENSITIVE=true.
+    this.debugEnabled = process.env.DEBUG_SENSITIVE === 'true';
   }
 
   logSensitive(operation: string, data: Record<string, unknown>): void {
@@ -83,7 +88,7 @@ class SafeDebugLogger {
 const simpleRedactor = {
   redact: (text: string): string => {
     // إذا كنا في وضع التطوير والتصحيح مفعل، لا تقم بالتعديل
-    if (process.env.NODE_ENV === 'development' && process.env.DEBUG_SENSITIVE !== 'false') {
+    if (process.env.NODE_ENV === 'development' && process.env.DEBUG_SENSITIVE === 'true') {
       return text;
     }
     
@@ -98,7 +103,7 @@ const simpleRedactor = {
 };
 
 const cleanMetadata = (obj: Record<string, unknown>): Record<string, unknown> => {
-  const isDevDebug = process.env.NODE_ENV === 'development' && process.env.DEBUG_SENSITIVE !== 'false';
+  const isDevDebug = process.env.NODE_ENV === 'development' && process.env.DEBUG_SENSITIVE === 'true';
   
   if (isDevDebug) {
     return obj; // في التطوير مع التصحيح، إرجاع البيانات كما هي
@@ -383,9 +388,20 @@ class ServerLogger {
   }
 
   error(message: string, error: Error | unknown, meta?: LogMeta) {
-    const payload = error instanceof Error 
-      ? { error, ...(meta as object) }
-      : { details: error, ...(meta as object) };
+    const baseMeta = (meta && typeof meta === "object" && !(meta instanceof Error)) ? (meta as Record<string, unknown>) : {};
+
+    const errObj = error instanceof Error ? error : new Error(String(error));
+    const payload = {
+      ...baseMeta,
+      // Keep the raw error for transports like Sentry
+      error: errObj,
+      // Add JSON-serializable fields so file/JSON logs are readable
+      errorName: errObj.name,
+      errorMessage: errObj.message,
+      errorStack: errObj.stack,
+      // Preserve non-Error payloads when callers pass primitives/objects
+      ...(error instanceof Error ? {} : { errorDetails: error }),
+    };
       
     this.log('error', message, payload);
   }
@@ -416,11 +432,24 @@ export const logging: LoggerInterface = {
 };
 
 // معالجة الاستثناءات غير المعالجة
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception', error);
-  process.exit(1);
-});
+declare global {
+  // eslint-disable-next-line no-var
+  var __serverLoggerProcessHandlersInstalled: boolean | undefined;
+}
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', reason, { promise });
-});
+if (!globalThis.__serverLoggerProcessHandlersInstalled) {
+  globalThis.__serverLoggerProcessHandlersInstalled = true;
+
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught Exception', error);
+    // Avoid hard exit in dev/test where HMR can rehydrate.
+    if (process.env.NODE_ENV === 'production') {
+      // Let the platform/process manager decide restart policy.
+      // process.exit(1);
+    }
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection', reason, { promise });
+  });
+}

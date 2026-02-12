@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWpmHistory } from "@/features/typing/hooks/useWpmHistory";
-import { useUserSession } from "@/features/auth/hooks/useUserSession";
 import { TextType, State } from "@/features/typing/types/typing";
 import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
@@ -36,7 +35,10 @@ export default function useTypingLogic(
     accuracy: 100,
     elapsedTime: 0,
   });
-  const { userId, isLoading } = useUserSession();
+
+  const levelContext = useLevel();
+  const userId = levelContext.userId ?? undefined;
+  const isLoading = !!levelContext.isLoadingSession;
  
   const userIdRef = useRef(userId);
   useEffect(() => {
@@ -75,7 +77,7 @@ export default function useTypingLogic(
     level,
     recordSessionStats,
     handleDailyChallenge,
-  } = useLevel();
+  } = levelContext;
 
   // Sync refs with current values
   useEffect(() => {
@@ -141,102 +143,62 @@ export default function useTypingLogic(
 
       // Only for authenticated users
       if (userId) {
+        const timeSpentSeconds = Math.floor(activeTime / 1000);
+
+        // Build the minimal session payload synchronously so XP can be awarded immediately.
         const sessionData: SessionData = {
           wpm,
           accuracy,
           textLength: text.length,
           textType: selectedLevel,
-          timeSpent: Math.floor(activeTime / 1000),
+          timeSpent: timeSpentSeconds,
           errors: totalErrors,
-          dailyAvgWpm: 0,
-          dailyAvgAcc: 0,
-          sessionsCount: 0,
+          // These are used for stats/challenge context, but XP awarding should not wait on them.
+          dailyAvgWpm: wpm,
+          dailyAvgAcc: accuracy,
+          sessionsCount: 1,
         };
 
-        // Parallelize data processing and challenge handling
-        let sessionAverages;
-        let challengeResult;
-        
-        try {
-          [sessionAverages, challengeResult] = await Promise.all([
-            recordSessionStats!(wpm, accuracy),
-            handleDailyChallenge(sessionData),
-          ]);
-        } catch (error) {
-          // If session stats recording fails, use fallback values but continue
-          const errorMessage = error instanceof Error ? error.message : "Unknown error";
-          
-          logger.session.warn(
-            "Session stats recording failed, using fallback values",
-            {
+        // Award session XP immediately (do not wait for network).
+        const sessionXP = calculateSessionXP(sessionData);
+
+        // Participation XP ramps with time spent to prevent micro-session farming.
+        // (Keeps changes minimal; focus is on earned XP fairness.)
+        const MIN_SESSION_XP = Math.min(15, Math.round(timeSpentSeconds * 0.75));
+        const topUpXP = Math.max(MIN_SESSION_XP - sessionXP, 0);
+        if (topUpXP > 0) {
+          addXPMessage("Participation Reward", topUpXP, "participation");
+        }
+
+        const immediateXP = sessionXP + topUpXP;
+        void addXP(immediateXP);
+
+        // Record stats in the background (non-blocking)
+        void recordSessionStats?.(wpm, accuracy, {
+          textLength: text.length,
+          timeSpent: timeSpentSeconds,
+        });
+
+        // Handle daily challenge in the background; award challenge XP when it completes.
+        void handleDailyChallenge(sessionData)
+          .then(({ completed, xp: challengeXP }) => {
+            if (!completed || !challengeXP) return;
+            addXPMessage("Daily Challenge Completed", challengeXP, "daily-challenge");
+            void addXP(challengeXP);
+          })
+          .catch((challengeError) => {
+            logger.session.warn("Daily challenge handling failed", {
               userId,
-              error: errorMessage,
-              wpm,
-              accuracy,
-            }
-          );
-          
-          // Provide fallback values so the session can still complete
-          sessionAverages = { dailyAvgWpm: wpm, dailyAvgAcc: accuracy, sessionsCount: 1 };
-          
-          // Still try to handle daily challenge
-          try {
-            challengeResult = await handleDailyChallenge(sessionData);
-          } catch (challengeError) {
-            logger.session.warn(
-              "Daily challenge handling also failed",
-              { userId, challengeError }
-            );
-            challengeResult = { completed: false, xp: 0 };
-          }
-        }
-
-        // Update with actual averages
-        const finalSessionData: SessionData = {
-          ...sessionData,
-          dailyAvgWpm: sessionAverages.dailyAvgWpm,
-          dailyAvgAcc: sessionAverages.dailyAvgAcc,
-          sessionsCount: sessionAverages.sessionsCount,
-        };
-
-        // Process XP calculations
-        const baseXP = calculateSessionXP(finalSessionData);
-        const { completed, xp } = challengeResult;
-        const participationXP = Math.max(15 - baseXP, 0);
-        const totalXP = baseXP + xp;
-
-        // Batch XP updates
-        const updates = [];
-        if (participationXP > 0) {
-          updates.push(addXP(participationXP));
-          updates.push(
-            addXPMessage(
-              "Participation Reward",
-              participationXP,
-              "participation"
-            )
-          );
-        } else {
-          updates.push(addXP(totalXP));
-          updates.push(addXPMessage("Session Completed", totalXP, "base"));
-        }
-
-        if (completed) {
-          updates.push(addXP(xp));
-          updates.push(
-            addXPMessage("Daily Challenge Completed", xp, "daily-challenge")
-          );
-        }
-
-        // Execute all XP updates
-        await Promise.all(updates);
+              challengeError,
+            });
+          });
 
         logger.session.info("Session completed for authenticated user", {
           userId,
           duration: performance.now() - sessionStartTime,
           wpm,
           accuracy,
-          xpEarned: totalXP,
+          xpEarned: immediateXP,
         });
       } else {
         // Guest user handling

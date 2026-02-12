@@ -1,13 +1,14 @@
 'use client';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion, Transition, Variants } from 'framer-motion';
+import type { CSSProperties, ElementType, ReactNode } from 'react';
 import { useMemo, useId } from 'react';
 
 export type TextMorphProps = {
   children: string;
-  as?: React.ElementType;
+  as?: ElementType<{ children?: ReactNode }>;
   className?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
   variants?: Variants;
   transition?: Transition;
   blurAmount?: number;

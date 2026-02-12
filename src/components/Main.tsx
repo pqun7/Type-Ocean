@@ -1,8 +1,7 @@
 "use client";
-import { Button2 } from "@/components/ui/Buttons";
 import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
 
-import { motion, MotionValue } from "framer-motion";
+import { motion } from "framer-motion";
 import { useRef } from "react";
 import { useOptimizedScrollTransform } from "@/hooks/scrollHooks";
 import { useRouter } from "next/navigation";

@@ -100,12 +100,8 @@ export default {
           },
         },
         shimmer: {
-          from: {
-            backgroundPosition: "0 0",
-          },
-          to: {
-            backgroundPosition: "-200% 0",
-          },
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(100%)" },
         },
         softPulse: {
           "0%, 100%": {
@@ -146,6 +142,9 @@ export default {
         primary: "oklch(0.55 0.22 263)",
         background: "#0f172a",
         foreground: "#e2e8f0",
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
         "btn-primary": "#69d0ff",
         "btn-secondary": "#b3e9ff",
         "btn-accent": "#8A6BFF",

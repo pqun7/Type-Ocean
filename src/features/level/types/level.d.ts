@@ -82,6 +82,12 @@ export type AchievementProgress = {
   target: number;
 };
 
+export type AchievementState = {
+  id: string;
+  unlocked: boolean;
+  progress?: AchievementProgress;
+};
+
 export type Achievement = {
   id: string;
   name: string;
@@ -104,13 +110,14 @@ export type LevelState = {
   level: number;
   userXP: number;
   nextLevelXP: number;
-  achievements: Achievement[];
+  achievements: AchievementState[];
 };
 
 export type LevelAction =
   | { type: "ADD_XP"; amount: number }
-  | { type: "UNLOCK_ACHIEVEMENT"; achievement: Achievement }
-  | { type: "UPDATE_ACHIEVEMENT"; achievement: Achievement };
+  | { type: "SET_PROGRESS"; level: number; userXP: number; achievements: AchievementState[] }
+  | { type: "UNLOCK_ACHIEVEMENT"; achievement: AchievementState }
+  | { type: "UPDATE_ACHIEVEMENT"; achievement: AchievementState };
 
   export interface LevelContextType {
     level: number;
@@ -118,14 +125,17 @@ export type LevelAction =
     nextLevelXP: number;
     userId?: string | null;
     dailyChallenge: DailyChallenge | null;
-    achievements: Achievement[];
-    addXP: (amount: number) => void;
+    dailyChallengeStreak?: number;
+    achievements: AchievementState[];
+    addXP: (amount: number) => Promise<void>;
     calculateSessionXP: (session: SessionData) => number;
     handleDailyChallenge: (session: SessionData) => Promise<{ completed: boolean; xp: number }>;
     xpMessages: XPMessage[];
     addXPMessage: (text: string, value: number, type: XPMessageType) => void;
     clearXPMessages?: () => void;
     recordSessionStats?: (...args: any[]) => any;
+    // Auth/session hydration flags
+    isAuthLoading?: boolean;
     isLoadingSession?: boolean;
   }
 

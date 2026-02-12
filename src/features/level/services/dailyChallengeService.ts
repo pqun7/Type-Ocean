@@ -103,15 +103,43 @@ export const updateDailyChallenge = async (
   userId: string
 ): Promise<DailyChallenge> => {
   return withRetry(async () => {
-    return await authFetch<DailyChallenge>(
-      `/api/challenge/v1/daily/${challengeId}`,
-      {
+    const safeSession = sanitizeSessionData(session);
+
+    const doPut = async (id: string) => {
+      return await authFetch<DailyChallenge>(`/api/challenge/v1/daily/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session }),
+        cache: "no-store",
+        body: JSON.stringify({ session: safeSession }),
         userId,
+        timeout: 45000,
+      });
+    };
+
+    try {
+      return await doPut(challengeId);
+    } catch (error) {
+      const maybeStatus = (error as { status?: unknown } | null)?.status;
+      const status = typeof maybeStatus === "number" ? maybeStatus : null;
+
+      // If the challenge fell out of cache (or expired), refresh today's challenge and retry once.
+      if (status === 404 || status === 410) {
+        logger.challenge.warn("Challenge missing/expired - refreshing daily challenge and retrying", {
+          userId,
+          challengeId,
+          status,
+        });
+
+        const refreshed = await authFetch<DailyChallenge>(`/api/challenge/v1/daily`, {
+          userId,
+          timeout: 20000,
+        });
+
+        return await doPut(refreshed.id);
       }
-    );
+
+      throw error;
+    }
   });
 };
 

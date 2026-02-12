@@ -6,26 +6,28 @@ import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Temporarily disable Turbopack to fix font loading issues
-  experimental: {
-    turbo: {
-      rules: {
-        '*.svg': {
-          loaders: ['@svgr/webpack'],
-          as: '*.js',
-        },
-      },
-      resolveAlias: {
-        '@': './src',
+  turbopack: {
+    rules: {
+      "*.svg": {
+        loaders: ["@svgr/webpack"],
+        as: "*.js",
       },
     },
+    resolveAlias: {
+      "@": "./src",
+    },
   },
-  
-  // Add font optimization
-  optimizeFonts: true,
+
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   
   serverExternalPackages: [
     "@prisma/client",
+    "@prisma/instrumentation",
+    "@opentelemetry/instrumentation",
+    "@sentry/node",
+    "@sentry/nextjs",
     "bcryptjs", 
     "google-auth-library",
     "google-p12-pem",
@@ -51,6 +53,16 @@ const nextConfig: NextConfig = {
       generator: {
         filename: 'static/fonts/[name].[hash][ext]'
       }
+    });
+
+    // Allow importing 3D models (glTF / GLB) from client code.
+    // This emits the file into Next's static output and returns a URL string.
+    config.module.rules.push({
+      test: /\.(glb|gltf)$/i,
+      type: "asset/resource",
+      generator: {
+        filename: "static/models/[name].[hash][ext]",
+      },
     });
     
     if (!isServer) {

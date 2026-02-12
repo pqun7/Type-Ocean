@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -8,6 +8,7 @@ import {
   useSpring,
   useTransform,
   useMotionTemplate,
+  type MotionValue,
 } from "framer-motion";
 import {
   UserMenu,
@@ -18,23 +19,33 @@ import { brainwaveSymbol } from "@/assets";
 import { SPRING_CONFIG, SCROLL_RANGE } from "@/constants/constants";
 import { useLevel } from "@/features/level/hooks/useLevel";
 
+function useAnimatedHeaderNumber(
+  scrollY: MotionValue<number>,
+  outputRange: [number, number]
+): MotionValue<number> {
+  return useSpring(useTransform(scrollY, SCROLL_RANGE, outputRange), SPRING_CONFIG);
+}
+
+function useAnimatedHeaderString(
+  scrollY: MotionValue<number>,
+  outputRange: [string, string]
+): MotionValue<string> {
+  return useTransform(scrollY, SCROLL_RANGE, outputRange);
+}
+
 const Header: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll();
 
-  const createAnimatedValue = (outputRange: [any, any]) =>
-    useSpring(useTransform(scrollY, SCROLL_RANGE, outputRange), SPRING_CONFIG);
-
-  const headerWidth = createAnimatedValue(["100%", "75%"]);
-  const headerBorderRadius = createAnimatedValue([0, 9999]);
-  const headerOpacity = createAnimatedValue([1, 0.95]);
-  const backdropBlur = createAnimatedValue([0, 2]);
-  const borderOpacity = createAnimatedValue([0, 0.3]);
-  const logoTranslateX = createAnimatedValue([0, 10]);
-  const userMenuTranslateX = createAnimatedValue([0, -5]);
-  const backgroundAlpha = createAnimatedValue([0, 0.05]);
+  const headerWidth = useAnimatedHeaderString(scrollY, ["100%", "75%"]);
+  const headerBorderRadius = useAnimatedHeaderNumber(scrollY, [0, 9999]);
+  const headerOpacity = useAnimatedHeaderNumber(scrollY, [1, 0.95]);
+  const backdropBlur = useAnimatedHeaderNumber(scrollY, [0, 2]);
+  const borderOpacity = useAnimatedHeaderNumber(scrollY, [0, 0.3]);
+  const logoTranslateX = useAnimatedHeaderNumber(scrollY, [0, 10]);
+  const userMenuTranslateX = useAnimatedHeaderNumber(scrollY, [0, -5]);
+  const backgroundAlpha = useAnimatedHeaderNumber(scrollY, [0, 0.05]);
 
   const toggleMenu = useCallback(() => setIsMenuOpen((prev) => !prev), []);
 
@@ -42,7 +53,8 @@ const Header: React.FC = () => {
   const borderValue = useMotionTemplate`1px solid rgba(148, 163, 184, ${borderOpacity})`;
   const backgroundColorValue = useMotionTemplate`rgba(255, 255, 255, ${backgroundAlpha})`;
 
-  const { level, userXP, nextLevelXP } = useLevel();
+  const { level, userXP, nextLevelXP, userId, isAuthLoading } = useLevel();
+  const isLoggedIn = useMemo(() => !!userId, [userId]);
 
   return (
     <>
@@ -78,6 +90,7 @@ const Header: React.FC = () => {
           >
               <UserMenu
                 isLoggedIn={isLoggedIn}
+                isAuthLoading={!!isAuthLoading}
                 toggleMenu={toggleMenu}
                 isMenuOpen={isMenuOpen}
                 userLevel={level}
@@ -92,6 +105,7 @@ const Header: React.FC = () => {
         isMenuOpen={isMenuOpen}
         setIsMenuOpen={setIsMenuOpen}
         isLoggedIn={isLoggedIn}
+        isAuthLoading={!!isAuthLoading}
         scrollY={scrollY}
       />
     </>

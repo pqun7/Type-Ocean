@@ -1,6 +1,8 @@
 // src/lib/rateLimiter.ts
+import "server-only";
+
 import Redis from "ioredis";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { logger } from "@/log/ServerLogger";
 import {
   logRequestStart,
@@ -9,8 +11,6 @@ import {
 } from "@/log/loggingUtils";
 import { NextRequest, NextResponse } from "next/server";
 import { redisManager } from "@/lib/redis"; 
-
-const LOG_FILE = "src/lib/rateLimiter.ts";
 
 // 1. أنواع البيانات
 type RateLimitConfig = {
@@ -77,17 +77,25 @@ export class RateLimiter {
 
   // 4. تطبيق Rate Limit الأساسي
   async applyRateLimit(
-    identifier: string,
+    identifier: string | NextRequest,
     endpoint: string
   ): Promise<{ allowed: boolean; headers: Record<string, string> }> {
     const logType = "RATE_LIMIT";
-    logRequestStart(identifier, logType, "RATE_LIMIT", LOG_FILE);
+    const requestId = randomUUID();
 
-    if (!identifier || !endpoint) {
+    const resolvedIdentifier =
+      typeof identifier === "string"
+        ? identifier
+        : RateLimiter.extractIdentifierFromRequest(identifier);
+
+    logRequestStart(requestId, logType, "RATE_LIMIT", resolvedIdentifier);
+
+    if (!resolvedIdentifier || !endpoint) {
       const isAllowed = this.options.fallback === "allow";
-      logRequestSuccess(identifier, logType, "RATE_LIMIT", {
+      logRequestSuccess(requestId, logType, "RATE_LIMIT", {
         allowed: isAllowed,
         reason: "missing_identifier_or_endpoint",
+        endpoint,
       });
       return {
         allowed: isAllowed,
@@ -97,15 +105,8 @@ export class RateLimiter {
 
     try {
       const config = this.getConfig(endpoint);
-      if (!config) {
-        logger.warn("No rate limit config found for endpoint", { endpoint });
-        return {
-          allowed: this.options.fallback === "allow",
-          headers: {},
-        };
-      }
 
-      const key = this.generateKey(identifier, endpoint);
+      const key = this.generateKey(resolvedIdentifier, endpoint);
       let result: boolean;
 
       switch (config.strategy) {
@@ -126,15 +127,30 @@ export class RateLimiter {
         allowed: result,
         headers: this.generateHeaders(result, config),
       };
-    } catch (error: any) {
-      logRequestError(identifier, logType, error, { 
-        endpoint, 
-        errorDetails: error.message 
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      logRequestError(requestId, logType, error, {
+        endpoint,
+        errorDetails: errorMessage,
       });
       
       // العودة إلى الكاش المحلي في حالة الخطأ
-      return this.handleLocalRateLimit(identifier, endpoint);
+      return this.handleLocalRateLimit(resolvedIdentifier, endpoint);
     }
+  }
+
+  private static extractIdentifierFromRequest(req: NextRequest): string {
+    // Prefer explicit proxy headers. Fall back to a stable anonymous key.
+    const xForwardedFor = req.headers.get("x-forwarded-for");
+    const cfConnectingIp = req.headers.get("cf-connecting-ip");
+    const xRealIp = req.headers.get("x-real-ip");
+
+    if (cfConnectingIp) return cfConnectingIp.trim();
+    if (xRealIp) return xRealIp.trim();
+    if (xForwardedFor) return xForwardedFor.split(",")[0]?.trim() || "anonymous";
+
+    return "anonymous";
   }
 
   private handleLocalRateLimit(
@@ -232,7 +248,13 @@ export class RateLimiter {
         throw new Error("Redis transaction failed");
       }
 
-      const count = results[1][1] as number;
+      const rawCount = results[1]?.[1];
+      const count = Number(rawCount ?? 0);
+
+      if (!Number.isFinite(count)) {
+        throw new Error("Redis zcard returned non-numeric result");
+      }
+
       return count <= config.limit;
     } catch (error) {
       logger.error("Sliding window algorithm failed", { error, key });
@@ -278,7 +300,7 @@ export class RateLimiter {
   }
 
   // 9. الحصول على التهيئة مع القيم الافتراضية
-  private getConfig(endpoint: string): RateLimitConfig | null {
+  private getConfig(endpoint: string): RateLimitConfig {
     return this.configs.get(endpoint) || ENDPOINT_CONFIGS[endpoint] || { ...DEFAULT_CONFIG };
   }
 }
@@ -286,6 +308,16 @@ export class RateLimiter {
 // 11. تهيئة افتراضية للاستخدام العام
 export const rateLimiter = new RateLimiter(
   {
+    "/api/home/auth:GET": {
+      limit: 240,
+      windowMs: 60_000,
+      strategy: "fixed-window",
+    },
+    "/api/home/bootstrap:GET": {
+      limit: 120,
+      windowMs: 60_000,
+      strategy: "fixed-window",
+    },
     "session-stats": {
       limit: 50,
       windowMs: 60_000,
@@ -356,7 +388,8 @@ export async function initializeRateLimiter(): Promise<void> {
   try {
     await redisManager.connectIfNeeded();
     logger.info("Rate limiter initialized successfully");
-  } catch (error: any) {
-    logger.warn('Rate limiter initialization warning', { error: error.message });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.warn("Rate limiter initialization warning", { error: errorMessage });
   }
 }

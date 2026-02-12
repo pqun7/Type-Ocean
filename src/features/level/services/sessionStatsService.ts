@@ -1,10 +1,8 @@
 // src/features/level/services/sessionStatsService.ts
 import { authFetch } from "@/features/auth/utils/authFetch";
-// Avoid importing server-only monitoring at module load time because this
-// service file is used from client-side hooks. We'll dynamically import the
-// server monitoring utilities at runtime when running on the server. This
-// prevents ServerLogger from being included in client bundles.
-// NOTE: do not import server-only monitoring here (see dynamic import below)
+// NOTE: This service is used from client-side hooks.
+// Keep it client-safe: do not import or dynamically import any server-only
+// monitoring/logging modules here (e.g. circuit breaker, ServerLogger, Sentry).
 
 export type LongTermStats = {
   totalSessions: number;
@@ -80,79 +78,29 @@ export const sessionStatsService = {
       // Prepare session data for API v1
       const sessionPayload = await validateAndPrepareSessionData(userId, wpm, accuracy, sessionData);
 
-      // Execute with circuit breaker protection. We dynamically import the
-      // server-only circuit breaker/monitoring utilities only when running on
-      // the server. In client contexts (hooks/components) we use safe
-      // fallbacks so that ServerLogger isn't pulled into client bundles.
-      let response: SessionResponse;
-
-      if (typeof window === "undefined") {
-        const mod = await import("@/monitoring/circuitBreaker");
-        response = await mod.sessionStatsCircuit.execute(
-          async () => {
-            return await authFetch<SessionResponse>("/api/session-stats/v1", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-Session-ID": sessionId,
-              },
-              body: JSON.stringify(sessionPayload),
-              userId,
-              timeout: 8000,
-            });
-          },
-          async () => {
-            // logger.session.warn(
-            //   "Using fallback session stats due to circuit breaker",
-            //   { userId, sessionId }
-            // );
-
-            const fallbackLongTermStats: LongTermStats = {
-              totalSessions: 1,
-              totalTimeTyped: sessionPayload.timeSpent,
-              totalWordsTyped: Math.round(wpm * (sessionPayload.timeSpent / 60)),
-              totalCharactersTyped: sessionPayload.textLength,
-              averageWPM: wpm,
-              averageAccuracy: accuracy,
-              bestWPM: wpm,
-              bestWPMDate: new Date().toISOString(),
-              bestAccuracy: accuracy,
-              bestAccuracyDate: new Date().toISOString(),
-              lastUpdated: new Date().toISOString(),
-            };
-
-            return {
-              success: false,
-              sessionId,
-              longTermStats: fallbackLongTermStats,
-              sessionStored: false,
-              timestamp: new Date().toISOString(),
-            } as SessionResponse;
-          }
-        );
-      } else {
-        // Client fallback: call the API directly without circuit breaker.
-        response = await authFetch<SessionResponse>("/api/session-stats/v1", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Session-ID": sessionId,
-          },
-          body: JSON.stringify(sessionPayload),
-          userId,
-          timeout: 8000,
-        });
-      }
+      // Client-safe: call the API directly. Circuit breaker + monitoring should
+      // live on the server (API route), not in client-shared code.
+      const response = await authFetch<SessionResponse>("/api/session-stats/v1", {
+        method: "POST",
+        // This is fire-and-forget style background telemetry; keepalive helps
+        // prevent browsers from dropping the request during navigation/unload.
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-ID": sessionId,
+        },
+        body: JSON.stringify(sessionPayload),
+        userId,
+        // Server writes can be slow under load; don't abort too aggressively
+        // or we'll create "false timeouts" while the server still commits.
+        timeout: 60000,
+      });
 
       // Extract longTermStats from response
       const longTermStats = response.longTermStats;
 
-      // Record successful API health metrics
       const duration = Date.now() - startTime;
-      if (typeof window === "undefined") {
-        const mod = await import("@/monitoring/circuitBreaker");
-        mod.productionMonitor.recordApiHealth("SessionStats", "/api/session-stats/v1", "success", duration);
-      }
+      void duration;
       
       // logger.session.info(
       //   "Session stats recorded successfully",
@@ -165,18 +113,8 @@ export const sessionStatsService = {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
-      // Record failed API health metrics (server only)
-      if (typeof window === "undefined") {
-        const mod = await import("@/monitoring/circuitBreaker");
-        mod.productionMonitor.recordApiHealth("SessionStats", "/api/session-stats/v1", "failure", duration);
-      }
-
       // Enhanced error logging with context
-      // Compute circuit state once (server-only dynamic import)
-      const circuitState =
-        typeof window === "undefined"
-          ? (await import("@/monitoring/circuitBreaker")).sessionStatsCircuit.getStatus().state
-          : "UNKNOWN";
+      const circuitState = "UNKNOWN";
       
       const errObj = error instanceof Error ? error : new Error(String(error));
       // logger.session.error("Failed to record session stats", errObj);

@@ -1,14 +1,14 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 
-const lineVariants = {
+const lineVariants: Variants = {
   hidden: { opacity: 0, x: -50, rotate: -10 },
   visible: (i: number) => ({
     opacity: 1,
     x: 0,
     rotate: i === 1 ? 0 : i === 0 ? -15 : 15, // تناسق في التدوير بين الخطوط
-    transition: { delay: i * 0.2, duration: 0.6, ease: "easeOut" },
+    transition: { delay: i * 0.2, duration: 0.6, ease: [0, 0, 0.58, 1] as const },
   }),
 };
 

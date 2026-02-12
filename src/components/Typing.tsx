@@ -57,7 +57,6 @@ const HeaderGame = ({
   }, [selectedLevel]);
 
   useEffect(() => {
-    setTextKey(prev => prev + 1);
     setTextKey((prev) => prev + 1);
   }, []);
 

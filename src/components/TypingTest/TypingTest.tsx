@@ -4,6 +4,8 @@ import TextDisplay from "./TextDisplay";
 import TypingInput from "./TypingInput";
 import Caret from "./Caret";
 import useTypingGame from "../../features/typing/hooks/useTypingGame";
+import { useLevel } from "@/features/level/hooks/useLevel";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface TypingTestProps {
   texts: string[];
@@ -23,7 +25,6 @@ interface TypingTestProps {
 }
 
 export default function TypingTest({
-  texts,
   fontSize = "text-xl",
   lineHeight = "leading-8",
   font = "font-mono",
@@ -35,9 +36,11 @@ export default function TypingTest({
   onIdleChange,
   onElapsedTimeChange,
   onWpmHistoryChange,
-  onErrorsChange,
   selectedLevel,
 }: TypingTestProps) {
+  const level = useLevel();
+  const isBootstrapping = !!level.isLoadingSession;
+
   const {
     text,
     userInput,
@@ -52,39 +55,67 @@ export default function TypingTest({
     isIdle,
     elapsedTime,
     wpmHistory,
-    totalErrors,
-  } = useTypingGame(selectedLevel);
+  } = useTypingGame(selectedLevel, !isBootstrapping);
 
   // useEffect(() => {
   //   onErrorsChange?.(totalErrors);
   // }, [totalErrors, onErrorsChange]);
 
   useEffect(() => {
+    if (isBootstrapping) return;
     onWpmHistoryChange?.(wpmHistory);
-  }, [wpmHistory, onWpmHistoryChange]);
+  }, [isBootstrapping, wpmHistory, onWpmHistoryChange]);
 
   useEffect(() => {
+    if (isBootstrapping) return;
     onStateChange(state);
-  }, [state, onStateChange]);
+  }, [isBootstrapping, state, onStateChange]);
 
   useEffect(() => {
+    if (isBootstrapping) return;
     onWpmChange?.(wpm);
-  }, [wpm, onWpmChange]);
+  }, [isBootstrapping, wpm, onWpmChange]);
 
   useEffect(() => {
+    if (isBootstrapping) return;
     onAccuracyChange?.(accuracy);
-  }, [accuracy, onAccuracyChange]);
+  }, [isBootstrapping, accuracy, onAccuracyChange]);
 
   useEffect(() => {
+    if (isBootstrapping) return;
     onIdleChange?.(isIdle);
-  }, [isIdle, onIdleChange]);
+  }, [isBootstrapping, isIdle, onIdleChange]);
 
   useEffect(() => {
+    if (isBootstrapping) return;
     onElapsedTimeChange?.(elapsedTime);
-  }, [elapsedTime, onElapsedTimeChange]);
+  }, [isBootstrapping, elapsedTime, onElapsedTimeChange]);
+
+  if (isBootstrapping) {
+    return (
+      <div
+        className={`relative w-full h-full rounded-md p-4 ${className ?? ""}`}
+        aria-busy="true"
+        role="status"
+        aria-label="Loading typing test"
+      >
+        <div className="space-y-3 -mt-2">
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-11/12" />
+          <Skeleton className="h-6 w-10/12" />
+          <Skeleton className="h-6 w-11/12" />
+          {/* <Skeleton className="h-6 w-9/12" /> */}
+
+          {/* <div className="pt-4">
+            <Skeleton className="h-12 w-full rounded-md" />
+          </div> */}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className={`relative w-full h-full rounded-md p-4 ${className}`}>
+    <div className={`relative w-full h-full rounded-md p-4 ${className ?? ""}`}>
       <TextDisplay
         text={text}
         userInput={userInput}

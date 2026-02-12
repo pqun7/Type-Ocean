@@ -1,6 +1,7 @@
 import "next-auth";
 import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
+import Google from "next-auth/providers/google";   
 import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { PrismaClient } from "@prisma/client";
@@ -26,22 +27,56 @@ import { ZodError } from "zod";
 
 const prisma = new PrismaClient();
 
+const allowDangerousEmailAccountLinking =
+  process.env.NODE_ENV === "development" ||
+  process.env.AUTH_ALLOW_DANGEROUS_EMAIL_ACCOUNT_LINKING === "true";
+
+const githubClientId = process.env.AUTH_GITHUB_ID;
+const githubClientSecret = process.env.AUTH_GITHUB_SECRET;
+const googleClientId = process.env.AUTH_GOOGLE_ID;
+const googleClientSecret = process.env.AUTH_GOOGLE_SECRET;
+
 export const { auth, handlers, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   providers: [
-    GitHub({
-      clientId: process.env.AUTH_GITHUB_ID!,
-      clientSecret: process.env.AUTH_GITHUB_SECRET!,
-      authorization: { params: { scope: "user:email" } },
-      profile(profile) {
-        return {
-          id: profile.id.toString(),
-          username: profile.login,
-          email: profile.email,
-          image: profile.avatar_url,
-        };
-      },
-    }),
+    ...(githubClientId && githubClientSecret
+      ? [
+          GitHub({
+            clientId: githubClientId,
+            clientSecret: githubClientSecret,
+            authorization: { params: { scope: "user:email" } },
+            profile(profile) {
+              return {
+                id: profile.id.toString(),
+                username: profile.login,
+                email: profile.email,
+                image: profile.avatar_url,
+              };
+            },
+          }),
+        ]
+      : []),
+    ...(googleClientId && googleClientSecret
+      ? [
+          // ✅ Google OAuth provider
+          Google({
+            clientId: googleClientId,
+            clientSecret: googleClientSecret,
+            authorization: { params: { scope: "openid email profile" } },
+            // Fixes OAuthAccountNotLinked for users who previously signed up with credentials.
+            // In production, keep this opt-in via AUTH_ALLOW_DANGEROUS_EMAIL_ACCOUNT_LINKING.
+            allowDangerousEmailAccountLinking: allowDangerousEmailAccountLinking,
+            profile(profile) {
+              return {
+                id: profile.sub,
+                username: profile.name, // or use profile.email if preferred
+                email: profile.email,
+                image: profile.picture,
+              };
+            },
+          }),
+        ]
+      : []),
     Credentials({
       name: "Credentials",
       credentials: {
@@ -93,17 +128,36 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       return session;
     },
   },
-
-  // auth.ts
   pages: {
-    signIn: "/auth?login",
-    error: "/auth/error",
-    signOut: "/auth?login",
-    verifyRequest: "/auth/verify",
-    newUser: "/auth?signup",
+    // Keep all auth flows on the existing /auth page.
+    // Errors are surfaced via the `error` query param and handled client-side.
+    signIn: "/auth",
+    error: "/auth",
+    signOut: "/auth",
+    // If you ever add an email/magic-link provider, point this to a real page.
+    verifyRequest: "/auth",
+    newUser: "/auth?form=signup",
   },
-
   events: {
+    async createUser({ user }) {
+      // Ensure PlayerProfile exists for OAuth-created users
+      try {
+        if (!user.id) return;
+        const username = (user as unknown as { username?: string | null }).username;
+        await prisma.playerProfile.create({
+          data: {
+            user: { connect: { id: user.id } },
+            username: username ?? "user",
+            level: 1,
+            xp: 0,
+            achievements: [],
+            avatar: null,
+          },
+        });
+      } catch {
+        // Ignore duplicates / race conditions
+      }
+    },
     async linkAccount({ user }) {
       await prisma.user.update({
         where: { id: user.id },
@@ -116,5 +170,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.AUTH_SECRET,
-  debug: process.env.NODE_ENV === "development",
+  // Auth.js warns loudly when debug is enabled because it can log secrets.
+  // Make it opt-in via AUTHJS_DEBUG=true.
+  debug: process.env.AUTHJS_DEBUG === "true",
 });

@@ -51,10 +51,7 @@ const AnimatedBenefit = ({ benefit, index }: { benefit: { icon: string | StaticI
         borderColor: "rgba(140,200,240,0.3)",
         boxShadow: "0 8px 32px rgba(140, 200, 240, 0.2)",
       }}
-      transition={{
-        scroll: { damping: 18, stiffness: 150 },
-        hover: { type: "spring", damping: 20, stiffness: 300 },
-      }}
+      transition={{ type: "spring" as const, damping: 20, stiffness: 300 }}
     >
       <div className="flex flex-col items-center justify-center">
         <div className="w-28 h-28 bg-[rgba(140,200,240,0.1)] rounded-full flex items-center justify-center border border-[rgba(120,110,230,0.2)] group-hover:border-[rgba(120,110,230,0.5)] transition-colors duration-300">

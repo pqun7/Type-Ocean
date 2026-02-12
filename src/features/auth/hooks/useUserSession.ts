@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 const fetcher = async (url: string) => {
   try {
     const response = await fetch(url, {
-      method: "POST",
+      method: "GET",
       headers: { "Content-Type": "application/json" },
       credentials: 'include', // Include cookies for session
     });

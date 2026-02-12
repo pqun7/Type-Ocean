@@ -2,9 +2,59 @@ import prisma from '@/features/auth/lib/db';
 import { redis as client, connectIfNeeded } from '@/lib/redis';
 import { PlayerProfile, User } from '@prisma/client';
 import { logging } from '@/log/ServerLogger';
+import { calculateNextLevelXP } from "@/features/level/utils/xpMath";
 
 // Cache configuration
 const PROFILE_CACHE_TTL = 3600; // 1 hour in seconds
+const PROGRESS_CACHE_TTL = 300; // 5 minutes (UI bootstrap optimization)
+
+type CachedProgressPayload = {
+  v: 1;
+  level: number;
+  xp: number;
+  achievements: unknown;
+  cachedAt: number;
+};
+
+async function cacheProgress(userId: string, payload: { level: number; xp: number; achievements: unknown }): Promise<void> {
+  try {
+    await connectIfNeeded();
+    const key = `user:${userId}:progress`;
+    const value: CachedProgressPayload = {
+      v: 1,
+      level: payload.level,
+      xp: payload.xp,
+      achievements: payload.achievements,
+      cachedAt: Date.now(),
+    };
+    await client.setex(key, PROGRESS_CACHE_TTL, JSON.stringify(value));
+  } catch {
+    // ignore (best-effort)
+  }
+}
+
+async function getCachedProgress(userId: string): Promise<{ level: number; xp: number; achievements: unknown } | null> {
+  try {
+    await connectIfNeeded();
+    const key = `user:${userId}:progress`;
+    const raw = await client.get(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<CachedProgressPayload>;
+    if (parsed?.v !== 1) return null;
+
+    const level = Number(parsed.level);
+    const xp = Number(parsed.xp);
+    if (!Number.isFinite(level) || !Number.isFinite(xp)) return null;
+
+    return {
+      level,
+      xp,
+      achievements: parsed.achievements ?? [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Caches user level information in Redis with TTL
@@ -103,8 +153,27 @@ export async function getCachedProfile(
     });
 
     if (!profile) {
-      logging.warn(`[CACHE] Profile not found for ${userId}, using fallback`);
-      throw new Error('FALLBACK_NEEDED');
+      logging.warn(`[CACHE] Profile not found for ${userId}, creating default profile`);
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true },
+      });
+
+      const created = await prisma.playerProfile.create({
+        data: {
+          userId,
+          username: user?.username ?? "user",
+          level: 1,
+          xp: 0,
+          achievements: [],
+          avatar: null,
+        },
+        include: { user: true },
+      });
+
+      await cacheProfile(created, cacheKey);
+      return created;
     }
 
     // Update cache with fresh data
@@ -135,15 +204,8 @@ export async function getUserLevel(userId: string): Promise<number> {
       return parseInt(cachedLevel, 10);
     }
 
-    // Fallback to database
-    const profile = await prisma.playerProfile.findUnique({
-      where: { userId },
-      select: { level: true }
-    });
-
-    if (!profile) {
-      throw new Error('USER_PROFILE_NOT_FOUND');
-    }
+    // Fallback to database (ensure profile exists)
+    const profile = await ensurePlayerProfile(userId);
 
     // Update cache
     await client.setex(CACHE_KEY, PROFILE_CACHE_TTL, profile.level.toString());
@@ -153,6 +215,118 @@ export async function getUserLevel(userId: string): Promise<number> {
     logging.error(`Failed to retrieve level for user ${userId}:`, error);
     throw error;
   }
+}
+
+async function ensurePlayerProfile(userId: string): Promise<PlayerProfile> {
+  const existing = await prisma.playerProfile.findUnique({ where: { userId } });
+  if (existing) return existing;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { username: true },
+  });
+
+  return prisma.playerProfile.create({
+    data: {
+      userId,
+      username: user?.username ?? "user",
+      level: 1,
+      xp: 0,
+      achievements: [],
+      avatar: null,
+    },
+  });
+}
+
+export async function addUserXP(
+  userId: string,
+  xpDelta: number
+): Promise<{ level: number; xp: number; nextLevelXP: number }> {
+  if (!Number.isFinite(xpDelta) || xpDelta <= 0) {
+    throw new Error("INVALID_XP_DELTA");
+  }
+
+  const profile = await ensurePlayerProfile(userId);
+
+  let nextLevel = Math.max(1, profile.level);
+  let nextXP = Math.max(0, profile.xp) + Math.floor(xpDelta);
+
+  // Apply level-ups (xp is stored as remainder towards next level)
+  while (nextXP >= calculateNextLevelXP(nextLevel)) {
+    nextXP -= calculateNextLevelXP(nextLevel);
+    nextLevel += 1;
+  }
+
+  const updated = await prisma.playerProfile.update({
+    where: { userId },
+    data: { level: nextLevel, xp: nextXP },
+    select: { level: true, xp: true },
+  });
+
+  // Best-effort progress cache update (does not block response)
+  cacheProgress(userId, {
+    level: updated.level,
+    xp: updated.xp,
+    achievements: profile.achievements,
+  }).catch(() => {
+    // ignore
+  });
+
+  // Best-effort cache update (do not block response)
+  cacheLevel(userId, updated.level).catch((error) => {
+    logging.warn("Failed to update level cache", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+
+  cacheXP(userId, updated.xp).catch((error) => {
+    logging.warn("Failed to update XP cache", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+
+  return {
+    level: updated.level,
+    xp: updated.xp,
+    nextLevelXP: calculateNextLevelXP(updated.level),
+  };
+}
+
+export async function getUserProgress(userId: string): Promise<{
+  level: number;
+  xp: number;
+  nextLevelXP: number;
+  achievements: unknown;
+}> {
+  const cached = await getCachedProgress(userId);
+  if (cached) {
+    return {
+      level: cached.level,
+      xp: cached.xp,
+      nextLevelXP: calculateNextLevelXP(cached.level),
+      achievements: cached.achievements,
+    };
+  }
+
+  const profile = await ensurePlayerProfile(userId);
+  const result = {
+    level: profile.level,
+    xp: profile.xp,
+    nextLevelXP: calculateNextLevelXP(profile.level),
+    achievements: profile.achievements,
+  };
+
+  cacheProgress(userId, {
+    level: result.level,
+    xp: result.xp,
+    achievements: result.achievements,
+  }).catch(() => {
+    // ignore
+  });
+
+  return result;
 }
 
 export const updateUserLevel = async (userId: string, newLevel: number, newXP: number) => {

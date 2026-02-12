@@ -6,17 +6,18 @@
  */
 export const getUserLevelWithFallback = async (userId: string): Promise<number> => {
   try {
-    // Try to get level from localStorage first (client-side cache)
-    const storedLevel = localStorage.getItem(`user:${userId}:level`);
-    if (storedLevel) {
-      const level = parseInt(storedLevel, 10);
-      if (!isNaN(level) && level > 0) {
-        return level;
-      }
-    }
+    // Anti-cheat: do not trust client-side persisted state.
+    // Fetch server-backed progress (best-effort).
+    const res = await fetch("/api/profile/progress", {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+    });
 
-    // Fallback to default level
-    return 1;
+    if (!res.ok) return 1;
+    const data = (await res.json()) as { progress?: { level?: unknown } };
+    const level = Number(data?.progress?.level);
+    return Number.isFinite(level) && level > 0 ? level : 1;
   } catch (error) {
     console.warn("Failed to retrieve user level, using default:", error);
     return 1;

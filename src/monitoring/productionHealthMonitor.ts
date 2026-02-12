@@ -1,3 +1,5 @@
+import "server-only";
+
 // src/monitoring/productionHealthMonitor.ts
 import { logger } from "@/log/ServerLogger";
 

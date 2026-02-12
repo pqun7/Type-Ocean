@@ -218,7 +218,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
                 className="pb-6"
               >
                 <Button asChild className="w-full mx-4 btn-main">
-                  <Link href="/auth/login">Log in Now</Link>
+                  <Link href="/auth">Log in Now</Link>
                 </Button>
               </motion.div>
             )}

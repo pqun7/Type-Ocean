@@ -138,17 +138,35 @@ export async function GET(req: NextRequest) {
       hasProfile: !!user.profile,
     });
 
-    return NextResponse.json({
-      user: {
-        ...user,
-        profile: user.profile || {
-          id: null,
+    let profile = user.profile;
+    if (!profile) {
+      // Ensure profile exists for legacy/OAuth users
+      profile = await prisma.playerProfile.upsert({
+        where: { userId: user.id },
+        update: {},
+        create: {
+          userId: user.id,
           username: user.username,
           level: 1,
           xp: 0,
           achievements: [],
           avatar: null,
         },
+        select: {
+          id: true,
+          username: true,
+          level: true,
+          xp: true,
+          achievements: true,
+          avatar: true,
+        },
+      });
+    }
+
+    return NextResponse.json({
+      user: {
+        ...user,
+        profile,
       },
     });
   } catch (error) {

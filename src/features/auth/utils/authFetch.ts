@@ -23,8 +23,18 @@ export async function authFetch<T = unknown>(
   options: AuthFetchOptions = {}
 ): Promise<T> {
   const controller = new AbortController();
-  const timeout = options.timeout || DEFAULT_TIMEOUT;
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const timeout = typeof options.timeout === "number" ? options.timeout : DEFAULT_TIMEOUT;
+  const timeoutId = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
+
+  // Respect an external signal (e.g. page-level AbortController)
+  // while still enforcing our own timeout.
+  if (options.signal) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else {
+      options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
 
   try {
     const headers = new Headers(options.headers);
@@ -85,6 +95,6 @@ export async function authFetch<T = unknown>(
     // Re-throw the original error instead of masking it
     throw error;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }

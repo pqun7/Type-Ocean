@@ -1,31 +1,33 @@
 "use client";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 
 type Direction = "TOP" | "LEFT" | "BOTTOM" | "RIGHT";
 
+type HoverBorderGradientProps = React.PropsWithChildren<{
+  as?: React.ElementType;
+  containerClassName?: string;
+  className?: string;
+  duration?: number;
+  clockwise?: boolean;
+  bgColor?: string;
+  hideMovingBorder?: boolean;
+}> &
+  React.HTMLAttributes<HTMLElement>;
+
 export function HoverBorderGradient({
   children,
   containerClassName,
   className,
-  as: Tag = "button",
+  as,
   duration = 1,
   clockwise = true,
   bgColor = "bg-black",
   hideMovingBorder = false,
   ...props
-}: React.PropsWithChildren<
-  {
-    as?: React.ElementType;
-    containerClassName?: string;
-    className?: string;
-    duration?: number;
-    clockwise?: boolean;
-    bgColor?: string;
-    hideMovingBorder?: boolean; // تعريف الخاصية
-  } & React.HTMLAttributes<HTMLElement>
->) {
+}: HoverBorderGradientProps) {
+  const Tag = as ?? "button";
   const [hovered, setHovered] = useState<boolean>(false);
   const [direction, setDirection] = useState<Direction>("TOP");
 
@@ -60,16 +62,18 @@ export function HoverBorderGradient({
     }
   }, [hovered, hideMovingBorder]); // تحديث dependencies
 
-  return (
-    <Tag
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className={cn(
+  return React.createElement(
+    Tag as React.ElementType,
+    {
+      onMouseEnter: () => setHovered(true),
+      onMouseLeave: () => setHovered(false),
+      className: cn(
         "relative flex rounded-full border content-center bg-black/10 hover:bg-black/0 transition duration-500 items-center flex-col flex-nowrap gap-10 h-min justify-center overflow-visible p-px decoration-clone w-fit",
         containerClassName
-      )}
-      {...props}
-    >
+      ),
+      ...props,
+    },
+    <>
       <div
         className={cn(
           "w-auto text-white z-10 bg-black px-4 py-2 rounded-[inherit]",
@@ -78,8 +82,7 @@ export function HoverBorderGradient({
       >
         {children}
       </div>
-      
-      {/* إظهار الحركة فقط إذا لم يتم تفعيل الخاصية */}
+
       {!hideMovingBorder && (
         <motion.div
           className={cn(
@@ -97,11 +100,11 @@ export function HoverBorderGradient({
               ? [movingMap[direction], highlight]
               : movingMap[direction],
           }}
-          transition={{ ease: "linear", duration: duration ?? 1 }}
+          transition={{ ease: [0, 0, 1, 1] as const, duration: duration ?? 1 }}
         />
       )}
 
       <div className={`${bgColor} absolute z-1 flex-none inset-[2px] rounded-[100px]`} />
-    </Tag>
+    </>
   );
 }
