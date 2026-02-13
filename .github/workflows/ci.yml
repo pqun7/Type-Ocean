@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: '1'
+      # Required envs for src/env.mjs (and some API routes)
+      AUTH_SECRET: 'ci_dummy_auth_secret_32_chars_minimum__1234'
+      DATABASE_URL: 'postgresql://user:password@localhost:5432/mydb'
+      AUTH_GITHUB_ID: 'dummy'
+      AUTH_GITHUB_SECRET: 'dummy'
+      SESSION_MAX_AGE: '2592000'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npm run prisma:generate
+
+      - name: Unit tests
+        run: npm run test:ci
+
+      - name: Build
+        run: npm run build

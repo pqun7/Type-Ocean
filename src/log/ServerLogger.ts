@@ -255,8 +255,8 @@ class ConsoleTransport {
   };
 
   log(entry: LogEntry) {
-    // No printing in production for console (we use file transport instead)
-    if (process.env.NODE_ENV === "production") return;
+    // Avoid noisy logs in test runs
+    if (process.env.NODE_ENV === "test") return;
 
     const color = this.colors[entry.level] || this.colors.reset;
     const timestamp = entry.timestamp;
@@ -288,8 +288,6 @@ class FileTransport {
     };
     
     const logEntry = JSON.stringify(safeEntry);
-
-    this.fileManager.writeToFile("combined.log", logEntry);
 
     if (entry.level === "error") {
       this.fileManager.writeToFile("errors.log", logEntry);

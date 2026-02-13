@@ -31,20 +31,26 @@ class RedisManager {
 
   constructor() {
     const config = this.getRedisConfig();
-    this.client = new Redis(config);
+    this.client = typeof config === "string" ? new Redis(config) : new Redis(config);
 
     this.setupEventHandlers();
     this.defineLuaCommands(); // <--- Fix 2: call LUA definition here
     this.attachShutdownHandlers();
   }
 
-  private getRedisConfig(): RedisOptions { // <--- Fix 1: use RedisOptions
+  private getRedisConfig(): RedisOptions | string { // allow REDIS_URL
     const isDevelopment = process.env.NODE_ENV === 'development';
+
+    // If a full URL is provided, prefer it in any environment.
+    if (process.env.REDIS_URL) {
+      return process.env.REDIS_URL;
+    }
     
     if (isDevelopment) {
       return {
-        host: '127.0.0.1',
-        port: 6379,
+        host: process.env.REDIS_HOST || '127.0.0.1',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD,
         connectTimeout: 3000,
         lazyConnect: true,
         enableOfflineQueue: false,
@@ -73,10 +79,8 @@ class RedisManager {
       enableReadyCheck: true,
     } as RedisOptions;
 
-    // Add TLS for production if there's no URL
-    if (!process.env.REDIS_URL) {
-      baseConfig.tls = {};
-    }
+    // Add TLS for production (URL-less config)
+    baseConfig.tls = {};
 
     return baseConfig;
   }

@@ -30,6 +30,8 @@ services:
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://user:password@postgres:5432/mydb
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     develop:
       watch:
       - action: sync
@@ -38,14 +40,24 @@ services:
         ignore:
           - node_modules
       - action: rebuild
-        path: pakjage.json
+        path: package.json
         
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - .:/app
       - /app/node_modules
+
+  # 🔹 خدمة Redis
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    restart: always
+    ports:
+      - "6379:6379"
 
 volumes:
   pgdata:

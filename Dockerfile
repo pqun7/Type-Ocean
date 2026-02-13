@@ -12,8 +12,8 @@ COPY package.json package-lock.json ./
 COPY prisma ./prisma
 COPY . .
 
-# 5. تثبيت التبعيات
-RUN npm install --frozen-lockfile
+# 5. تثبيت التبعيات (npm)
+RUN npm ci
 RUN npx prisma generate
 RUN npm run build
 
