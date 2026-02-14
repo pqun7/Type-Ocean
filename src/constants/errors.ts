@@ -22,6 +22,7 @@ export const errorMap: Record<string, string> = {
   USER_CREATED_BUT_EMAIL_NOT_SENT: "User created but email not sent",
 
   // Password reset
+  INVALID_TOKEN: "Reset link is invalid or has expired",
   INVALID_OR_EXPIRED_TOKEN: "Reset link is invalid or has expired",
   EMAIL_REQUIRED: "Please enter your email",
   SOCIAL_AUTH_ACCOUNT: "Account uses external login",

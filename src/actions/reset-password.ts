@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import prisma from "@/features/auth/lib/db";
 import { saltAndHashPassword } from "@/features/auth/utils/password";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { resetPasswordSchema } from "@/schemas/authSchema";
 import { generateResetToken, validateResetToken } from "@/features/auth/utils/tokens";
 import { checkRateLimit } from "@/lib/rate-limiter";
@@ -178,8 +178,12 @@ export async function updatePassword(
       email: user.email
     });
 
+    if (!user.passwordHash) {
+      throw new Error("SOCIAL_AUTH_ACCOUNT");
+    }
+
     // منع إعادة استخدام كلمة المرور القديمة
-    if (!(await validateNewPassword(password, user.passwordHash!))) {
+    if (!(await validateNewPassword(password, user.passwordHash))) {
       logPasswordOperation.error("update_password", new Error("Password same as current"), {
         requestId,
         userId: user.id
@@ -195,17 +199,8 @@ export async function updatePassword(
           passwordHash: await saltAndHashPassword(password),
           resetToken: null,
           resetTokenExpiry: null,
-          passwordResetRequests: { increment: 1 },
         },
       }),
-      
-      prisma.user.update({
-        where: { id: user.id },
-        data: {
-          resetToken: null,
-          resetTokenExpiry: null
-        }
-      })
     ]);
 
     logPasswordOperation.success("update_password", {

@@ -60,7 +60,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
 
   useEffect(() => {
     if (state.error) showAlert(state.error, "error");
-    if (state.success) showAlert("Reset link sent successfully", "success");
+    if (state.success) showAlert("Password updated successfully", "success");
   }, [state]);
 
   return (
