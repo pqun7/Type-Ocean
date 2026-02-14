@@ -192,6 +192,8 @@ export async function updatePassword(
     }
 
     // استخدام معاملة قاعدة بيانات آمنة
+    const shouldVerifyEmail = !user.emailVerified;
+
     await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
@@ -199,6 +201,16 @@ export async function updatePassword(
           passwordHash: await saltAndHashPassword(password),
           resetToken: null,
           resetTokenExpiry: null,
+          // Password reset link proves mailbox ownership; activate account here.
+          ...(shouldVerifyEmail
+            ? {
+                emailVerified: new Date(),
+                emailVerificationAttempts: 0,
+              }
+            : {}),
+          // Always clear any outstanding verification token.
+          emailVerifyToken: null,
+          emailVerifyTokenExpiry: null,
         },
       }),
     ]);

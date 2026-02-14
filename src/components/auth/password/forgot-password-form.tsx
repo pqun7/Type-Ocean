@@ -35,8 +35,12 @@ export function ForgotPasswordForm() {
 
   useEffect(() => {
     if (state.error) showAlert(state.error, "error");
-    if (state.success) showAlert("Reset link sent successfully", "success");
-  }, [state]);
+    if (state.success)
+      showAlert(
+        "If the email exists, you will receive a reset link.",
+        "success"
+      );
+  }, [state, showAlert]);
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
