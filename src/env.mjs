@@ -24,6 +24,26 @@ export const env = createEnv({
 
     RESEND_API_KEY: z.string().optional(),
 
+    // Outbound email (Nodemailer / SMTP)
+    EMAIL_ADDRESS: z.string().email().optional(),
+    EMAIL_PASSWORD: z.string().optional(),
+    SMTP_HOST: z.string().optional(),
+    SMTP_PORT: z.coerce.number().optional(),
+    SMTP_SECURE: z.enum(["true", "false"]).optional(),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASS: z.string().optional(),
+
+    SMTP_MAX_CONNECTIONS: z.coerce.number().optional(),
+    SMTP_MAX_MESSAGES: z.coerce.number().optional(),
+    SMTP_RATE_DELTA_MS: z.coerce.number().optional(),
+    SMTP_RATE_LIMIT: z.coerce.number().optional(),
+    SMTP_TLS_REJECT_UNAUTHORIZED: z.enum(["true", "false"]).optional(),
+
+    EMAIL_SEND_MAX_ATTEMPTS: z.coerce.number().optional(),
+    EMAIL_SEND_RETRY_BASE_DELAY_MS: z.coerce.number().optional(),
+
+    EMAIL_DAILY_LIMIT: z.coerce.number().optional(),
+
     BLOB_READ_WRITE_TOKEN: z.string().optional(),
   },
   client: {},
@@ -47,6 +67,25 @@ export const env = createEnv({
     REDIS_TLS: process.env.REDIS_TLS,
 
     RESEND_API_KEY: process.env.RESEND_API_KEY,
+
+    EMAIL_ADDRESS: process.env.EMAIL_ADDRESS,
+    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD,
+    SMTP_HOST: process.env.SMTP_HOST,
+    SMTP_PORT: process.env.SMTP_PORT,
+    SMTP_SECURE: process.env.SMTP_SECURE,
+    SMTP_USER: process.env.SMTP_USER,
+    SMTP_PASS: process.env.SMTP_PASS,
+
+    SMTP_MAX_CONNECTIONS: process.env.SMTP_MAX_CONNECTIONS,
+    SMTP_MAX_MESSAGES: process.env.SMTP_MAX_MESSAGES,
+    SMTP_RATE_DELTA_MS: process.env.SMTP_RATE_DELTA_MS,
+    SMTP_RATE_LIMIT: process.env.SMTP_RATE_LIMIT,
+    SMTP_TLS_REJECT_UNAUTHORIZED: process.env.SMTP_TLS_REJECT_UNAUTHORIZED,
+
+    EMAIL_SEND_MAX_ATTEMPTS: process.env.EMAIL_SEND_MAX_ATTEMPTS,
+    EMAIL_SEND_RETRY_BASE_DELAY_MS: process.env.EMAIL_SEND_RETRY_BASE_DELAY_MS,
+
+    EMAIL_DAILY_LIMIT: process.env.EMAIL_DAILY_LIMIT,
 
     BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
   },

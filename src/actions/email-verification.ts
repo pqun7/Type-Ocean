@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limiter";
-import { sendVerificationEmail } from "@/features/auth/providers/resend";
+import { sendVerificationEmail } from "@/features/auth/providers/nodemailer";
 import { mapErrorToMessage } from "@/constants/errors";
 import prisma from "@/features/auth/lib/db";
 import { logging } from "@/log/ServerLogger";

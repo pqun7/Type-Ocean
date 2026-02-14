@@ -42,6 +42,26 @@ const ENDPOINT_CONFIGS: Record<string, RateLimitConfig> = {
     windowMs: 30_000,
     strategy: "sliding-window",
   },
+
+  // Internal limits for outbound email (SMTP). These are sender/recipient keyed.
+  // Keep conservative defaults to reduce Gmail throttling/ban risk.
+  "/internal/email/send": {
+    limit: 20,
+    windowMs: 60_000,
+    strategy: "sliding-window",
+  },
+  "/internal/email/to": {
+    limit: 5,
+    windowMs: 60_000,
+    strategy: "sliding-window",
+  },
+
+  // Daily sender cap (Gmail unofficial safety limit). Identifier should be per-sender.
+  "/internal/email/daily": {
+    limit: Number(process.env.EMAIL_DAILY_LIMIT || "500"),
+    windowMs: 86_400_000, // 24h
+    strategy: "fixed-window",
+  },
 };
 
 type RateLimitOptions = {

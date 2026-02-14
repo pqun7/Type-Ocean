@@ -426,6 +426,11 @@ export const calculateChallengeStatus = (
   challenge: DailyChallenge,
   progress: ChallengeProgress
 ): 0 | 1 | -1 => {
+  // Once a daily challenge is completed, it should stay completed for the rest of the day.
+  // This prevents users from earning the completion reward multiple times if later sessions
+  // don't meet the criteria (e.g. speedCombo depending on last-run WPM/accuracy).
+  if (challenge.status === 1) return 1;
+
   if (isChallengeCompleted(challenge, progress)) return 1; // Completed
   
   // Check if any progress values exist

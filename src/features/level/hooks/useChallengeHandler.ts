@@ -142,7 +142,8 @@ export const useChallengeHandler = (
       );
 
       const completed = updatedChallenge.status === 1;
-      const xp = completed ? updatedChallenge.xp : 0;
+      const justCompleted = completed && prevChallenge.status !== 1;
+      const xp = justCompleted ? updatedChallenge.xp : 0;
 
        logger.challenge.debug("Challenge update completed successfully", {
         userId,
@@ -154,7 +155,7 @@ export const useChallengeHandler = (
       
       setOptimisticChallenge(updatedChallenge);
 
-        if (completed) {
+        if (justCompleted) {
         logger.challenge.info("Daily challenge completed", {
           userId,
           challengeId: activeChallenge.id,

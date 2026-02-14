@@ -29,6 +29,7 @@ export function generateEmergencyProfile(userId: string): PlayerProfile & { user
       emailVerifyToken: null,
       emailVerifyTokenExpiry: null,
       emailVerificationAttempts: 0,
+      verificationReminderShownAt: null,
     },
   };
 }

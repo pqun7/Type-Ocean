@@ -31,8 +31,8 @@ export default async function ProfilePage() {
         usernameLastChangedAt: Date | null;
         email: string;
         emailVerified: Date | null;
+        passwordHash: string | null;
         image: string | null;
-        hasPassword: boolean;
         createdAt: Date;
         profile:
           | {

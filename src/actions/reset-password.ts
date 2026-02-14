@@ -7,7 +7,7 @@ import bcrypt from "bcrypt";
 import { resetPasswordSchema } from "@/schemas/authSchema";
 import { generateResetToken, validateResetToken } from "@/features/auth/utils/tokens";
 import { checkRateLimit } from "@/lib/rate-limiter";
-import { sendPasswordResetEmail } from "@/features/auth/providers/resend";
+import { sendPasswordResetEmail } from "@/features/auth/providers/nodemailer";
 import { mapErrorToMessage } from "@/constants/errors";
 import { logging } from "@/log/ServerLogger";
 
