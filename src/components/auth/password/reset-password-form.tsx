@@ -44,7 +44,12 @@ export function ResetPasswordForm({ token }: { token: string }) {
         router.push("/auth?login");
       }, 3000);
     }
-  }, [state.success]);
+  }, [state.success, router]);
+
+  useEffect(() => {
+    if (state.error) showAlert(state.error, "error");
+    if (state.success) showAlert("Password updated successfully", "success");
+  }, [state.error, state.success, showAlert]);
 
   if (!token) {
     return (
@@ -58,14 +63,9 @@ export function ResetPasswordForm({ token }: { token: string }) {
     );
   }
 
-  useEffect(() => {
-    if (state.error) showAlert(state.error, "error");
-    if (state.success) showAlert("Password updated successfully", "success");
-  }, [state]);
-
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
-      <div className="flex w-full max-w-sm flex-col gap-6">
+      <div className="flex w-full max-w-md flex-col gap-6">
         <Card className="bg-[#0a0a1f]/50 backdrop-blur-lg border border-[#ffffff15] shadow-xl relative overflow-hidden">
           <LayoutGroup>
             <CardHeader className="text-center">
@@ -215,9 +215,9 @@ export function ResetPasswordForm({ token }: { token: string }) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}
-                className="pb-6"
+                className="px-6 pb-6"
               >
-                <Button asChild className="w-full mx-4 btn-main">
+                <Button asChild className="w-full btn-main">
                   <Link href="/auth">Log in Now</Link>
                 </Button>
               </motion.div>

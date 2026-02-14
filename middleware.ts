@@ -43,6 +43,60 @@ export default auth(async (req) => {
     return NextResponse.next();
   }
 
+  // Convert auth-related query params to short-lived flash cookies, then redirect to a clean URL.
+  // This avoids exposing internal codes in the address bar and in shared links.
+  {
+    const url = req.nextUrl.clone();
+    const error = url.searchParams.get("error");
+    const verified = url.searchParams.get("verified");
+    const authStatus = url.searchParams.get("auth");
+    const provider = url.searchParams.get("provider");
+
+    const shouldClean = Boolean(error || verified || authStatus);
+    if (shouldClean) {
+      const cleanUrl = req.nextUrl.clone();
+      cleanUrl.searchParams.delete("error");
+      cleanUrl.searchParams.delete("verified");
+      cleanUrl.searchParams.delete("auth");
+      cleanUrl.searchParams.delete("provider");
+
+      const response = NextResponse.redirect(cleanUrl);
+
+      if (error) {
+        response.cookies.set("__flash_error", error, {
+          path: "/",
+          sameSite: "lax",
+          maxAge: 60,
+          secure: process.env.NODE_ENV === "production",
+        });
+      }
+
+      if (verified) {
+        response.cookies.set("__flash_verified", verified, {
+          path: "/",
+          sameSite: "lax",
+          maxAge: 60,
+          secure: process.env.NODE_ENV === "production",
+        });
+      }
+
+      if (authStatus) {
+        response.cookies.set("__flash_auth", `${authStatus}:${provider ?? ""}`, {
+          path: "/",
+          sameSite: "lax",
+          maxAge: 60,
+          secure: process.env.NODE_ENV === "production",
+        });
+      }
+
+      Object.entries(securityHeaders).forEach(([key, value]) => {
+        response.headers.set(key, value)
+      })
+
+      return response;
+    }
+  }
+
   try {
     // 3. Apply Rate Limiting to specific non-API endpoints only
     if (RATE_LIMITED_ENDPOINTS.some(endpoint => pathname.startsWith(endpoint))) {

@@ -126,13 +126,36 @@ async function generateEmailContent(
   switch (type) {
     case "PASSWORD_RESET":
       return {
-        subject: `Password Reset - ${commonData.appName}`,
+        subject: `Reset your password - ${commonData.appName}`,
         html: `
-          <div dir="ltr">
-            <h1>Password Reset</h1>
-            <p>To reset your password, please click the link below:</p>
-            <a href="${baseUrl}/reset-password/${(data as { token: string }).token}">Reset Password</a>
-            <p>The link will expire within one hour.</p>
+          <div dir="ltr" style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; line-height: 1.55; color: #111;">
+            <p style="margin: 0 0 16px;">Hello,</p>
+
+            <p style="margin: 0 0 16px;">We received a request to reset the password for your account.</p>
+
+            <p style="margin: 0 0 16px;">To complete the process and activate your account, please click the link below:</p>
+
+            <p style="margin: 0 0 16px;">
+              <a
+                href="${baseUrl}/reset-password/${(data as { token: string }).token}"
+                style="display: inline-block; padding: 10px 16px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 8px;"
+              >
+                Reset Password
+              </a>
+            </p>
+
+            <p style="margin: 0 0 8px;">This link will allow you to:</p>
+            <ul style="margin: 0 0 16px; padding-left: 18px;">
+              <li>Set a new password</li>
+              <li>Confirm your email address and activate your account</li>
+            </ul>
+
+            <p style="margin: 0 0 16px;"><strong>⚠️ This link is valid for 15 minutes only and can be used once.</strong></p>
+
+            <p style="margin: 0 0 16px;">If you did not request a password reset, you can safely ignore this message, and no changes will be made to your account.</p>
+
+            <p style="margin: 0 0 16px;">For any questions, feel free to contact our support team.</p>
+
             ${supportFooter(commonData)}
           </div>
         `,
@@ -220,7 +243,7 @@ export async function generateResetToken(email: string) {
   const rawToken = randomBytes(32).toString("hex");
   const hashedToken = createHash("sha256").update(rawToken).digest("hex");
 
-  const resetTokenExpiry = new Date(Date.now() + 3600000);
+  const resetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
   await prisma.user.update({
     where: { email },

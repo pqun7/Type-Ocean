@@ -15,7 +15,8 @@ export async function generateResetToken(email: string) {
   const rawToken = randomBytes(32).toString("hex");
   const hashedToken = createHash("sha256").update(rawToken).digest("hex");
 
-  const resetTokenExpiry = new Date(Date.now() + 3600000);
+  // 15 minutes expiry (short-lived + reduces takeover window)
+  const resetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
   await prisma.user.update({
     where: { email },

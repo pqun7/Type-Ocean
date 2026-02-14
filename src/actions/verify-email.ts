@@ -6,6 +6,13 @@ import { redirect } from "next/navigation";
 import { logging } from "@/log/ServerLogger";
 import { createHash } from "crypto";
 
+function isNextRedirectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+
+  const maybe = error as { digest?: unknown };
+  return typeof maybe.digest === "string" && maybe.digest.startsWith("NEXT_REDIRECT");
+}
+
 // Safe logging utilities for email verification
 const logVerificationOperation = {
   start: (operation: string, metadata?: Record<string, unknown>) => {
@@ -76,7 +83,10 @@ export async function verifyEmail(token: string) {
         status: "pending_signup_verified_and_user_created",
       });
 
-      redirect("/home?verified=success");
+      // NOTE: We intentionally redirect with query params.
+      // The middleware will convert them into short-lived flash cookies
+      // and immediately redirect to a clean URL (no params in the address bar).
+      redirect("/auth?verified=success");
     }
 
     // 2) Existing user verification
@@ -104,7 +114,7 @@ export async function verifyEmail(token: string) {
         requestId,
         userId: user.id
       });
-      redirect(`/auth?error=EMAIL_ALREADY_VERIFIED`);
+      redirect("/auth?verified=already");
     }
 
     await prisma.user.update({
@@ -145,8 +155,12 @@ export async function verifyEmail(token: string) {
       userId: user.id
     });
 
-    redirect("/home?verified=success");
+    redirect("/auth?verified=success");
   } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
     logVerificationOperation.error("verify_email", error, {
       requestId,
       tokenProvided: !!token
@@ -157,7 +171,7 @@ export async function verifyEmail(token: string) {
       requestId,
       errorType: "invalid_verification_token"
     });
-    
-    redirect("/auth?error=INVALID_VERIFICATION_TOKEN");
+
+    redirect("/auth?error=INVALID_OR_EXPIRED_TOKEN");
   }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAlert } from "@/contexts/alert-context";
+import { consumeFlashCookie } from "@/lib/flash-cookies";
 
 function formatProvider(provider: string | null): string {
   if (!provider) return "";
@@ -27,6 +28,54 @@ export function HandleAuthSuccess() {
   const prevKey = useRef<string | null>(null);
 
   useEffect(() => {
+    const flash = consumeFlashCookie("__flash_auth");
+    if (flash) {
+      const [status, rawProvider] = flash.split(":");
+      if (status === "success") {
+        const key = `success:${rawProvider ?? ""}`;
+        if (prevKey.current === key) return;
+        prevKey.current = key;
+
+        const providerLabel = formatProvider(rawProvider || null);
+        const message = providerLabel
+          ? `Signed in with ${providerLabel} successfully.`
+          : "Logged in successfully.";
+
+        showAlert(message, "success", { durationMs: 2500 });
+
+        void (async () => {
+          try {
+            const decision = await fetch("/api/user/verification-reminder", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ provider: rawProvider || null }),
+              cache: "no-store",
+            })
+              .then(async (r) => ({ ok: r.ok, data: (await r.json().catch(() => null)) as unknown }))
+              .catch(() => ({ ok: false, data: null as unknown }));
+
+            const show =
+              decision.ok &&
+              typeof decision.data === "object" &&
+              decision.data !== null &&
+              "show" in decision.data &&
+              Boolean((decision.data as { show?: unknown }).show);
+
+            if (show) {
+              showAlert(
+                "Please verify your account from Profile to secure your account.",
+                "warning",
+                { durationMs: 7000 }
+              );
+            }
+          } catch {
+            // Ignore session check failures; auth success message already shown.
+          }
+        })();
+        return;
+      }
+    }
+
     if (auth !== "success") return;
 
     const key = `success:${provider ?? ""}`;
@@ -72,13 +121,6 @@ export function HandleAuthSuccess() {
       }
     })();
 
-    const newParams = new URLSearchParams(searchParams);
-    newParams.delete("auth");
-    newParams.delete("provider");
-
-    const query = newParams.toString();
-    const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
-    window.history.replaceState(null, "", nextUrl);
   }, [auth, provider, searchParams, showAlert]);
 
   return null;
