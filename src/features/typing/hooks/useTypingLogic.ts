@@ -29,7 +29,11 @@ export default function useTypingLogic(
   const [state, setState] = useState<State>("start");
   const [userInput, setUserInput] = useState("");
   const [isError, setIsError] = useState(false);
+  // Session errors = current, uncorrected mismatches (decreases when user fixes mistakes)
   const [totalErrors, setTotalErrors] = useState(0);
+  // Mistakes = cumulative wrong keypresses (kept for stats even if corrected)
+  const [totalMistakes, setTotalMistakes] = useState(0);
+  const [totalCorrections, setTotalCorrections] = useState(0);
   const [metrics, setMetrics] = useState({
     wpm: 0,
     accuracy: 100,
@@ -70,11 +74,13 @@ export default function useTypingLogic(
   const userInputRef = useRef(userInput);
   const sessionActive = state === "running" && !idleState.current.isIdle;
 
+  const mistakesRef = useRef(0);
+  const correctionsRef = useRef(0);
+
   const {
     addXP,
     calculateSessionXP,
     addXPMessage,
-    level,
     recordSessionStats,
     handleDailyChallenge,
   } = levelContext;
@@ -119,7 +125,7 @@ export default function useTypingLogic(
     addTempPoints([{ time: 0, wpm: 0, prevWpm: 0 }]);
   }, [startNewSession, addTempPoints]);
 
-  const handleSessionEnd = useCallback(async () => {
+  const handleSessionEnd = useCallback(async (counts?: { finalErrors?: number; mistakes?: number; corrections?: number }) => {
     // Capture pre-update state for rollback
     const previousState = state;
     const previousMetrics = { ...metrics };
@@ -162,6 +168,17 @@ export default function useTypingLogic(
       if (userId) {
         const timeSpentSeconds = Math.floor(activeTime / 1000);
 
+        const inputNow = userInputRef.current;
+        const targetNow = textRef.current;
+        let computedErrors = 0;
+        for (let i = 0; i < inputNow.length; i += 1) {
+          if (targetNow[i] !== inputNow[i]) computedErrors += 1;
+        }
+
+        const finalErrors = Math.max(0, counts?.finalErrors ?? computedErrors);
+        const sessionMistakes = Math.max(0, counts?.mistakes ?? mistakesRef.current);
+        const sessionCorrections = Math.max(0, counts?.corrections ?? correctionsRef.current);
+
         // Build the minimal session payload synchronously so XP can be awarded immediately.
         const sessionData: SessionData = {
           wpm,
@@ -169,7 +186,7 @@ export default function useTypingLogic(
           textLength: text.length,
           textType: selectedLevel,
           timeSpent: timeSpentSeconds,
-          errors: totalErrors,
+          errors: finalErrors,
           // These are used for stats/challenge context, but XP awarding should not wait on them.
           dailyAvgWpm: wpm,
           dailyAvgAcc: accuracy,
@@ -194,6 +211,8 @@ export default function useTypingLogic(
         void recordSessionStats?.(wpm, accuracy, {
           textLength: text.length,
           timeSpent: timeSpentSeconds,
+          mistakes: sessionMistakes,
+          corrections: sessionCorrections,
         });
 
         // Handle daily challenge in the background; award challenge XP when it completes.
@@ -254,7 +273,6 @@ export default function useTypingLogic(
     commitSession,
     text.length,
     selectedLevel,
-    totalErrors,
     calculateSessionXP,
     recordSessionStats,
     handleDailyChallenge,
@@ -310,23 +328,78 @@ export default function useTypingLogic(
   // Input handling
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
+    const prevInput = userInputRef.current;
 
     if (state === "start") handleSessionStart();
 
     setUserInput(input);
+    // Keep refs in sync immediately to avoid stale values on fast typing.
+    userInputRef.current = input;
+
     setIsError(text.slice(0, input.length) !== input);
-    // if(isError) setTotalErrors((prv) => prv + 1);
+
+    // Uncorrected errors: count current mismatches (drops when user fixes).
+    let mismatches = 0;
+    const target = textRef.current;
+    for (let i = 0; i < input.length; i += 1) {
+      if (target[i] !== input[i]) mismatches += 1;
+    }
+    setTotalErrors(mismatches);
+
+    // Cumulative mistakes/corrections: robust to paste and mid-string edits.
+    // We approximate the edit region by finding common prefix/suffix.
+    if (input.length !== prevInput.length || input !== prevInput) {
+      const prevLen = prevInput.length;
+      const nextLen = input.length;
+
+      let prefix = 0;
+      while (prefix < prevLen && prefix < nextLen && prevInput[prefix] === input[prefix]) {
+        prefix += 1;
+      }
+
+      let suffix = 0;
+      while (
+        suffix < prevLen - prefix &&
+        suffix < nextLen - prefix &&
+        prevInput[prevLen - 1 - suffix] === input[nextLen - 1 - suffix]
+      ) {
+        suffix += 1;
+      }
+
+      const removed = Math.max(0, prevLen - (prefix + suffix));
+      const added = Math.max(0, nextLen - (prefix + suffix));
+
+      if (removed > 0 && nextLen < prevLen) {
+        correctionsRef.current += removed;
+        setTotalCorrections(correctionsRef.current);
+      }
+
+      if (added > 0) {
+        const addedSegment = input.slice(prefix, nextLen - suffix);
+        let addedMistakes = 0;
+        for (let i = 0; i < addedSegment.length; i += 1) {
+          if (target[prefix + i] !== addedSegment[i]) addedMistakes += 1;
+        }
+        if (addedMistakes > 0) {
+          mistakesRef.current += addedMistakes;
+          setTotalMistakes(mistakesRef.current);
+        }
+      }
+    }
 
     // if (input.length >= text.length && state !== "end") { ... }
     if (input.length === text.length) {
       // Handle async session end properly
-      handleSessionEnd().catch((error) =>
+      const finalErrors = mismatches;
+      const finalMistakes = mistakesRef.current;
+      const finalCorrections = correctionsRef.current;
+      handleSessionEnd({ finalErrors, mistakes: finalMistakes, corrections: finalCorrections }).catch((error) =>
         console.error("Failed to complete session:", error)
       );
     }
 
     // Reset idle timer on input
-    idleTimer.current && clearTimeout(idleTimer.current);
+    if (idleTimer.current) clearTimeout(idleTimer.current);
     if (idleState.current.isIdle) handleIdleState(false);
 
     idleTimer.current = setTimeout(() => handleIdleState(true), 4000);
@@ -337,6 +410,11 @@ export default function useTypingLogic(
     selectNewText();
     setUserInput("");
     setIsError(false);
+    setTotalErrors(0);
+    setTotalMistakes(0);
+    setTotalCorrections(0);
+    mistakesRef.current = 0;
+    correctionsRef.current = 0;
     setState("start");
     setMetrics({ wpm: 0, accuracy: 100, elapsedTime: 0 });
 
@@ -349,13 +427,15 @@ export default function useTypingLogic(
       idleStart: null,
     };
 
-    idleTimer.current && clearTimeout(idleTimer.current);
+    if (idleTimer.current) clearTimeout(idleTimer.current);
   }, [selectNewText]);
 
   return {
     userInput,
     isError,
     totalErrors,
+    totalMistakes,
+    totalCorrections,
     ...metrics,
     state,
     handleInputChange,

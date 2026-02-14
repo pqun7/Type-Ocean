@@ -22,6 +22,11 @@ type RateLimitConfig = {
 
 // 1.5. إعدادات نقاط النهاية
 const ENDPOINT_CONFIGS: Record<string, RateLimitConfig> = {
+  "/api/auth/signup": {
+    limit: 3,
+    windowMs: 60_000,
+    strategy: "fixed-window",
+  },
   "/api/auth/login": {
     limit: 3,
     windowMs: 15_000,
@@ -106,8 +111,18 @@ export class RateLimiter {
     try {
       const config = this.getConfig(endpoint);
 
+      // If Redis isn't ready, avoid throwing noisy ioredis errors (offline queue is disabled).
+      // We'll attempt to connect in the background and use a local in-memory limiter for now.
+      const redisReady = await this.tryEnsureRedisReady(
+        process.env.NODE_ENV === "development" ? 75 : 250
+      );
+
       const key = this.generateKey(resolvedIdentifier, endpoint);
       let result: boolean;
+
+      if (!redisReady) {
+        return this.handleLocalRateLimit(resolvedIdentifier, endpoint);
+      }
 
       switch (config.strategy) {
         case "token-bucket":
@@ -138,6 +153,22 @@ export class RateLimiter {
       // العودة إلى الكاش المحلي في حالة الخطأ
       return this.handleLocalRateLimit(resolvedIdentifier, endpoint);
     }
+  }
+
+  private async tryEnsureRedisReady(timeoutMs: number): Promise<boolean> {
+    if (this.redis.status === "ready") return true;
+
+    // Kick off a connection attempt (deduped inside RedisManager) but don't block too long.
+    const connectPromise = redisManager
+      .connectIfNeeded()
+      .then(() => true)
+      .catch(() => false);
+
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), Math.max(0, timeoutMs));
+    });
+
+    return Promise.race([connectPromise, timeoutPromise]);
   }
 
   private static extractIdentifierFromRequest(req: NextRequest): string {
@@ -225,7 +256,7 @@ export class RateLimiter {
 
       return true;
     } catch (error) {
-      logger.error("Token bucket algorithm failed", { error, key });
+      logger.error("Token bucket algorithm failed", error, { key });
       throw error;
     }
   }
@@ -257,7 +288,7 @@ export class RateLimiter {
 
       return count <= config.limit;
     } catch (error) {
-      logger.error("Sliding window algorithm failed", { error, key });
+      logger.error("Sliding window algorithm failed", error, { key });
       throw error;
     }
   }
@@ -271,7 +302,7 @@ export class RateLimiter {
       }
       return count <= config.limit;
     } catch (error) {
-      logger.error("Fixed window algorithm failed", { error, key });
+      logger.error("Fixed window algorithm failed", error, { key });
       throw error;
     }
   }

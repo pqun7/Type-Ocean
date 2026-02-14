@@ -65,13 +65,24 @@ async function sendEmail<T extends EmailTemplateType>(
     });
 
     if (error) {
+      let resendErrorString = "";
+      try {
+        resendErrorString =
+          typeof error === "string"
+            ? error
+            : JSON.stringify(error);
+      } catch {
+        resendErrorString = String(error);
+      }
+
       logEmailOperation.error("send_email", new Error("Resend API error"), {
         requestId,
         template,
         to,
-        resendError: error.toString()
+        resendError: resendErrorString,
+        resendErrorType: typeof error
       });
-      return { success: false, error: error.toString() };
+      return { success: false, error: resendErrorString };
     }
 
     logEmailOperation.success("send_email", {

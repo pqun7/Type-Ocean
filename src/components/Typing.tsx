@@ -1,7 +1,7 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import LevelsDock from "@/components/ui/levels-dock";
-import { motion, AnimatePresence, useSpring } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import ResultsChart from "@/components/TypingTest/ResultsChart";
 import TypingTest from "@/components/TypingTest/TypingTest";
 import { TextType } from "@/features/typing/types/typing";
@@ -70,6 +70,10 @@ const HeaderGame = ({
           currentTime={currentTime}
           wpmHistory={wpmHistory}
           currentErrors={currentErrors}
+/* The `optimizePerformance = {true}` prop in the `<ResultsChart>` component is setting the value of
+the `optimizePerformance` prop to `true`. This prop is being passed to the `<ResultsChart>`
+component to optimize its performance. The specific implementation and usage of this prop would be
+defined within the `<ResultsChart>` component itself. */
           optimizePerformance = {true}
         />
       )}

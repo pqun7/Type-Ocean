@@ -7,6 +7,7 @@ import { connectIfNeeded, redis } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { authorizeRequest } from "@/app/api/shared.server";
+import prisma from "@/features/auth/lib/db";
 import {
   validateSessionData,
   sanitizeSessionData,
@@ -58,19 +59,17 @@ export async function POST(req: NextRequest) {
   const requestId = uuidv4();
   const endpoint = "/api/session-stats/v1";
 
-  // Ensure Redis connection before proceeding
+  // Redis is preferred, but should not block stats persistence.
+  let redisAvailable = true;
   try {
     await connectIfNeeded();
   } catch (error) {
-    logging.error("Redis connection failed for session stats", error, {
+    redisAvailable = false;
+    logging.error("Redis connection failed for session stats (DB fallback enabled)", error, {
       requestId,
       endpoint,
-      service: SERVICE_TYPE
+      service: SERVICE_TYPE,
     });
-    return NextResponse.json(
-      { error: "Database connection failed. Please try again." },
-      { status: 503 }
-    );
   }
 
   // User authentication
@@ -232,22 +231,153 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Process long-term cumulative statistics and store session in parallel
-    const [longTermStats, sessionStored] = await Promise.allSettled([
-      updateLongTermCumulativeStats(userId, sanitizedSession),
-      storeSessionHistory(userId, enrichedSession),
-    ]);
+    // Preferred path: Redis-backed cumulative stats + history.
+    // Fallback path: compute from DB snapshot when Redis is down (or Redis update fails).
+    const [longTermStats, sessionStored] = redisAvailable
+      ? await Promise.allSettled([
+          updateLongTermCumulativeStats(userId, sanitizedSession),
+          storeSessionHistory(userId, enrichedSession),
+        ])
+      : await Promise.allSettled([
+          (async () => {
+            const existing = await prisma.playerProfile.findUnique({
+              where: { userId },
+              select: { longTermStats: true },
+            });
 
-    // Check critical operations
-    if (longTermStats.status === "rejected") {
-      throw new Error(`Failed to update long-term stats: ${longTermStats.reason}`);
+            const prev = (existing?.longTermStats as unknown as ReturnType<typeof getDefaultLongTermStats>) ??
+              getDefaultLongTermStats();
+
+            const prevSessions = typeof prev.totalSessions === "number" ? prev.totalSessions : 0;
+            const nextTotalSessions = prevSessions + 1;
+            const timeSpent = typeof sanitizedSession.timeSpent === "number" ? sanitizedSession.timeSpent : 0;
+            const timeMinutes = timeSpent > 0 ? timeSpent / 60 : 0;
+            const wordsTyped = Math.max(0, Math.round(sanitizedSession.wpm * timeMinutes));
+
+            const nextBestWpm = Math.max(Number(prev.bestWPM ?? 0), sanitizedSession.wpm);
+            const nextBestWpmDate = sanitizedSession.wpm >= Number(prev.bestWPM ?? 0)
+              ? new Date().toISOString()
+              : (prev.bestWPMDate ?? null);
+
+            const nextBestAcc = Math.max(Number(prev.bestAccuracy ?? 0), sanitizedSession.accuracy);
+            const nextBestAccDate = sanitizedSession.accuracy >= Number(prev.bestAccuracy ?? 0)
+              ? new Date().toISOString()
+              : (prev.bestAccuracyDate ?? null);
+
+            const nextAvgWpm =
+              nextTotalSessions > 0
+                ? ((Number(prev.averageWPM ?? 0) * prevSessions) + sanitizedSession.wpm) / nextTotalSessions
+                : sanitizedSession.wpm;
+
+            const nextAvgAcc =
+              nextTotalSessions > 0
+                ? ((Number(prev.averageAccuracy ?? 0) * prevSessions) + sanitizedSession.accuracy) / nextTotalSessions
+                : sanitizedSession.accuracy;
+
+            return {
+              totalSessions: nextTotalSessions,
+              totalTimeTyped: Number(prev.totalTimeTyped ?? 0) + timeSpent,
+              totalWordsTyped: Number(prev.totalWordsTyped ?? 0) + wordsTyped,
+              totalCharactersTyped: Number(prev.totalCharactersTyped ?? 0) + Number(sanitizedSession.textLength ?? 0),
+              totalMistakes: Number(prev.totalMistakes ?? 0) + Number(sanitizedSession.mistakes ?? 0),
+              totalCorrections: Number(prev.totalCorrections ?? 0) + Number(sanitizedSession.corrections ?? 0),
+              averageWPM: nextAvgWpm,
+              averageAccuracy: nextAvgAcc,
+              bestWPM: nextBestWpm,
+              bestWPMDate: nextBestWpmDate,
+              bestAccuracy: nextBestAcc,
+              bestAccuracyDate: nextBestAccDate,
+              lastUpdated: new Date().toISOString(),
+            };
+          })(),
+          Promise.resolve(true),
+        ]);
+
+    // If Redis-based update failed, compute from DB snapshot and continue.
+    const effectiveLongTermStats =
+      longTermStats.status === "fulfilled"
+        ? longTermStats.value
+        : await (async () => {
+            const existing = await prisma.playerProfile.findUnique({
+              where: { userId },
+              select: { longTermStats: true },
+            });
+
+            const prev =
+              (existing?.longTermStats as unknown as ReturnType<typeof getDefaultLongTermStats>) ??
+              getDefaultLongTermStats();
+
+            const prevSessions = typeof prev.totalSessions === "number" ? prev.totalSessions : 0;
+            const nextTotalSessions = prevSessions + 1;
+            const timeSpent = typeof sanitizedSession.timeSpent === "number" ? sanitizedSession.timeSpent : 0;
+            const timeMinutes = timeSpent > 0 ? timeSpent / 60 : 0;
+            const wordsTyped = Math.max(0, Math.round(sanitizedSession.wpm * timeMinutes));
+
+            const nextBestWpm = Math.max(Number(prev.bestWPM ?? 0), sanitizedSession.wpm);
+            const nextBestWpmDate =
+              sanitizedSession.wpm >= Number(prev.bestWPM ?? 0)
+                ? new Date().toISOString()
+                : (prev.bestWPMDate ?? null);
+
+            const nextBestAcc = Math.max(Number(prev.bestAccuracy ?? 0), sanitizedSession.accuracy);
+            const nextBestAccDate =
+              sanitizedSession.accuracy >= Number(prev.bestAccuracy ?? 0)
+                ? new Date().toISOString()
+                : (prev.bestAccuracyDate ?? null);
+
+            const nextAvgWpm =
+              nextTotalSessions > 0
+                ? (Number(prev.averageWPM ?? 0) * prevSessions + sanitizedSession.wpm) / nextTotalSessions
+                : sanitizedSession.wpm;
+
+            const nextAvgAcc =
+              nextTotalSessions > 0
+                ? (Number(prev.averageAccuracy ?? 0) * prevSessions + sanitizedSession.accuracy) / nextTotalSessions
+                : sanitizedSession.accuracy;
+
+            return {
+              totalSessions: nextTotalSessions,
+              totalTimeTyped: Number(prev.totalTimeTyped ?? 0) + timeSpent,
+              totalWordsTyped: Number(prev.totalWordsTyped ?? 0) + wordsTyped,
+              totalCharactersTyped:
+                Number(prev.totalCharactersTyped ?? 0) + Number(sanitizedSession.textLength ?? 0),
+              totalMistakes: Number(prev.totalMistakes ?? 0) + Number(sanitizedSession.mistakes ?? 0),
+              totalCorrections: Number(prev.totalCorrections ?? 0) + Number(sanitizedSession.corrections ?? 0),
+              averageWPM: nextAvgWpm,
+              averageAccuracy: nextAvgAcc,
+              bestWPM: nextBestWpm,
+              bestWPMDate: nextBestWpmDate,
+              bestAccuracy: nextBestAcc,
+              bestAccuracyDate: nextBestAccDate,
+              lastUpdated: new Date().toISOString(),
+            };
+          })();
+
+    // Persist snapshot to DB for reliable Profile display.
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+      await prisma.playerProfile.upsert({
+        where: { userId },
+        update: { longTermStats: effectiveLongTermStats as unknown as object },
+        create: {
+          userId,
+          username: user?.username ?? "user",
+          level: 1,
+          xp: 0,
+          achievements: [],
+          avatar: null,
+          longTermStats: effectiveLongTermStats as unknown as object,
+        },
+      });
+    } catch {
+      // best-effort
     }
 
     // Prepare response immediately for better performance
     const response = {
       success: true,
       sessionId: enrichedSession.id,
-      longTermStats: longTermStats.status === "fulfilled" ? longTermStats.value : null,
+      longTermStats: effectiveLongTermStats,
       sessionStored: sessionStored.status === "fulfilled",
       timestamp,
     };
@@ -295,13 +425,7 @@ export async function POST(req: NextRequest) {
       operationPhase: "session_processing"
     });
 
-    // Check if it's a Redis-specific error
-    if (errorMessage.includes("Redis") || errorMessage.includes("Connection")) {
-      return NextResponse.json(
-        { error: "Database connection error. Please try again." },
-        { status: 503 }
-      );
-    }
+    // Keep old behavior for unexpected infra errors, but DB fallback should reduce this.
 
     return NextResponse.json(
       { error: "Failed to process session stats", referenceId: requestId },

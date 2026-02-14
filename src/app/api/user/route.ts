@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import { rateLimiter } from "@/lib/rate-limiter"
+import bcrypt from "bcryptjs";
 
 
 const SERVICE_TYPE = "USER-API";
@@ -21,18 +22,28 @@ const usernameValidation = z
 const UpdateUserSchema = z.object({
   username: usernameValidation.optional(),
   email: z.string().email().optional(),
+  currentPassword: z.string().min(1).max(256).optional(),
   profileData: z
     .object({
       username: usernameValidation.optional(),
       avatar: z
-        .string()
-        .url()
-        .max(2048, "Avatar URL too long")
-        .refine((v) => /^https?:\/\//i.test(v), "Avatar URL must be http(s)")
+        .union([
+          z
+            .string()
+            .trim()
+            .max(2048, "Avatar URL too long")
+            .refine(
+              (v) => /^https?:\/\//i.test(v),
+              "Avatar URL must be http(s)"
+            ),
+          z.literal(""),
+          z.null(),
+        ])
         .optional(),
     })
     .optional(),
 });
+
 
 // Minimal CSRF validation for unsafe methods
 function validateCSRF(req: NextRequest): string | null {
@@ -232,6 +243,20 @@ export async function PATCH(req: NextRequest) {
 
     const { username, email, profileData } = validationResult.data;
 
+    const normalizedEmail = email ? email.trim().toLowerCase() : undefined;
+
+    // Normalize usernames for consistency and uniqueness (align with sign-up)
+    // Support legacy clients that might send profileData.username.
+    const normalizedUsername = username ? username.toLowerCase() : undefined;
+    const normalizedProfileUsername = profileData?.username ? profileData.username.toLowerCase() : undefined;
+    const requestedUsername = normalizedUsername ?? normalizedProfileUsername;
+
+    // Normalize avatar clearing
+    const normalizedAvatar =
+      profileData && "avatar" in profileData
+        ? profileData.avatar === "" ? null : profileData.avatar
+        : undefined;
+
     // Safe debug logging for update attempt
     logging.debugSensitive("User profile update attempt", {
       requestId,
@@ -243,17 +268,21 @@ export async function PATCH(req: NextRequest) {
       }
     });
     
-    // Load current email for safe compare (avoid de-verifying on same email)
+    // Load current values for safe compare & policy enforcement
     const currentUser = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { email: true },
+      select: { email: true, username: true, usernameLastChangedAt: true, passwordHash: true },
     });
 
-    // Username conflict check (missing previously)
-    if (username) {
+    if (!currentUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // Username conflict check
+    if (requestedUsername) {
       const existingUsername = await prisma.user.findFirst({
         where: {
-          username: username.toLowerCase(),
+          username: requestedUsername,
           id: { not: session.user.id },
         },
         select: { id: true },
@@ -271,12 +300,15 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    // Username changes are allowed any time (no cooldown).
+    const usernameIsChanging = !!(requestedUsername && requestedUsername !== currentUser.username);
+
     // Check if email is already taken by another user
      // Email conflict check (keep existing, but avoid logging raw email)
-    if (email) {
+    if (normalizedEmail) {
       const existingUser = await prisma.user.findFirst({
         where: {
-          email,
+          email: normalizedEmail,
           id: { not: session.user.id },
         },
       });
@@ -295,14 +327,44 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Determine if email actually changed (avoid de-verifying on same email)
-    const emailChanged = !!(email && email !== currentUser?.email);
+    const emailChanged = !!(normalizedEmail && normalizedEmail !== currentUser.email);
+
+    // Security: require current password for email changes on password-based accounts.
+    if (emailChanged && currentUser.passwordHash) {
+      const provided = validationResult.data.currentPassword;
+      if (!provided) {
+        return NextResponse.json(
+          { error: "Current password is required to change email" },
+          { status: 403 }
+        );
+      }
+
+      const ok = await bcrypt.compare(provided, currentUser.passwordHash);
+      if (!ok) {
+        return NextResponse.json(
+          { error: "Current password is incorrect" },
+          { status: 403 }
+        );
+      }
+    }
+
 
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
       data: {
-        ...(username && { username }),
-        ...(email && emailChanged && { email, emailVerified: null }),
-        ...(email && !emailChanged && { email }), // keep verification status
+        ...(usernameIsChanging && {
+          username: requestedUsername,
+          usernameLastChangedAt: new Date(),
+        }),
+        ...(normalizedEmail && emailChanged && {
+          email: normalizedEmail,
+          emailVerified: null,
+          emailVerifyToken: null,
+          emailVerifyTokenExpiry: null,
+          emailVerificationAttempts: 0,
+        }),
+        ...(normalizedEmail && !emailChanged && { email: normalizedEmail }), // keep verification status
+        ...(normalizedAvatar !== undefined && { image: normalizedAvatar }),
       },
       select: {
         id: true,
@@ -310,24 +372,27 @@ export async function PATCH(req: NextRequest) {
         email: true,
         emailVerified: true,
         updatedAt: true,
+        usernameLastChangedAt: true,
       },
     });
 
-    // Update player profile if provided
-    if (profileData) {
+    // Keep PlayerProfile in sync (username + avatar)
+    if (profileData || requestedUsername) {
+      const nextProfileUsername = updatedUser.username;
+
       await prisma.playerProfile.upsert({
         where: { userId: session.user.id },
         update: {
-          ...(profileData.username && { username: profileData.username }),
-          ...(profileData.avatar !== undefined && { avatar: profileData.avatar }),
+          ...(nextProfileUsername && { username: nextProfileUsername }),
+          ...(normalizedAvatar !== undefined && { avatar: normalizedAvatar }),
         },
         create: {
           userId: session.user.id,
-          username: profileData.username || updatedUser.username,
+          username: nextProfileUsername || updatedUser.username,
           level: 1,
           xp: 0,
           achievements: [],
-          avatar: profileData.avatar || null,
+          avatar: normalizedAvatar ?? null,
         },
       });
     }
@@ -339,6 +404,7 @@ export async function PATCH(req: NextRequest) {
       ),
       emailChanged,
     });
+
 
     return NextResponse.json({
       user: updatedUser,

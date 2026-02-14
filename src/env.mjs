@@ -20,8 +20,11 @@ export const env = createEnv({
     REDIS_HOST: z.string().optional(),
     REDIS_PORT: z.string().optional(),
     REDIS_PASSWORD: z.string().optional(),
+    REDIS_TLS: z.enum(["true", "false"]).optional(),
 
     RESEND_API_KEY: z.string().optional(),
+
+    BLOB_READ_WRITE_TOKEN: z.string().optional(),
   },
   client: {},
   runtimeEnv: {
@@ -41,7 +44,10 @@ export const env = createEnv({
     REDIS_HOST: process.env.REDIS_HOST,
     REDIS_PORT: process.env.REDIS_PORT,
     REDIS_PASSWORD: process.env.REDIS_PASSWORD,
+    REDIS_TLS: process.env.REDIS_TLS,
 
     RESEND_API_KEY: process.env.RESEND_API_KEY,
+
+    BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
   },
 });

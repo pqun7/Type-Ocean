@@ -36,6 +36,7 @@ export default function TypingTest({
   onIdleChange,
   onElapsedTimeChange,
   onWpmHistoryChange,
+  onErrorsChange,
   selectedLevel,
 }: TypingTestProps) {
   const level = useLevel();
@@ -45,6 +46,7 @@ export default function TypingTest({
     text,
     userInput,
     isError,
+    totalErrors,
     wpm,
     accuracy,
     state,
@@ -57,9 +59,10 @@ export default function TypingTest({
     wpmHistory,
   } = useTypingGame(selectedLevel, !isBootstrapping);
 
-  // useEffect(() => {
-  //   onErrorsChange?.(totalErrors);
-  // }, [totalErrors, onErrorsChange]);
+  useEffect(() => {
+    if (isBootstrapping) return;
+    onErrorsChange?.(totalErrors);
+  }, [isBootstrapping, totalErrors, onErrorsChange]);
 
   useEffect(() => {
     if (isBootstrapping) return;

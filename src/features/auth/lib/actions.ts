@@ -2,12 +2,13 @@
 "use server";
 
 import { signUpSchema } from "@/schemas/authSchema";
-import db from "@/features/auth/lib/db";
+import { prisma } from "@/features/auth/lib/db";
 import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { ZodError } from "zod";
-import { resendVerificationEmail } from "@/actions/email-verification";
 import { mapErrorToMessage } from "@/constants/errors"; 
 import { logging } from '@/log/ServerLogger'; 
+import { headers } from "next/headers";
+import { checkRateLimit } from "@/lib/rate-limiter";
 
 // Safe logging utilities for auth operations
 const logAuthOperation = {
@@ -54,7 +55,7 @@ export const signUp = async (formData: FormData) => {
       username: validatedData.username
     });
 
-    const existingUser = await db.user.findFirst({
+    const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
           { email: validatedData.email.toLowerCase() },
@@ -85,35 +86,36 @@ export const signUp = async (formData: FormData) => {
       };
     }
 
-    // Create user and profile in a transaction
-    logging.info("Creating new user and player profile", { requestId });
-    
-    const { user, profile } = await db.$transaction(async (prisma) => {
-      // 1. Create user
-      logging.debug("Hashing password", { requestId });
-      const hashedPassword = await saltAndHashPassword(validatedData.password);
-      
-      logging.debugSensitive("Creating user in database", {
-        requestId,
-        email: validatedData.email,
-        username: validatedData.username
-      });
-      
-      const user = await prisma.user.create({
+    const normalizedEmail = validatedData.email.toLowerCase();
+    const normalizedUsername = validatedData.username.toLowerCase();
+
+    // Rate limit signup email sending.
+    const headersInstance = await headers();
+    const ip = headersInstance.get("x-forwarded-for")?.split(",")[0]?.trim() || "anonymous";
+    const { allowed } = await checkRateLimit("/api/auth/signup", ip);
+    if (!allowed) {
+      return { success: false, error: mapErrorToMessage("TOO_MANY_REQUESTS") };
+    }
+
+    // Create the user immediately (unverified). Verification email is sent only from Profile.
+    logging.debug("Hashing password", { requestId });
+    const hashedPassword = await saltAndHashPassword(validatedData.password);
+
+    await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
         data: {
-          email: validatedData.email.toLowerCase(),
-          username: validatedData.username.toLowerCase(),
+          email: normalizedEmail,
+          username: normalizedUsername,
           passwordHash: hashedPassword,
+          emailVerified: null,
+          emailVerifyToken: null,
+          emailVerifyTokenExpiry: null,
+          emailVerificationAttempts: 0,
         },
+        select: { id: true, username: true },
       });
-    
-      // 2. Create player profile
-      logging.debug("Creating player profile", { 
-        requestId, 
-        userId: user.id 
-      });
-      
-      const profile = await prisma.playerProfile.create({
+
+      await tx.playerProfile.create({
         data: {
           userId: user.id,
           username: user.username,
@@ -121,61 +123,26 @@ export const signUp = async (formData: FormData) => {
           xp: 0,
           achievements: [],
           avatar: null,
-        }
+        },
       });
-    
-      return { user, profile };
-    });
-    
-    // Safe debug logging for user creation
-    logging.debugSensitive("User created successfully", {
-      requestId,
-      userId: user.id,
-      username: user.username,
-      email: user.email
-    });
-    
-    logging.info("Player profile created", { 
-      requestId, 
-      userId: user.id, 
-      level: profile.level, 
-      xp: profile.xp 
-    });
 
-    // Send verification email
-    logging.debugSensitive("Sending verification email", {
-      requestId,
-      email: user.email
-    });
-    
-    const verificationResult = await resendVerificationEmail(user.email);
-    
-    if (!verificationResult.success) {
-      logAuthOperation.error("user_signup", new Error("Failed to send verification email"), {
-        requestId,
-        userId: user.id,
-        internalError: verificationResult.error
+      // Cleanup any legacy pending signups for the same identity.
+      await tx.pendingSignup.deleteMany({
+        where: {
+          OR: [{ email: normalizedEmail }, { username: normalizedUsername }],
+        },
       });
-      
-      return {
-        success: false,
-        error: mapErrorToMessage("USER_CREATED_BUT_EMAIL_NOT_SENT"), 
-        details: { error: verificationResult.error }
-      };
-    }
-    
-    logging.info("Verification email sent successfully", { requestId });
+    });
 
     logAuthOperation.success("user_signup", {
       requestId,
-      userId: user.id,
-      status: "user_created_and_verification_sent"
+      status: "user_created_unverified",
     });
 
     // Production-safe logging
     logging.info("Sign-up process completed successfully", {
       requestId,
-      userId: user.id
+      status: "pending_signup"
     });
 
     return { success: true };
@@ -201,9 +168,9 @@ export const signUp = async (formData: FormData) => {
       errorType: "unexpected_error"
     });
     
-    return { 
-      success: false, 
-      error: "Registration failed. Please try again later." 
+    return {
+      success: false,
+      error: "Registration failed. Please try again later.",
     };
   }
 };

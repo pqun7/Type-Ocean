@@ -5,6 +5,7 @@ import "server-only";
 
 import { redis } from "@/lib/redis";
 import { logging } from "@/log/ServerLogger";
+import prisma from "@/features/auth/lib/db";
 
 export const LONG_TERM_TTL = 2592000; // 30 days for session history
 export const MAX_SESSIONS_STORED = 100;
@@ -49,6 +50,8 @@ export interface LongTermStats {
   totalTimeTyped: number;
   totalWordsTyped: number;
   totalCharactersTyped: number;
+  totalMistakes: number;
+  totalCorrections: number;
   averageWPM: number;
   averageAccuracy: number;
   bestWPM: number;
@@ -56,6 +59,67 @@ export interface LongTermStats {
   bestAccuracy: number;
   bestAccuracyDate: string | null;
   lastUpdated: string;
+}
+
+function computeLongTermFromSessions(sessions: EnrichedSession[]): LongTermStats {
+  const nowIso = new Date().toISOString();
+  if (!sessions.length) return getDefaultLongTermStats();
+
+  let totalTimeTyped = 0;
+  let totalCharactersTyped = 0;
+  let totalWordsTyped = 0;
+  let sumWpm = 0;
+  let sumAccuracy = 0;
+  let bestWPM = 0;
+  let bestWPMDate: string | null = null;
+  let bestAccuracy = 0;
+  let bestAccuracyDate: string | null = null;
+  let totalMistakes = 0;
+  let totalCorrections = 0;
+
+  for (const s of sessions) {
+    const timeSpent = typeof s.timeSpent === "number" ? s.timeSpent : 0;
+    const textLength = typeof s.textLength === "number" ? s.textLength : 0;
+
+    totalTimeTyped += Math.max(0, timeSpent);
+    totalCharactersTyped += Math.max(0, textLength);
+
+    const timeMinutes = timeSpent > 0 ? timeSpent / 60 : 0;
+    const wordsTyped = Math.max(0, Math.round(s.wpm * timeMinutes));
+    totalWordsTyped += wordsTyped;
+
+    sumWpm += s.wpm;
+    sumAccuracy += s.accuracy;
+
+    totalMistakes += Math.max(0, typeof s.mistakes === "number" ? s.mistakes : 0);
+    totalCorrections += Math.max(0, typeof s.corrections === "number" ? s.corrections : 0);
+
+    if (s.wpm >= bestWPM) {
+      bestWPM = s.wpm;
+      bestWPMDate = s.timestamp;
+    }
+    if (s.accuracy >= bestAccuracy) {
+      bestAccuracy = s.accuracy;
+      bestAccuracyDate = s.timestamp;
+    }
+  }
+
+  const totalSessions = sessions.length;
+  return {
+    totalSessions,
+    totalTimeTyped,
+    totalWordsTyped,
+    totalCharactersTyped,
+    totalMistakes,
+    totalCorrections,
+    averageWPM: totalSessions ? sumWpm / totalSessions : 0,
+    averageAccuracy: totalSessions ? sumAccuracy / totalSessions : 0,
+    bestWPM,
+    bestWPMDate,
+    bestAccuracy,
+    bestAccuracyDate,
+    lastUpdated: nowIso,
+  };
 }
 
 export function validateSessionData(data: unknown): {
@@ -186,7 +250,9 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
       String(session.textLength || 0),
       String(wordsTyped),
       timestamp,
-      String(LONG_TERM_TTL)
+      String(LONG_TERM_TTL),
+      String(session.mistakes || 0),
+      String(session.corrections || 0)
     );
 
     // 3. تحويل الرد (مصفوفة) إلى كائن (Object)
@@ -222,6 +288,12 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
         case 'totalCharactersTyped':
           updatedStats.totalCharactersTyped = parseInt(String(value), 10) || 0;
           break;
+        case 'totalMistakes':
+          updatedStats.totalMistakes = parseInt(String(value), 10) || 0;
+          break;
+        case 'totalCorrections':
+          updatedStats.totalCorrections = parseInt(String(value), 10) || 0;
+          break;
         case 'averageWPM':
           updatedStats.averageWPM = parseFloat(String(value)) || 0;
           break;
@@ -246,6 +318,8 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
       totalTimeTyped: updatedStats.totalTimeTyped ?? 0,
       totalWordsTyped: updatedStats.totalWordsTyped ?? 0,
       totalCharactersTyped: updatedStats.totalCharactersTyped ?? 0,
+      totalMistakes: updatedStats.totalMistakes ?? 0,
+      totalCorrections: updatedStats.totalCorrections ?? 0,
       averageWPM: updatedStats.averageWPM ?? 0,
       averageAccuracy: updatedStats.averageAccuracy ?? 0,
       bestWPM: updatedStats.bestWPM ?? 0,
@@ -274,6 +348,8 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
         totalTimeTyped: result.totalTimeTyped,
         totalWordsTyped: result.totalWordsTyped,
         totalCharactersTyped: result.totalCharactersTyped,
+        totalMistakes: result.totalMistakes,
+        totalCorrections: result.totalCorrections,
         lastUpdated: result.lastUpdated,
       },
     });
@@ -320,25 +396,57 @@ export async function storeSessionHistory(userId: string, session: EnrichedSessi
  */
 export async function getLongTermCumulativeStats(userId: string): Promise<LongTermStats> {
   const statsKey = `user:longterm:${userId}`;
-  const data = await redis.hgetall(statsKey);
-  
-  if (!data || Object.keys(data).length === 0) {
-    return getDefaultLongTermStats();
+  try {
+    const data = await redis.hgetall(statsKey);
+    if (data && Object.keys(data).length > 0) {
+      return {
+        totalSessions: parseInt(String(data.totalSessions ?? "0"), 10) || 0,
+        totalTimeTyped: parseInt(String(data.totalTimeTyped ?? "0"), 10) || 0,
+        totalWordsTyped: parseInt(String(data.totalWordsTyped ?? "0"), 10) || 0,
+        totalCharactersTyped: parseInt(String(data.totalCharactersTyped ?? "0"), 10) || 0,
+        totalMistakes: parseInt(String(data.totalMistakes ?? "0"), 10) || 0,
+        totalCorrections: parseInt(String(data.totalCorrections ?? "0"), 10) || 0,
+        averageWPM: parseFloat(String(data.averageWPM) || "0"),
+        averageAccuracy: parseFloat(String(data.averageAccuracy) || "0"),
+        bestWPM: parseFloat(String(data.bestWPM) || "0"),
+        bestWPMDate: String(data.bestWPMDate) || null,
+        bestAccuracy: parseFloat(String(data.bestAccuracy) || "0"),
+        bestAccuracyDate: String(data.bestAccuracyDate) || null,
+        lastUpdated: String(data.lastUpdated) || new Date().toISOString(),
+      };
+    }
+
+    // If the hash is empty, try to compute from stored session history.
+    try {
+      const sessions = await getSessionHistory(userId, MAX_SESSIONS_STORED);
+      if (sessions.length > 0) {
+        return computeLongTermFromSessions(sessions);
+      }
+    } catch {
+      // ignore session history errors
+    }
+  } catch {
+    // ignore redis errors and fall back to DB snapshot
   }
 
-  return {
-    totalSessions: parseInt(String(data.totalSessions ?? "0"), 10) || 0,
-    totalTimeTyped: parseInt(String(data.totalTimeTyped ?? "0"), 10) || 0,
-    totalWordsTyped: parseInt(String(data.totalWordsTyped ?? "0"), 10) || 0,
-    totalCharactersTyped: parseInt(String(data.totalCharactersTyped ?? "0"), 10) || 0,
-    averageWPM: parseFloat(String(data.averageWPM) || "0"),
-    averageAccuracy: parseFloat(String(data.averageAccuracy) || "0"),
-    bestWPM: parseFloat(String(data.bestWPM) || "0"),
-    bestWPMDate: String(data.bestWPMDate) || null,
-    bestAccuracy: parseFloat(String(data.bestAccuracy) || "0"),
-    bestAccuracyDate: String(data.bestAccuracyDate) || null,
-    lastUpdated: String(data.lastUpdated) || new Date().toISOString(),
-  };
+  // DB snapshot fallback (persisted on PlayerProfile)
+  try {
+    const profile = await prisma.playerProfile.findUnique({
+      where: { userId },
+      select: { longTermStats: true },
+    });
+
+    if (profile?.longTermStats && typeof profile.longTermStats === "object") {
+      return {
+        ...getDefaultLongTermStats(),
+        ...(profile.longTermStats as unknown as Partial<LongTermStats>),
+      };
+    }
+  } catch {
+    // ignore
+  }
+
+  return getDefaultLongTermStats();
 }
 
 /**
@@ -360,6 +468,8 @@ export function getDefaultLongTermStats(): LongTermStats {
     totalTimeTyped: 0,
     totalWordsTyped: 0,
     totalCharactersTyped: 0,
+    totalMistakes: 0,
+    totalCorrections: 0,
     averageWPM: 0,
     averageAccuracy: 0,
     bestWPM: 0,

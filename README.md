@@ -21,6 +21,16 @@ Optional (OAuth):
 Optional (Redis):
 - `REDIS_URL` OR `REDIS_HOST` + `REDIS_PORT` (+ `REDIS_PASSWORD` if needed)
 
+Where to get Redis values:
+- Local (Docker/installed Redis): use `REDIS_HOST=127.0.0.1`, `REDIS_PORT=6379`, and leave `REDIS_PASSWORD` empty.
+- Docker Compose in this repo: use `REDIS_HOST=redis`, `REDIS_PORT=6379` (the service name is `redis`).
+- Hosted (Upstash / Redis Cloud): copy the provided connection string into `REDIS_URL`.
+	- If the URL starts with `rediss://`, TLS is enabled automatically.
+	- If you must use host/port with TLS, set `REDIS_TLS=true`.
+
+Optional (Avatar uploads via Vercel Blob):
+- `BLOB_READ_WRITE_TOKEN`
+
 ## Local setup (no Docker)
 ```bash
 npm install

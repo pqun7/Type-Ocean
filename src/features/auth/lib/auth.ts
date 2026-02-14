@@ -92,6 +92,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
             id: user.id,
             username: user.username,
             email: user.email,
+            emailVerified: user.emailVerified,
+            image: user.image,
           };
         } catch (error) {
           if (error instanceof ZodError) {
@@ -115,6 +117,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         token.username = user.username;
         token.email = user.email;
         token.emailVerified = user.emailVerified;
+        // propagate avatar/image for session usage
+        token.image = (user as unknown as { image?: string | null }).image;
       }
       return token;
     },
@@ -124,6 +128,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         session.user.username = token.username as string;
         session.user.email = token.email as string;
         session.user.emailVerified = token.emailVerified as Date;
+        session.user.image = (token as unknown as { image?: string | null }).image ?? null;
       }
       return session;
     },

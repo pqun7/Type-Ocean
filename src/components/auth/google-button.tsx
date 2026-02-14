@@ -6,6 +6,7 @@ import Image from "next/image";
 import { google, Loader } from "@/assets"; // تأكد من أن Loader مُصدر من "@/assets"
 import dynamic from "next/dynamic";
 import { useState } from "react";
+import { useAlert } from "@/contexts/alert-context";
 
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
@@ -15,11 +16,15 @@ type GoogleAuthProps = {
 
 const GoogleAuth = ({ isLogin = true }: GoogleAuthProps) => {
   const [isLoading, setIsLoading] = useState(false);
+  const { showAlert } = useAlert();
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      await signIn("google");
+      await signIn("google", { callbackUrl: "/home?auth=success&provider=google" });
+    } catch (error) {
+      console.error("Google sign in error:", error);
+      showAlert("Google sign in failed. Please try again.", "error");
     } finally {
       setIsLoading(false);
     }

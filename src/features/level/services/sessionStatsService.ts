@@ -9,6 +9,8 @@ export type LongTermStats = {
   totalTimeTyped: number;
   totalWordsTyped: number;
   totalCharactersTyped: number;
+  totalMistakes: number;
+  totalCorrections: number;
   averageWPM: number;
   averageAccuracy: number;
   bestWPM: number;
@@ -110,13 +112,13 @@ export const sessionStatsService = {
       return longTermStats;
 
     } catch (error) {
-      const duration = Date.now() - startTime;
+      // const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
       // Enhanced error logging with context
-      const circuitState = "UNKNOWN";
+      // const circuitState = "UNKNOWN";
       
-      const errObj = error instanceof Error ? error : new Error(String(error));
+      // const errObj = error instanceof Error ? error : new Error(String(error));
       // logger.session.error("Failed to record session stats", errObj);
       // logger.session.info(
       //   "Session error context",
@@ -172,6 +174,8 @@ export const sessionStatsService = {
       typeof stats.totalSessions === 'number' && stats.totalSessions >= 0 &&
       typeof stats.averageWPM === 'number' && stats.averageWPM >= 0 && stats.averageWPM <= 500 &&
       typeof stats.averageAccuracy === 'number' && stats.averageAccuracy >= 0 && stats.averageAccuracy <= 100 &&
+      typeof stats.totalMistakes === 'number' && stats.totalMistakes >= 0 &&
+      typeof stats.totalCorrections === 'number' && stats.totalCorrections >= 0 &&
       typeof stats.bestWPM === 'number' && stats.bestWPM >= 0 && stats.bestWPM <= 500 &&
       typeof stats.bestAccuracy === 'number' && stats.bestAccuracy >= 0 && stats.bestAccuracy <= 100
     );

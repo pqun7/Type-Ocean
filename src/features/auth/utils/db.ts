@@ -1,16 +1,16 @@
 // src/utils/db.ts
-import db from "@/features/auth/lib/db"
+import { prisma } from "@/features/auth/lib/db"
 import bcrypt from "bcryptjs"
 
 export async function getUserFromDb(username: string, plainPassword: string) {
   const normalizedUsername = username.toLowerCase().trim();
   
-  let user = await db.user.findUnique({ 
+  let user = await prisma.user.findUnique({ 
     where: { username: normalizedUsername } 
   });
 
   if (!user) {
-    user = await db.user.findUnique({
+    user = await prisma.user.findUnique({
       where: { email: normalizedUsername },
     });
   }
@@ -25,5 +25,7 @@ export async function getUserFromDb(username: string, plainPassword: string) {
     id: user.id,
     username: user.username,
     email: user.email,
+    emailVerified: user.emailVerified,
+    image: user.image,
   };
 }

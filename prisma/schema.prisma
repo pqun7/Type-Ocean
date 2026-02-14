@@ -29,6 +29,7 @@ model PlayerProfile {
   level        Int     @default(1)
   xp           Int     @default(0)
   achievements Json    @default("[]")
+  longTermStats Json?
   avatar       String?
   user         User    @relation(name: "UserProfile", fields: [userId], references: [id])
   
@@ -41,9 +42,11 @@ model PlayerProfile {
 model User {
   id            String         @id @default(uuid())
   username      String        @unique
+  usernameLastChangedAt DateTime?
   passwordHash  String?
   email         String         @unique
   emailVerified DateTime?
+  verificationReminderShownAt DateTime?
   image         String?
   // role          String         @default("user") // e.g., "user", "admin", "moderator"
 
@@ -65,6 +68,23 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PendingSignup {
+  id String @id @default(uuid())
+
+  email        String @unique
+  username     String @unique
+  passwordHash String
+
+  emailVerifyToken       String   @unique
+  emailVerifyTokenExpiry DateTime
+  emailVerificationAttempts Int   @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("pending_signup")
 }
 
 model Account {

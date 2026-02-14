@@ -39,6 +39,8 @@ export const LUA_UPDATE_STATS_SCRIPT = `
     -- ARGV[5] = WordsTyped (calculated in Node.js) (string)
     -- ARGV[6] = Current timestamp (ISO string)
     -- ARGV[7] = TTL (seconds) (string)
+  -- ARGV[8] = Mistakes (string)
+  -- ARGV[9] = Corrections (string)
 
     local stats = redis.call('HGETALL', KEYS[1])
     local current = {}
@@ -54,11 +56,16 @@ export const LUA_UPDATE_STATS_SCRIPT = `
     local textLength = tonumber(ARGV[4])
     local wordsTyped = tonumber(ARGV[5])
 
+    local mistakes = tonumber(ARGV[8])
+    local corrections = tonumber(ARGV[9])
+
     if not newWPM then newWPM = 0 end
     if not newAcc then newAcc = 0 end
     if not timeSpent then timeSpent = 0 end
     if not textLength then textLength = 0 end
     if not wordsTyped then wordsTyped = 0 end
+    if not mistakes then mistakes = 0 end
+    if not corrections then corrections = 0 end
 
     local totalSessions
     if #stats == 0 then
@@ -67,6 +74,8 @@ export const LUA_UPDATE_STATS_SCRIPT = `
       local totalTimeTyped = timeSpent
       local totalWordsTyped = wordsTyped
       local totalCharactersTyped = textLength
+      local totalMistakes = mistakes
+      local totalCorrections = corrections
 
       -- Time-weighted averages
       local avgWPM = 0
@@ -91,6 +100,8 @@ export const LUA_UPDATE_STATS_SCRIPT = `
         "totalTimeTyped", tostring(totalTimeTyped),
         "totalWordsTyped", tostring(totalWordsTyped),
         "totalCharactersTyped", tostring(totalCharactersTyped),
+        "totalMistakes", tostring(totalMistakes),
+        "totalCorrections", tostring(totalCorrections),
         "averageWPM", tostring(math.floor(avgWPM * 100 + 0.5) / 100),
         "averageAccuracy", tostring(math.floor(avgAcc * 100 + 0.5) / 100),
         "accuracyTimeSum", tostring(accuracyTimeSum),
@@ -113,10 +124,14 @@ export const LUA_UPDATE_STATS_SCRIPT = `
       local prevTotalTime = tonumber(current.totalTimeTyped) or 0
       local prevTotalWords = tonumber(current.totalWordsTyped) or 0
       local prevTotalChars = tonumber(current.totalCharactersTyped) or 0
+      local prevTotalMistakes = tonumber(current.totalMistakes) or 0
+      local prevTotalCorrections = tonumber(current.totalCorrections) or 0
 
       local newTotalTime = prevTotalTime + timeSpent
       local newTotalWords = prevTotalWords + wordsTyped
       local newTotalChars = prevTotalChars + textLength
+      local newTotalMistakes = prevTotalMistakes + mistakes
+      local newTotalCorrections = prevTotalCorrections + corrections
 
       -- Weighted WPM from totals (seconds)
       local weightedAvgWPM = 0
@@ -159,6 +174,8 @@ export const LUA_UPDATE_STATS_SCRIPT = `
         "totalTimeTyped", tostring(newTotalTime),
         "totalWordsTyped", tostring(newTotalWords),
         "totalCharactersTyped", tostring(newTotalChars),
+        "totalMistakes", tostring(newTotalMistakes),
+        "totalCorrections", tostring(newTotalCorrections),
         "averageWPM", tostring(math.floor(weightedAvgWPM * 100 + 0.5) / 100),
         "averageAccuracy", tostring(math.floor(weightedAvgAcc * 100 + 0.5) / 100),
         "accuracyTimeSum", tostring(newAccTimeSum),

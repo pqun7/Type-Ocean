@@ -6,6 +6,7 @@ import Background from "@/components/ui/Background";
 import { LevelProvider } from "@/features/level/context/LevelProvider";
 import { AlertProvider } from "@/contexts/alert-context";
 import { AlertState } from "@/components/ui/alert-state";
+import { HandleAuthSuccess } from "@/components/handle-auth-success";
 import { auth } from "@/features/auth/lib/auth";
 
 const inter = Inter({
@@ -41,6 +42,7 @@ export default async function RootLayout({
           <LevelProvider initialUserId={initialUserId}>
             <AlertProvider>
               <AlertState />
+              <HandleAuthSuccess />
               <main className="flex-grow">{children}</main>
               <Footer />
             </AlertProvider>

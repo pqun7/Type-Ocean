@@ -44,6 +44,8 @@ import { useAlert } from "@/contexts/alert-context";
 export function AuthForm() {
   // State management
   const router = useRouter();
+  const submitLockRef = useRef(false);
+  const redirectingRef = useRef(false);
   const [mounted, setMounted] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const searchParams = useSearchParams();
@@ -105,10 +107,7 @@ export function AuthForm() {
         formRef.current?.reset();
         setIsLogin(true);
         setError("");
-        showAlert(
-          "Account created successfully. Please check your email for verification.",
-          "success"
-        );
+        showAlert("Account created successfully. Please log in.", "success");
         setFieldErrors({});
       } else {
         if (result?.details?.fieldErrors) {
@@ -116,8 +115,16 @@ export function AuthForm() {
             result.details.fieldErrors as Record<string, string[]>
           );
           setError("");
+          showAlert("Please fix the highlighted fields and try again.", "error");
         } else {
-          setError(result?.error || "An error occurred during signup");
+          const rawError = result?.error || "An error occurred during signup";
+          // Never surface this message to users; treat as a normal failure.
+          const safeMessage =
+            rawError === "User created but email not sent"
+              ? "Signup failed. Please try again later."
+              : rawError;
+
+          setError(safeMessage);
           setFieldErrors({});
         }
       }
@@ -131,6 +138,11 @@ export function AuthForm() {
     const formData = new FormData(e.currentTarget);
 
     e.preventDefault();
+
+    // Hard lock to prevent repeated clicks/submits before React state updates.
+    if (submitLockRef.current || redirectingRef.current) return;
+    submitLockRef.current = true;
+
     setIsSubmitting(true);
     setFieldErrors({}); // Reset field errors on submit
     setError(""); // Reset error message on submit
@@ -140,6 +152,7 @@ export function AuthForm() {
     if (!formData.get("username") || !formData.get("password")) {
       setError("Please fill in all fields");
       setIsSubmitting(false);
+      submitLockRef.current = false;
       return;
     }
     try {
@@ -160,8 +173,10 @@ export function AuthForm() {
             window.dispatchEvent(new Event("auth:changed"));
           }
 
-          router.replace("/home");
-          router.refresh();
+          // Keep the form locked while navigating.
+          redirectingRef.current = true;
+          router.replace("/home?auth=success&provider=credentials");
+          return;
         }
       } else {
         await handleSignup(formData);
@@ -170,30 +185,45 @@ export function AuthForm() {
       setError("An unexpected error occurred");
       console.error("[AuthForm] Submission error:", err);
     } finally {
-      setIsSubmitting(false);
+      if (!redirectingRef.current) {
+        setIsSubmitting(false);
+        submitLockRef.current = false;
+      }
     }
   };
 
   // Social authentication handlers
   const handleGithubSignIn = async () => {
+    if (isAnyAuthLoading || redirectingRef.current) return;
     setIsGithubLoading(true);
     try {
-      await signIn("github");
+      redirectingRef.current = true;
+      await signIn("github", {
+        callbackUrl: "/home?auth=success&provider=github",
+      });
     } catch (error) {
       console.error("GitHub sign in error:", error);
+      showAlert("GitHub sign in failed. Please try again.", "error");
+      redirectingRef.current = false;
     } finally {
-      setIsGithubLoading(false);
+      if (!redirectingRef.current) setIsGithubLoading(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
+    if (isAnyAuthLoading || redirectingRef.current) return;
     setIsGoogleLoading(true);
     try {
-      await signIn("google");
+      redirectingRef.current = true;
+      await signIn("google", {
+        callbackUrl: "/home?auth=success&provider=google",
+      });
     } catch (error) {
       console.error("Google sign in error:", error);
+      showAlert("Google sign in failed. Please try again.", "error");
+      redirectingRef.current = false;
     } finally {
-      setIsGoogleLoading(false);
+      if (!redirectingRef.current) setIsGoogleLoading(false);
     }
   };
 

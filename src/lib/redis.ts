@@ -17,7 +17,9 @@ declare module "ioredis" {
       textLength: string,
       wordsTyped: string,
       timestamp: string,
-      ttl: string
+      ttl: string,
+      mistakes: string,
+      corrections: string
     ): Promise<string[]>; // returns [key1, val1, key2, val2, ...]
   }
 }
@@ -40,6 +42,7 @@ class RedisManager {
 
   private getRedisConfig(): RedisOptions | string { // allow REDIS_URL
     const isDevelopment = process.env.NODE_ENV === 'development';
+    const wantsTls = process.env.REDIS_TLS === "true";
 
     // If a full URL is provided, prefer it in any environment.
     if (process.env.REDIS_URL) {
@@ -50,7 +53,7 @@ class RedisManager {
       return {
         host: process.env.REDIS_HOST || '127.0.0.1',
         port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
+        password: process.env.REDIS_PASSWORD || undefined,
         connectTimeout: 3000,
         lazyConnect: true,
         enableOfflineQueue: false,
@@ -67,9 +70,9 @@ class RedisManager {
 
     // Production config
     const baseConfig: RedisOptions = { // <--- Fix 1: use RedisOptions
-      host: process.env.REDIS_HOST || 'redis-19697.c259.us-central1-2.gce.redns.redis-cloud.com',
-      port: parseInt(process.env.REDIS_PORT || '19697'),
-      password: process.env.REDIS_PASSWORD,
+      host: process.env.REDIS_HOST || '127.0.0.1',
+      port: parseInt(process.env.REDIS_PORT || '6379'),
+      password: process.env.REDIS_PASSWORD || undefined,
       connectTimeout: 10000,
       lazyConnect: true,
       enableOfflineQueue: false,
@@ -79,8 +82,11 @@ class RedisManager {
       enableReadyCheck: true,
     } as RedisOptions;
 
-    // Add TLS for production (URL-less config)
-    baseConfig.tls = {};
+    // Enable TLS only when explicitly requested (or when using a rediss:// URL).
+    // With REDIS_URL we return the URL string above, so TLS is handled by ioredis.
+    if (wantsTls) {
+      baseConfig.tls = {};
+    }
 
     return baseConfig;
   }

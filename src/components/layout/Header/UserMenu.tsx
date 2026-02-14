@@ -122,20 +122,20 @@ const XPMessages = () => {
 
   const getMessageStyle = (type: XPMessageType) => {
     const base =
-      "mb-1 px-3 py-2 bg-slate-800/90 backdrop-blur-sm rounded-full text-xs shadow-lg text-center w-full drop-shadow-messageGlow";
+      "mb-1 px-3 py-2 rounded-full border border-white/10 bg-white/5 text-xs shadow-sm text-center w-full backdrop-blur";
 
     const styles: Record<XPMessageType, string> = {
-      base: `${base} text-blue-300 `,
+      base: `${base} text-slate-200`,
       "daily-challenge": `${base} text-emerald-200`,
       achievement: `${base} text-purple-200`,
       bonus: `${base} text-emerald-200`,
-      "level-up": `${base} text-emerald-200 `,
+      "level-up": `${base} text-emerald-200`,
       participation: `${base} text-slate-200`,
-      error: `${base} bg-red-800 text-red-200`,
+      error: `${base} bg-red-950/40 text-red-200 border-red-500/25`,
       
     };
 
-    return styles[type] || `${base} bg-slate-800 text-slate-200`;
+    return styles[type] || `${base} text-slate-200`;
   };
 
   const getMessageStyleByMessage = (type: XPMessageType, text: string) => {
@@ -151,47 +151,27 @@ const XPMessages = () => {
     if (!isEndurance) return getMessageStyle(type);
 
     return (
-      "mb-1 px-3 py-2 bg-gradient-to-r from-amber-500/15 via-emerald-500/10 to-cyan-500/15 " +
-      "backdrop-blur-sm rounded-full text-xs shadow-lg text-center w-full drop-shadow-messageGlow text-amber-100 " +
-      "border border-amber-400/20"
+      "mb-1 px-3 py-2 rounded-lg text-xs text-center w-full backdrop-blur shadow-sm " +
+      "bg-gradient-to-r from-amber-500/10 via-emerald-500/5 to-cyan-500/10 " +
+      "border border-white/10 text-amber-100"
     );
   };
 
   return (
-    <div className="absolute top-[calc(100%+10px)] left-1/2 -translate-x-1/2 w-[200px] z-50">
-      <div className="flex flex-col-reverse items-center">
-        <AnimatePresence>
-          {xpMessages.map((msg, index) => (
+    <div className="absolute top-[calc(100%+10px)] left-[calc(50%+0.5rem)] md:left-[calc(50%+1rem)] -translate-x-1/2 w-[200px] z-50">
+      <div className="flex flex-col items-center">
+        <AnimatePresence mode="popLayout">
+          {xpMessages.map((msg) => (
             <motion.div
               key={msg.id}
               layout
-              initial={{ opacity: 0, y: -40, scale: 0.85 }}
-              animate={{
-                opacity: 1,
-                y: 0,
-                scale: 1,
-                transition: {
-                  type: "spring",
-                  stiffness: 250,
-                  damping: 25,
-                  mass: 0.6,
-                },
-              }}
-              exit={{
-                opacity: 0,
-                y: -40,
-                scale: 0.8,
-                transition: {
-                  duration: 0.3,
-                  ease: [0.4, 0, 0.2, 1],
-                },
-              }}
+              initial={{ opacity: 0, y: -18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -18, scale: 0.98 }}
               transition={{
-                type: "spring",
-                stiffness: 250,
-                damping: 25,
-                mass: 0.6,
-                delay: index * 0.1,
+                y: { type: "spring", stiffness: 150, damping: 28, mass: 0.9 },
+                opacity: { duration: 0.2, ease: "easeOut" },
+                scale: { duration: 0.2, ease: "easeOut" },
               }}
               className={getMessageStyleByMessage(msg.type, msg.text)}
             >

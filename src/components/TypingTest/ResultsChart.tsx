@@ -7,9 +7,7 @@ import { NumberAnimation } from "../core/number-animation";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import {
   ChartConfig,
@@ -24,6 +22,7 @@ import {
   StopwatchIcon,
   LightningBoltIcon,
   Crosshair2Icon,
+  CrossCircledIcon,
 } from "@radix-ui/react-icons";
 
 interface ResultsChartProps {
@@ -188,7 +187,7 @@ const ResultsChart = ({
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                   <motion.div
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -259,6 +258,26 @@ const ResultsChart = ({
                     </div>
                     <p className="text-xs mt-2 text-[rgba(200,240,255,0.6)]">
                       Session Duration
+                    </p>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1.2 }}
+                    className="text-center p-5 bg-[rgba(20,50,80,0.3)] rounded-xl border border-[rgba(255,160,120,0.15)] backdrop-blur-sm hover:border-[rgba(255,160,120,0.3)] transition-all"
+                  >
+                    <div className="flex items-center justify-center gap-2 mb-3">
+                      <CrossCircledIcon className="w-5 h-5 text-amber-300" />
+                      <p className="text-sm text-[rgba(200,240,255,0.8)] uppercase tracking-wider">
+                        Errors
+                      </p>
+                    </div>
+                    <p className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400">
+                      <NumberAnimation value={Math.max(0, currentErrors)} delay={1.3} />
+                    </p>
+                    <p className="text-xs mt-2 text-[rgba(200,240,255,0.6)]">
+                      Remaining at End
                     </p>
                   </motion.div>
                 </div>

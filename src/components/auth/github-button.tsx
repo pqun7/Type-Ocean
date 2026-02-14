@@ -7,6 +7,7 @@ import { github } from "@/assets";
 import dynamic from "next/dynamic";
 import { Loader } from "@/assets";
 import { useState } from "react"; // أضفنا استيراد useState
+import { useAlert } from "@/contexts/alert-context";
 
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
@@ -16,11 +17,15 @@ interface GithubAuthProps {
 
 const GithubAuth = ({ isLogin = true }: GithubAuthProps) => {
   const [isLoading, setIsLoading] = useState(false); // حالة محلية للتحميل
+  const { showAlert } = useAlert();
 
   const handleGithubSignIn = async () => {
     setIsLoading(true);
     try {
-      await signIn("github");
+      await signIn("github", { callbackUrl: "/home?auth=success&provider=github" });
+    } catch (error) {
+      console.error("GitHub sign in error:", error);
+      showAlert("GitHub sign in failed. Please try again.", "error");
     } finally {
       setIsLoading(false);
     }

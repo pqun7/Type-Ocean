@@ -14,18 +14,20 @@ export const useSessionStats = (userId?: string) => {
   const pendingRef = useRef<{
     wpm: number;
     accuracy: number;
-    sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number };
+    sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number; mistakes?: number; corrections?: number };
   } | null>(null);
 
   const buildFallback = (
     wpm: number,
     accuracy: number,
-    sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number }
+    sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number; mistakes?: number; corrections?: number }
   ): LongTermStats => ({
     totalSessions: 1,
     totalTimeTyped: sessionData?.timeSpent || 60,
     totalWordsTyped: Math.round(wpm * ((sessionData?.timeSpent || 60) / 60)),
     totalCharactersTyped: sessionData?.textLength || 100,
+    totalMistakes: sessionData?.mistakes || 0,
+    totalCorrections: sessionData?.corrections || 0,
     averageWPM: Math.max(0, Math.min(500, wpm)),
     averageAccuracy: Math.max(0, Math.min(100, accuracy)),
     bestWPM: Math.max(0, Math.min(500, wpm)),
@@ -36,7 +38,11 @@ export const useSessionStats = (userId?: string) => {
   });
 
   const recordSessionStats = useCallback(
-    async (wpm: number, accuracy: number, sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number }): Promise<LongTermStats> => {
+    async (
+      wpm: number,
+      accuracy: number,
+      sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number; mistakes?: number; corrections?: number }
+    ): Promise<LongTermStats> => {
       try {
         if (!userId) {
           logger.session.warn(
@@ -50,6 +56,8 @@ export const useSessionStats = (userId?: string) => {
             totalTimeTyped: 0,
             totalWordsTyped: 0,
             totalCharactersTyped: 0,
+            totalMistakes: 0,
+            totalCorrections: 0,
             averageWPM: 0,
             averageAccuracy: 0,
             bestWPM: 0,
@@ -143,6 +151,8 @@ export const useSessionStats = (userId?: string) => {
             timestamp: Date.now(),
             textLength: sessionData?.textLength,
             timeSpent: sessionData?.timeSpent,
+            mistakes: sessionData?.mistakes,
+            corrections: sessionData?.corrections,
           }
         );
 
@@ -163,6 +173,8 @@ export const useSessionStats = (userId?: string) => {
             totalTimeTyped: sessionData?.timeSpent || 60,
             totalWordsTyped: Math.round(wpm * ((sessionData?.timeSpent || 60) / 60)),
             totalCharactersTyped: sessionData?.textLength || 100,
+            totalMistakes: sessionData?.mistakes || 0,
+            totalCorrections: sessionData?.corrections || 0,
             averageWPM: Math.max(0, Math.min(500, wpm)),
             averageAccuracy: Math.max(0, Math.min(100, accuracy)),
             bestWPM: wpm,
