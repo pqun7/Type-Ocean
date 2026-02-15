@@ -5,6 +5,7 @@ import { prisma } from "@/features/auth/lib/db";
 import { redirect } from "next/navigation";
 import { logging } from "@/log/ServerLogger";
 import { createHash } from "crypto";
+import type { Prisma } from "@prisma/client";
 
 function isNextRedirectError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -48,7 +49,7 @@ export async function verifyEmail(token: string) {
     });
 
     if (pending) {
-      const created = await prisma.$transaction(async (tx) => {
+      const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const user = await tx.user.create({
           data: {
             email: pending.email,

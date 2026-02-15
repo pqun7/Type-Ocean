@@ -1,5 +1,6 @@
 import { auth } from "@/features/auth/lib/auth";
 import prisma from "@/features/auth/lib/db";
+import type { Prisma } from "@prisma/client";
 import { logging } from "@/log/ServerLogger";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -450,7 +451,7 @@ export async function DELETE() {
     });
 
     // Delete user and all related data (cascade)
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Delete player profile first
       await tx.playerProfile.deleteMany({
         where: { userId: session.user.id },

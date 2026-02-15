@@ -4,7 +4,7 @@ import { auth } from "@/features/auth/lib/auth";
 import { SignOut } from "@/components/auth/sign-out";
 import prisma from "@/features/auth/lib/db";
 import { getDefaultLongTermStats, getLongTermCumulativeStats } from "@/helper/session-stats";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 import ProfileClient from "./profile-client";
 

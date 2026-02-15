@@ -9,6 +9,7 @@ import { mapErrorToMessage } from "@/constants/errors";
 import { logging } from '@/log/ServerLogger'; 
 import { headers } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limiter";
+import type { Prisma } from "@prisma/client";
 
 // Safe logging utilities for auth operations
 const logAuthOperation = {
@@ -101,7 +102,7 @@ export const signUp = async (formData: FormData) => {
     logging.debug("Hashing password", { requestId });
     const hashedPassword = await saltAndHashPassword(validatedData.password);
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const user = await tx.user.create({
         data: {
           email: normalizedEmail,
