@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Loader2, Pencil, X } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Pencil, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,9 +144,17 @@ export default function ProfileClient(props: {
 
   const [emailDraft, setEmailDraft] = useState(props.user.email);
   const [editingEmail, setEditingEmail] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
+  const [emailCurrentPassword, setEmailCurrentPassword] = useState("");
 
-  const [busy, setBusy] = useState<null | "username" | "avatar" | "email">(null);
+  const [editingPassword, setEditingPassword] = useState(false);
+  const [passwordCurrentPassword, setPasswordCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+
+  const [busy, setBusy] = useState<null | "username" | "avatar" | "email" | "password">(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -172,6 +180,7 @@ export default function ProfileClient(props: {
   }, [emailDraft, props.user.email]);
 
   const isEmailVerified = !!props.user.emailVerified;
+  const emailVerifiedAt = useMemo(() => safeDate(props.user.emailVerified), [props.user.emailVerified]);
 
   const bestWpmAt = useMemo(() => safeDate(props.stats.bestWPMDate), [props.stats.bestWPMDate]);
   const bestAccuracyAt = useMemo(() => safeDate(props.stats.bestAccuracyDate), [props.stats.bestAccuracyDate]);
@@ -215,14 +224,14 @@ export default function ProfileClient(props: {
     try {
       await patchUser({
         email: next,
-        ...(props.user.hasPassword ? { currentPassword } : {}),
+        ...(props.user.hasPassword ? { currentPassword: emailCurrentPassword } : {}),
       });
 
       showAlert("Email updated. Please verify it to secure your account.", "warning", {
         durationMs: 8000,
       });
       setEditingEmail(false);
-      setCurrentPassword("");
+      setEmailCurrentPassword("");
       router.refresh();
     } catch (e) {
       showAlert(e instanceof Error ? e.message : "Failed to update email", "error");
@@ -238,8 +247,82 @@ export default function ProfileClient(props: {
 
   function cancelEmailEdit() {
     setEmailDraft(props.user.email);
-    setCurrentPassword("");
+    setEmailCurrentPassword("");
     setEditingEmail(false);
+  }
+
+  function startPasswordEdit() {
+    setEditingPassword(true);
+  }
+
+  function cancelPasswordEdit() {
+    setEditingPassword(false);
+    setPasswordCurrentPassword("");
+    setNewPassword("");
+    setConfirmNewPassword("");
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmNewPassword(false);
+  }
+
+  async function onSavePassword() {
+    if (busy !== null) return;
+
+    const next = newPassword;
+    if (next.trim().length < 8) {
+      showAlert("Password must be at least 8 characters", "error");
+      return;
+    }
+
+    if (!/[A-Z]/.test(next)) {
+      showAlert("Password must contain at least one uppercase letter", "error");
+      return;
+    }
+
+    if (!/\d/.test(next)) {
+      showAlert("Password must contain at least one number", "error");
+      return;
+    }
+
+    if (next !== confirmNewPassword) {
+      showAlert("Passwords do not match", "error");
+      return;
+    }
+
+    if (props.user.hasPassword && !passwordCurrentPassword) {
+      showAlert("Please enter your current password", "error");
+      return;
+    }
+
+    setBusy("password");
+    try {
+      const res = await fetch("/api/user/password", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...(props.user.hasPassword ? { currentPassword: passwordCurrentPassword } : {}),
+          newPassword: next,
+        }),
+      });
+
+      const data: unknown = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const msg =
+          typeof data === "object" && data !== null && "error" in data
+            ? String((data as { error: unknown }).error)
+            : "Failed to update password";
+        throw new Error(msg);
+      }
+
+      showAlert(props.user.hasPassword ? "Password updated successfully" : "Password set successfully", "success");
+      cancelPasswordEdit();
+      router.refresh();
+    } catch (e) {
+      showAlert(e instanceof Error ? e.message : "Failed to update password", "error");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function uploadAvatar(file: File) {
@@ -494,8 +577,36 @@ export default function ProfileClient(props: {
                       <div className="truncate text-sm font-semibold text-slate-100 sm:text-base">
                         {props.user.email}
                       </div>
-                      <div className={"text-xs " + (isEmailVerified ? "text-green-300" : "text-orange-300")}>
-                        {isEmailVerified ? "Verified" : "Not verified"}
+                      <div className="mt-1 inline-flex flex-wrap items-center gap-2">
+                        <span
+                          className={
+                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium " +
+                            (isEmailVerified
+                              ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
+                              : "border-orange-400/20 bg-orange-500/10 text-orange-100")
+                          }
+                        >
+                          <span
+                            className={
+                              "inline-flex h-5 w-5 items-center justify-center rounded-full " +
+                              (isEmailVerified
+                                ? "bg-emerald-500/15 text-emerald-200"
+                                : "bg-gradient-to-r from-orange-400 to-yellow-300 text-slate-950")
+                            }
+                            aria-hidden="true"
+                          >
+                            {isEmailVerified ? (
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            ) : (
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                            )}
+                          </span>
+                          <span>{isEmailVerified ? "Verified" : "Not verified"}</span>
+                        </span>
+
+                        {isEmailVerified && emailVerifiedAt ? (
+                          <span className="text-[11px] text-slate-400">Verified {formatLocalDateTime(emailVerifiedAt)}</span>
+                        ) : null}
                       </div>
                     </div>
 
@@ -561,8 +672,8 @@ export default function ProfileClient(props: {
                       <Input
                         id="currentPassword"
                         type="password"
-                        value={currentPassword}
-                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        value={emailCurrentPassword}
+                        onChange={(e) => setEmailCurrentPassword(e.target.value)}
                         autoComplete="current-password"
                         placeholder="Required for email changes"
                       />
@@ -645,6 +756,138 @@ export default function ProfileClient(props: {
                     </div>
                   </div>
                   <p className="text-xs text-slate-400">Letters, numbers, underscore. 3–20 chars. Press Enter to save, Esc to cancel.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-slate-200" htmlFor="newPassword">
+                Password
+              </Label>
+
+              {!editingPassword ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-100 sm:text-lg">
+                      {props.user.hasPassword ? "••••••••" : "No password set"}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {props.user.hasPassword
+                        ? "Change your password to keep your account secure"
+                        : "Set a password to enable password-based sign-in"}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={startPasswordEdit}
+                    disabled={busy !== null}
+                    variant="outline"
+                    size="icon"
+                    aria-label={props.user.hasPassword ? "Change password" : "Set password"}
+                    className="rounded-full border-white/10 bg-slate-900/70 text-slate-100 shadow-sm backdrop-blur hover:bg-slate-900"
+                  >
+                    <KeyRound className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/5 p-3 sm:p-4">
+                  {props.user.hasPassword ? (
+                    <div className="space-y-2">
+                      <Label className="text-slate-200" htmlFor="passwordCurrent">
+                        Current password
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="passwordCurrent"
+                          type={showCurrentPassword ? "text" : "password"}
+                          value={passwordCurrentPassword}
+                          onChange={(e) => setPasswordCurrentPassword(e.target.value)}
+                          autoComplete="current-password"
+                          placeholder="Enter current password"
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 transition-colors hover:text-slate-100"
+                          aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                        >
+                          {showCurrentPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="space-y-2">
+                    <Label className="text-slate-200" htmlFor="newPassword">
+                      New password
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="newPassword"
+                        type={showNewPassword ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 transition-colors hover:text-slate-100"
+                        aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                      >
+                        {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-slate-200" htmlFor="confirmNewPassword">
+                      Confirm new password
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="confirmNewPassword"
+                        type={showConfirmNewPassword ? "text" : "password"}
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmNewPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 transition-colors hover:text-slate-100"
+                        aria-label={showConfirmNewPassword ? "Hide confirm password" : "Show confirm password"}
+                      >
+                        {showConfirmNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                    <Button
+                      type="button"
+                      onClick={onSavePassword}
+                      disabled={busy !== null}
+                      size="sm"
+                    >
+                      {busy === "password" ? "Saving…" : props.user.hasPassword ? "Update password" : "Set password"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={cancelPasswordEdit}
+                      disabled={busy !== null}
+                      size="sm"
+                    >
+                      <X className="h-4 w-4" />
+                      <span>Cancel</span>
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>

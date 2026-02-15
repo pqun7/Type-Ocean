@@ -9,18 +9,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { updatePassword, PasswordState } from "@/actions/reset-password";
 import { Loader } from "@/assets";
 import dynamic from "next/dynamic";
-import { useEffect, useState, useActionState } from "react";
+import { useEffect, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { HiOutlineLockClosed } from "react-icons/hi";
 import { useAlert } from "@/contexts/alert-context";
-import { Eye, EyeOff } from "lucide-react";
+import { PasswordField } from "@/components/auth/password/password-field";
 
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
@@ -35,8 +34,6 @@ export function ResetPasswordForm({ token }: { token: string }) {
       error: null,
     }
   );
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     if (state.success) {
@@ -123,26 +120,16 @@ export function ResetPasswordForm({ token }: { token: string }) {
                         New Password
                       </Label>
                       <div className="relative">
-                        <Input
+                        <PasswordField
                           id="password"
                           name="password"
-                          type={showPassword ? "text" : "password"}
                           required
                           minLength={8}
                           className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] pr-10"
                           placeholder="••••••••"
+                          autoComplete="new-password"
+                          toggleClassName="text-[#E0E7FF]/70 hover:text-[#69d0ff] transition-colors"
                         />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E0E7FF]/70 hover:text-[#69d0ff] transition-colors"
-                        >
-                          {showPassword ? (
-                            <EyeOff className="h-5 w-5" />
-                          ) : (
-                            <Eye className="h-5 w-5" />
-                          )}
-                        </button>
                       </div>
                     </motion.div>
 
@@ -160,28 +147,16 @@ export function ResetPasswordForm({ token }: { token: string }) {
                         Confirm Password
                       </Label>
                       <div className="relative">
-                        <Input
+                        <PasswordField
                           id="confirmPassword"
                           name="confirmPassword"
-                          type={showConfirmPassword ? "text" : "password"}
                           required
                           minLength={8}
                           className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] pr-10"
                           placeholder="••••••••"
+                          autoComplete="new-password"
+                          toggleClassName="text-[#E0E7FF]/70 hover:text-[#69d0ff] transition-colors"
                         />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setShowConfirmPassword(!showConfirmPassword)
-                          }
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E0E7FF]/70 hover:text-[#69d0ff] transition-colors"
-                        >
-                          {showConfirmPassword ? (
-                            <EyeOff className="h-5 w-5" />
-                          ) : (
-                            <Eye className="h-5 w-5" />
-                          )}
-                        </button>
                       </div>
                     </motion.div>
 

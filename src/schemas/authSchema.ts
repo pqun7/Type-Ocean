@@ -1,5 +1,6 @@
 // lib/schema.ts
 import { z } from "zod";
+import { passwordValidation } from "@/features/auth/utils/password-policy";
 
 const usernameValidation = z
   .string()
@@ -9,17 +10,6 @@ const usernameValidation = z
   .regex(/^[a-zA-Z0-9_]+$/, {
     message: "Username can only contain letters, numbers, and underscores",
   });
-
-const passwordValidation = z
-  .string()
-  .min(8, { message: "Password must be at least 8 characters" })
-  .regex(/[A-Z]/, {
-    message: "Password must contain at least one uppercase letter",
-  })
-  .regex(/\d/, {
-    message: "Password must contain at least one number",
-  })
- 
 
 const loginSchema = z.object({
   username: z.string().min(3),
@@ -48,11 +38,7 @@ const signUpSchema = z
   
 const resetPasswordSchema = z
 .object({
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .regex(/[A-Z]/, "Must contain at least one uppercase letter")
-    .regex(/[0-9]/, "Must contain at least one number"),
+  password: passwordValidation,
   confirmPassword: z.string(),
   token: z.string(),
 })

@@ -4,6 +4,7 @@ import { auth } from "@/features/auth/lib/auth";
 import { SignOut } from "@/components/auth/sign-out";
 import prisma from "@/features/auth/lib/db";
 import { getDefaultLongTermStats, getLongTermCumulativeStats } from "@/helper/session-stats";
+import { Prisma } from "@prisma/client";
 
 import ProfileClient from "./profile-client";
 
@@ -24,29 +25,33 @@ export default async function ProfilePage() {
     redirect("/auth?form=login");
   }
 
-  let user:
-    | {
-        id: string;
-        username: string;
-        usernameLastChangedAt: Date | null;
-        email: string;
-        emailVerified: Date | null;
-        passwordHash: string | null;
-        image: string | null;
-        createdAt: Date;
-        profile:
-          | {
-              level: number;
-              xp: number;
-              achievements: unknown;
-              avatar: string | null;
-            }
-          | null;
-      }
-    | null = null;
+  type ProfileDbUser = Prisma.UserGetPayload<{
+    select: {
+      id: true;
+      username: true;
+      usernameLastChangedAt: true;
+      email: true;
+      emailVerified: true;
+      passwordHash: true;
+      image: true;
+      createdAt: true;
+      profile: {
+        select: {
+          level: true;
+          xp: true;
+          achievements: true;
+          avatar: true;
+        };
+      };
+    };
+  }>;
+
+  type ProfilePageUser = Omit<ProfileDbUser, "passwordHash"> & { hasPassword: boolean };
+
+  let user: ProfilePageUser | null = null;
 
   try {
-    user = await prisma.user.findUnique({
+    const dbUser = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
         id: true,
@@ -67,6 +72,13 @@ export default async function ProfilePage() {
         },
       },
     });
+
+    if (dbUser) {
+      const { passwordHash, ...safeUser } = dbUser;
+      user = { ...safeUser, hasPassword: !!passwordHash };
+    } else {
+      user = null;
+    }
   } catch (err) {
     const code = getPrismaErrorCode(err);
     console.error("/profile prisma.user.findUnique failed", { code, err });
@@ -156,7 +168,7 @@ export default async function ProfilePage() {
             email: user.email,
             emailVerified: user.emailVerified ? user.emailVerified.toISOString() : null,
             image: user.image,
-            hasPassword: !!user.passwordHash,
+            hasPassword: user.hasPassword,
             createdAt: user.createdAt.toISOString(),
           }}
           profile={{

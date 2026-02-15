@@ -27,9 +27,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Loader, github, google } from "@/assets";
 import { Button } from "@/components/ui/button";
+import { PasswordField } from "@/components/auth/password/password-field";
 
 // Import icons and assets
-import { Eye, EyeOff } from "lucide-react";
 import Image from "next/image";
 
 // Import server actions
@@ -57,8 +57,6 @@ export function AuthForm() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { showAlert } = useAlert();
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // New loading states for social authentication
   const [isGithubLoading, setIsGithubLoading] = useState(false);
@@ -409,32 +407,19 @@ export function AuthForm() {
                         )}
                       </div>
                       <div className="relative">
-                        <Input
+                        <PasswordField
                           id="password"
                           name="password"
-                          type={showPassword ? "text" : "password"}
                           className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] pr-10"
                           required
                           placeholder="Password"
                           autoComplete={
                             isLogin ? "current-password" : "new-password"
                           }
+                          toggleClassName="text-[#E0E7FF]/70 hover:text-[#69d0ff]"
                         />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E0E7FF]/70 hover:text-[#69d0ff]"
-                          aria-label={
-                            showPassword ? "Hide password" : "Show password"
-                          }
-                        >
-                          {showPassword ? (
-                            <EyeOff className="h-5 w-5" />
-                          ) : (
-                            <Eye className="h-5 w-5" />
-                          )}
-                        </button>
                       </div>
+
                       {fieldErrors.password?.map((msg, i) => (
                         <p key={i} className="text-red-400 text-sm mt-1">
                           {msg}
@@ -450,33 +435,15 @@ export function AuthForm() {
                           className="grid gap-2"
                         >
                           <div className="relative">
-                            <Input
+                            <PasswordField
                               id="confirmPassword"
                               name="confirmPassword"
                               placeholder="Confirm Password"
-                              type={showConfirmPassword ? "text" : "password"}
                               className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] pr-10"
                               required
                               autoComplete="new-password"
+                              toggleClassName="text-[#E0E7FF]/70 hover:text-[#69d0ff]"
                             />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setShowConfirmPassword(!showConfirmPassword)
-                              }
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#E0E7FF]/70 hover:text-[#69d0ff]"
-                              aria-label={
-                                showConfirmPassword
-                                  ? "Hide password"
-                                  : "Show password"
-                              }
-                            >
-                              {showConfirmPassword ? (
-                                <EyeOff className="h-5 w-5" />
-                              ) : (
-                                <Eye className="h-5 w-5" />
-                              )}
-                            </button>
                           </div>
                           {fieldErrors.confirmPassword?.map((msg, i) => (
                             <p key={i} className="text-red-400 text-sm mt-1">
