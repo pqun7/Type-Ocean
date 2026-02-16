@@ -15,6 +15,10 @@ type EmailTemplateType =
   | {
       type: "EMAIL_VERIFICATION";
       data: { token: string };
+    }
+  | {
+      type: "EMAIL_VERIFICATION_OTP";
+      data: { code: string; expiresMinutes: number };
     };
 
 const logEmailOperation = {
@@ -95,7 +99,7 @@ function getTransporter(): Transporter {
 
     tls: {
       // Keep default verification; allow override for rare corporate proxies.
-      rejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED === "false" ? false : true,
+      rejectUnauthorized: !(process.env.SMTP_TLS_REJECT_UNAUTHORIZED === "false"),
     },
   });
 
@@ -112,7 +116,7 @@ function isTransientSmtpError(error: unknown): boolean {
   };
 
   const code = anyErr.code || "";
-  const responseCode = anyErr.responseCode;
+  const {responseCode} = anyErr;
   const message = (anyErr.message || "").toLowerCase();
 
   if (["ETIMEDOUT", "ECONNECTION", "ECONNRESET", "EPIPE"].includes(code)) return true;
@@ -249,6 +253,21 @@ async function generateEmailContent(
         `,
       };
 
+    case "EMAIL_VERIFICATION_OTP":
+      return {
+        subject: `Email Verification Code - ${appName}`,
+        html: `
+          <div dir="ltr" style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; line-height: 1.55; color: #111;">
+            <p style="margin: 0 0 16px;">Hello,</p>
+            <p style="margin: 0 0 16px;">Use the verification code below to confirm your email address:</p>
+            <p style="margin: 0 0 16px; font-size: 24px; letter-spacing: 4px;"><strong>${(data as { code: string }).code}</strong></p>
+            <p style="margin: 0 0 16px;"><strong>This code expires in ${(data as { expiresMinutes: number }).expiresMinutes} minutes.</strong></p>
+            <p style="margin: 0 0 16px;">If you did not request this, you can ignore this email.</p>
+            ${supportFooter({ appName, supportEmail })}
+          </div>
+        `,
+      };
+
     default:
       throw new Error("UNSUPPORTED_EMAIL_TEMPLATE");
   }
@@ -357,3 +376,13 @@ export const sendVerificationEmail = async (email: string, token: string) =>
     "EMAIL_VERIFICATION",
     { token }
   );
+
+export const sendVerificationOtpEmail = async (
+  email: string,
+  code: string,
+  expiresMinutes: number
+) =>
+  await sendEmail<{
+    type: "EMAIL_VERIFICATION_OTP";
+    data: { code: string; expiresMinutes: number };
+  }>(email, "EMAIL_VERIFICATION_OTP", { code, expiresMinutes });

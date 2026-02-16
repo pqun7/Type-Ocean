@@ -7,6 +7,7 @@ import { getDefaultLongTermStats, getLongTermCumulativeStats } from "@/helper/se
 import type { Prisma } from "@prisma/client";
 
 import ProfileClient from "./profile-client";
+import { DeleteAccountButton } from "./delete-account-button";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,7 +15,7 @@ export const revalidate = 0;
 function getPrismaErrorCode(err: unknown): string | null {
   if (typeof err !== "object" || err === null) return null;
   if (!("code" in err)) return null;
-  const code = (err as { code?: unknown }).code;
+  const { code } = err as { code?: unknown };
   return typeof code === "string" ? code : null;
 }
 
@@ -31,6 +32,9 @@ export default async function ProfilePage() {
       username: true;
       usernameLastChangedAt: true;
       email: true;
+      pendingEmail: true;
+      pendingEmailRequestedAt: true;
+      emailVerifyOtpSentAt: true;
       emailVerified: true;
       passwordHash: true;
       image: true;
@@ -58,6 +62,9 @@ export default async function ProfilePage() {
         username: true,
         usernameLastChangedAt: true,
         email: true,
+        pendingEmail: true,
+        pendingEmailRequestedAt: true,
+        emailVerifyOtpSentAt: true,
         emailVerified: true,
         passwordHash: true,
         image: true,
@@ -104,8 +111,9 @@ export default async function ProfilePage() {
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
             <h2 className="text-lg font-medium text-slate-100">Account</h2>
-            <div className="mt-3">
+            <div className="mt-3 space-y-2">
               <SignOut />
+              <DeleteAccountButton />
             </div>
           </div>
         </div>
@@ -166,6 +174,13 @@ export default async function ProfilePage() {
               ? user.usernameLastChangedAt.toISOString()
               : null,
             email: user.email,
+            pendingEmail: user.pendingEmail,
+            pendingEmailRequestedAt: user.pendingEmailRequestedAt
+              ? user.pendingEmailRequestedAt.toISOString()
+              : null,
+            emailVerifyOtpSentAt: user.emailVerifyOtpSentAt
+              ? user.emailVerifyOtpSentAt.toISOString()
+              : null,
             emailVerified: user.emailVerified ? user.emailVerified.toISOString() : null,
             image: user.image,
             hasPassword: user.hasPassword,
@@ -184,8 +199,9 @@ export default async function ProfilePage() {
 
         <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
           <h2 className="text-lg font-medium text-slate-100">Account</h2>
-          <div className="mt-3">
+          <div className="mt-3 space-y-2">
             <SignOut />
+            <DeleteAccountButton />
           </div>
         </div>
       </div>

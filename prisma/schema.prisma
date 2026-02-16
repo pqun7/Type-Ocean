@@ -45,6 +45,8 @@ model User {
   usernameLastChangedAt DateTime?
   passwordHash  String?
   email         String         @unique
+  pendingEmail  String?        @unique
+  pendingEmailRequestedAt DateTime?
   emailVerified DateTime?
   verificationReminderShownAt DateTime?
   image         String?
@@ -65,6 +67,11 @@ model User {
   emailVerifyToken          String?   @unique
   emailVerifyTokenExpiry    DateTime?
   emailVerificationAttempts Int?      @default(0)
+
+  emailVerifyOtpHash           String?
+  emailVerifyOtpExpiry         DateTime?
+  emailVerifyOtpSentAt         DateTime?
+  emailVerifyOtpFailedAttempts Int      @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -109,7 +116,7 @@ model Account {
 }
 
 model Session {
-  sessionToken String   @unique
+  sessionToken String   @id
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)

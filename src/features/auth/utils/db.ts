@@ -3,7 +3,8 @@ import { prisma } from "@/features/auth/lib/db"
 import bcrypt from "bcryptjs"
 
 export async function getUserFromDb(username: string, plainPassword: string) {
-  const normalizedUsername = username.toLowerCase().trim();
+  const normalizedInput = username.toLowerCase().trim();
+  const normalizedUsername = normalizedInput.replace(/\s+/g, "");
   
   let user = await prisma.user.findUnique({ 
     where: { username: normalizedUsername } 
@@ -11,7 +12,7 @@ export async function getUserFromDb(username: string, plainPassword: string) {
 
   if (!user) {
     user = await prisma.user.findUnique({
-      where: { email: normalizedUsername },
+      where: { email: normalizedInput },
     });
   }
 

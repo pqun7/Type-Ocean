@@ -1,19 +1,27 @@
 // src/app/verify/page.tsx
 import { auth } from "@/features/auth/lib/auth";
 import { redirect } from "next/navigation";
-import { EmailVerificationButton } from "@/components/auth/verification/email-verification-button";
+import prisma from "@/features/auth/lib/db";
+import { VerifyEmailOtpForm } from "@/components/auth/verification/verify-email-otp-form";
 
 export default async function VerifyPage() {
   const session = await auth();
 
   if (!session) redirect("/auth?signin");
-  if (session.user.emailVerified) redirect("/home");
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { emailVerified: true, email: true, pendingEmail: true, emailVerifyOtpSentAt: true },
+  });
+
+  if (!user) redirect("/auth?signin");
+  if (user.emailVerified && !user.pendingEmail) redirect("/home");
+
+  const destination = (user.pendingEmail ?? user.email).toLowerCase().trim();
+  const initialSentAt = user.emailVerifyOtpSentAt ? user.emailVerifyOtpSentAt.toISOString() : null;
 
   return (
-    <div className="max-w-md mx-auto mt-20 p-6">
-      <h1 className="text-2xl font-bold mb-4">Account Activation</h1>
-      <p className="mb-4">Please check your email</p>
-      <EmailVerificationButton email={session.user.email!} />
+    <div className="container flex min-h-screen items-center justify-center">
+      <VerifyEmailOtpForm destinationEmail={destination} initialSentAt={initialSentAt} />
     </div>
   );
 }

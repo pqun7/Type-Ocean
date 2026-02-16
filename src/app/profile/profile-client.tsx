@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Camera, CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Pencil, X } from "lucide-react";
 
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAlert } from "@/contexts/alert-context";
-import { EmailVerificationButton } from "@/components/auth/verification/email-verification-button";
+import { VerifyEmailOtpDialog } from "@/components/auth/verification/verify-email-otp-dialog";
 import AccountStatsChart from "./account-stats-chart";
 
 type ProfileData = {
@@ -24,6 +24,9 @@ type UserData = {
   username: string;
   usernameLastChangedAt: string | null;
   email: string;
+  pendingEmail: string | null;
+  pendingEmailRequestedAt: string | null;
+  emailVerifyOtpSentAt: string | null;
   emailVerified: string | null;
   image: string | null;
   hasPassword: boolean;
@@ -182,6 +185,61 @@ export default function ProfileClient(props: {
   const isEmailVerified = !!props.user.emailVerified;
   const emailVerifiedAt = useMemo(() => safeDate(props.user.emailVerified), [props.user.emailVerified]);
 
+  const hasPendingEmail = !!props.user.pendingEmail;
+  const otpDestinationEmail = (props.user.pendingEmail ?? props.user.email).trim();
+  const otpInitialSentAt = props.user.emailVerifyOtpSentAt;
+
+  const otpDialogOpenedForChangeRef = useRef(false);
+  const otpDialogJustVerifiedRef = useRef(false);
+
+  const handleOtpVerified = useCallback(() => {
+    otpDialogJustVerifiedRef.current = true;
+    router.refresh();
+  }, [router]);
+
+  const [otpDialogOpen, setOtpDialogOpen] = useState(false);
+  const [otpDialogDestinationEmail, setOtpDialogDestinationEmail] = useState(otpDestinationEmail);
+  const [otpDialogInitialSentAt, setOtpDialogInitialSentAt] = useState<string | null>(otpInitialSentAt);
+
+  useEffect(() => {
+    setOtpDialogDestinationEmail(otpDestinationEmail);
+    setOtpDialogInitialSentAt(otpInitialSentAt);
+  }, [otpDestinationEmail, otpInitialSentAt]);
+
+  async function cancelEmailChangeRequest() {
+    try {
+      await patchUser({
+        // PATCHing the current email triggers cancelPendingEmail server-side.
+        email: props.user.email.trim().toLowerCase(),
+      });
+      showAlert("Email change canceled.", "warning", { durationMs: 5000 });
+    } catch {
+      // Keep it quiet; worst case the server kept the request.
+    } finally {
+      router.refresh();
+    }
+  }
+
+  const handleOtpDialogOpenChange = useCallback(
+    async (open: boolean) => {
+      setOtpDialogOpen(open);
+
+      if (!open) {
+        const shouldCancel =
+          otpDialogOpenedForChangeRef.current && !otpDialogJustVerifiedRef.current;
+
+        otpDialogOpenedForChangeRef.current = false;
+        otpDialogJustVerifiedRef.current = false;
+
+        if (shouldCancel) {
+          await cancelEmailChangeRequest();
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.user.email, router, showAlert]
+  );
+
   const bestWpmAt = useMemo(() => safeDate(props.stats.bestWPMDate), [props.stats.bestWPMDate]);
   const bestAccuracyAt = useMemo(() => safeDate(props.stats.bestAccuracyDate), [props.stats.bestAccuracyDate]);
   const lastUpdatedAt = useMemo(() => safeDate(props.stats.lastUpdated), [props.stats.lastUpdated]);
@@ -215,23 +273,47 @@ export default function ProfileClient(props: {
       return;
     }
 
-    if (!emailIsDirty) {
-      setEditingEmail(false);
-      return;
-    }
-
     setBusy("email");
     try {
-      await patchUser({
+      const result = (await patchUser({
         email: next,
-        ...(props.user.hasPassword ? { currentPassword: emailCurrentPassword } : {}),
-      });
+        ...(emailIsDirty && props.user.hasPassword ? { currentPassword: emailCurrentPassword } : {}),
+      })) as {
+        emailChange?: {
+          requested: string;
+          sent: boolean;
+          retryAfterSeconds?: number;
+        };
+      };
 
-      showAlert("Email updated. Please verify it to secure your account.", "warning", {
-        durationMs: 8000,
-      });
+      const retryAfterSeconds = result.emailChange?.retryAfterSeconds;
+      const sent = result.emailChange?.sent;
+
+      if (emailIsDirty && result.emailChange?.requested) {
+        setOtpDialogDestinationEmail(result.emailChange.requested);
+        if (sent) {
+          setOtpDialogInitialSentAt(new Date().toISOString());
+        }
+        otpDialogOpenedForChangeRef.current = true;
+        setOtpDialogOpen(true);
+      }
+
+      if (!emailIsDirty) {
+        setOtpDialogOpen(false);
+      }
+
+      if (typeof retryAfterSeconds === "number" && retryAfterSeconds > 0) {
+        showAlert(`Please wait ${retryAfterSeconds}s before requesting a new code.`, "warning", {
+          durationMs: 5000,
+        });
+      } else if (!emailIsDirty) {
+        showAlert("Saved. Any in-progress email change was canceled.", "warning", {
+          durationMs: 8000,
+        });
+      }
       setEditingEmail(false);
       setEmailCurrentPassword("");
+      // Refresh to pick up pending state and OTP timestamps.
       router.refresh();
     } catch (e) {
       showAlert(e instanceof Error ? e.message : "Failed to update email", "error");
@@ -622,14 +704,21 @@ export default function ProfileClient(props: {
                     </Button>
                   </div>
 
-                  {!isEmailVerified ? (
-                    <div className="pt-1">
-                      <EmailVerificationButton email={props.user.email} />
-                      <p className="mt-2 text-xs text-slate-400">
+                  {!isEmailVerified || hasPendingEmail ? (
+                    <div className="pt-1 space-y-2">
+                      <p className="text-xs text-slate-400">
                         Verification helps protect your account and enables secure email changes.
                       </p>
                     </div>
                   ) : null}
+
+                  <VerifyEmailOtpDialog
+                    open={otpDialogOpen}
+                    onOpenChange={handleOtpDialogOpenChange}
+                    destinationEmail={otpDialogDestinationEmail}
+                    initialSentAt={otpDialogInitialSentAt}
+                    onVerified={handleOtpVerified}
+                  />
                 </div>
               ) : (
                 <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-3 sm:p-4">
@@ -646,7 +735,7 @@ export default function ProfileClient(props: {
                       <Button
                         type="button"
                         onClick={onSaveEmail}
-                        disabled={busy !== null || !emailIsDirty}
+                        disabled={busy !== null || (!emailIsDirty && !hasPendingEmail)}
                         size="sm"
                       >
                         {busy === "email" ? "Saving…" : "Save"}

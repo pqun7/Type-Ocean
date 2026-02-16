@@ -44,6 +44,8 @@ export const env = createEnv({
 
     EMAIL_DAILY_LIMIT: z.coerce.number().optional(),
 
+    EMAIL_OTP_PEPPER: z.string().optional(),
+
     BLOB_READ_WRITE_TOKEN: z.string().optional(),
   },
   client: {},
@@ -86,6 +88,8 @@ export const env = createEnv({
     EMAIL_SEND_RETRY_BASE_DELAY_MS: process.env.EMAIL_SEND_RETRY_BASE_DELAY_MS,
 
     EMAIL_DAILY_LIMIT: process.env.EMAIL_DAILY_LIMIT,
+
+    EMAIL_OTP_PEPPER: process.env.EMAIL_OTP_PEPPER,
 
     BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
   },

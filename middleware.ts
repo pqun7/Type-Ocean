@@ -21,11 +21,10 @@ const PROTECTED_ROUTES = [
 const PUBLIC_ROUTES = [
   "/",
   "/auth",
-  "/auth/login",
-  "/auth/register",
-  "/auth/verify",
-  "/auth/forgot-password",
-  "/auth/reset-password",
+  "/verify",
+  "/verify-email",
+  "/forgot-password",
+  "/reset-password",
   "/about",
   "/contact"
 ]
@@ -143,7 +142,7 @@ export default auth(async (req) => {
     // 6. Email verification check ONLY for non-API routes
     // Allow access to public routes even if email is not verified
     const isPublicRoute = PUBLIC_ROUTES.some(route => pathname.startsWith(route))
-    const isEmailVerificationRoute = pathname.startsWith('/auth/verify')
+    const isEmailVerificationRoute = pathname.startsWith('/verify') || pathname.startsWith('/verify-email') || pathname.startsWith('/auth/verify-email')
     
     if (session?.user && 
         !session.user.emailVerified && 
@@ -156,7 +155,7 @@ export default auth(async (req) => {
         pathname
       })
       
-      return redirectWithSecurity(new URL("/auth/verify", req.url));
+      return redirectWithSecurity(new URL("/verify", req.url));
     }
 
     // 7. Add security headers and performance optimizations

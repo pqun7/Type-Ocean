@@ -7,6 +7,12 @@ import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import { rateLimiter } from "@/lib/rate-limiter"
 import bcrypt from "bcryptjs";
+import { normalizeUsernameForStorage } from "@/features/auth/utils/username";
+import { createHash, randomInt } from "crypto";
+import { sendVerificationOtpEmail } from "@/features/auth/providers/nodemailer";
+
+const OTP_TTL_MINUTES = 10;
+const RESEND_COOLDOWN_SECONDS = 60;
 
 
 const SERVICE_TYPE = "USER-API";
@@ -150,7 +156,7 @@ export async function GET(req: NextRequest) {
       hasProfile: !!user.profile,
     });
 
-    let profile = user.profile;
+    let {profile} = user;
     if (!profile) {
       // Ensure profile exists for legacy/OAuth users
       profile = await prisma.playerProfile.upsert({
@@ -248,8 +254,8 @@ export async function PATCH(req: NextRequest) {
 
     // Normalize usernames for consistency and uniqueness (align with sign-up)
     // Support legacy clients that might send profileData.username.
-    const normalizedUsername = username ? username.toLowerCase() : undefined;
-    const normalizedProfileUsername = profileData?.username ? profileData.username.toLowerCase() : undefined;
+    const normalizedUsername = username ? normalizeUsernameForStorage(username) : undefined;
+    const normalizedProfileUsername = profileData?.username ? normalizeUsernameForStorage(profileData.username) : undefined;
     const requestedUsername = normalizedUsername ?? normalizedProfileUsername;
 
     // Normalize avatar clearing
@@ -272,7 +278,15 @@ export async function PATCH(req: NextRequest) {
     // Load current values for safe compare & policy enforcement
     const currentUser = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { email: true, username: true, usernameLastChangedAt: true, passwordHash: true },
+      select: {
+        email: true,
+        pendingEmail: true,
+        username: true,
+        usernameLastChangedAt: true,
+        passwordHash: true,
+        emailVerified: true,
+        emailVerifyOtpSentAt: true,
+      },
     });
 
     if (!currentUser) {
@@ -304,30 +318,8 @@ export async function PATCH(req: NextRequest) {
     // Username changes are allowed any time (no cooldown).
     const usernameIsChanging = !!(requestedUsername && requestedUsername !== currentUser.username);
 
-    // Check if email is already taken by another user
-     // Email conflict check (keep existing, but avoid logging raw email)
-    if (normalizedEmail) {
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          email: normalizedEmail,
-          id: { not: session.user.id },
-        },
-      });
-
-      if (existingUser) {
-        // Safer PII handling
-        logging.debugSensitive("Email already in use", {
-          requestId,
-          userId: session.user.id,
-        });
-        return NextResponse.json(
-          { error: "Email already in use" },
-          { status: 409 }
-        );
-      }
-    }
-
-    // Determine if email actually changed (avoid de-verifying on same email)
+    // Email change flow: do NOT change email immediately.
+    // Instead, store it as pendingEmail and send a verification link to the new email.
     const emailChanged = !!(normalizedEmail && normalizedEmail !== currentUser.email);
 
     // Security: require current password for email changes on password-based accounts.
@@ -349,7 +341,129 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    // Email conflict check: block if another user already has it OR has it pending.
+    if (normalizedEmail && emailChanged) {
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          id: { not: session.user.id },
+          OR: [{ email: normalizedEmail }, { pendingEmail: normalizedEmail }],
+        },
+        select: { id: true },
+      });
 
+      if (existingUser) {
+        logging.debugSensitive("Email already in use", {
+          requestId,
+          userId: session.user.id,
+        });
+        return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+      }
+    }
+
+    // If the user sends the same email as current, treat it as a "no-op".
+    // If there is a pendingEmail, cancel it (user effectively reverted).
+    const cancelPendingEmail = !!(
+      normalizedEmail &&
+      !emailChanged &&
+      currentUser.pendingEmail
+    );
+
+
+    // Prepare email change request info for response.
+    let emailChange:
+      | {
+          requested: string;
+          sent: boolean;
+          retryAfterSeconds?: number;
+        }
+      | undefined;
+
+    // Cancel pending email request if needed.
+    if (cancelPendingEmail) {
+      await prisma.user.update({
+        where: { id: session.user.id },
+        data: {
+          pendingEmail: null,
+          pendingEmailRequestedAt: null,
+          emailVerifyToken: null,
+          emailVerifyTokenExpiry: null,
+          emailVerificationAttempts: 0,
+          emailVerifyOtpHash: null,
+          emailVerifyOtpExpiry: null,
+          emailVerifyOtpSentAt: null,
+          emailVerifyOtpFailedAttempts: 0,
+        },
+      });
+    }
+
+    // Start an email change request (pending) if needed.
+    if (normalizedEmail && emailChanged) {
+      const existingPending = currentUser.pendingEmail?.toLowerCase().trim() ?? null;
+      const samePendingRequest = existingPending && existingPending === normalizedEmail;
+
+      if (samePendingRequest && currentUser.emailVerifyOtpSentAt) {
+        const cooldownMs = RESEND_COOLDOWN_SECONDS * 1000;
+        const elapsed = Date.now() - currentUser.emailVerifyOtpSentAt.getTime();
+        if (elapsed < cooldownMs) {
+          const retryAfterSeconds = Math.max(1, Math.ceil((cooldownMs - elapsed) / 1000));
+          emailChange = { requested: normalizedEmail, sent: false, retryAfterSeconds };
+        }
+      }
+
+      if (!emailChange) {
+      const otp = String(randomInt(0, 1_000_000)).padStart(6, "0");
+      const pepper = process.env.EMAIL_OTP_PEPPER?.trim() || "";
+      const hashedOtp = createHash("sha256")
+        .update(`${session.user.id}:${otp}:${pepper}`)
+        .digest("hex");
+      const otpExpiry = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+
+      emailChange = { requested: normalizedEmail, sent: false };
+
+      const sentAt = new Date();
+
+      await prisma.user.update({
+        where: { id: session.user.id },
+        data: {
+          pendingEmail: normalizedEmail,
+          pendingEmailRequestedAt: new Date(),
+          emailVerifyToken: null,
+          emailVerifyTokenExpiry: null,
+          emailVerificationAttempts: { increment: 1 },
+          emailVerifyOtpHash: hashedOtp,
+          emailVerifyOtpExpiry: otpExpiry,
+          emailVerifyOtpSentAt: sentAt,
+          emailVerifyOtpFailedAttempts: 0,
+        },
+      });
+
+      const sendResult = await sendVerificationOtpEmail(normalizedEmail, otp, OTP_TTL_MINUTES);
+      if (!sendResult.success) {
+        // Cleanup: prevent being stuck with a pending change that can't be completed.
+        await prisma.user.update({
+          where: { id: session.user.id },
+          data: {
+            pendingEmail: null,
+            pendingEmailRequestedAt: null,
+            emailVerifyToken: null,
+            emailVerifyTokenExpiry: null,
+            emailVerificationAttempts: 0,
+            emailVerifyOtpHash: null,
+            emailVerifyOtpExpiry: null,
+            emailVerifyOtpSentAt: null,
+            emailVerifyOtpFailedAttempts: 0,
+          },
+        });
+        return NextResponse.json(
+          { error: "Failed to send verification email" },
+          { status: 500 }
+        );
+      }
+      emailChange.sent = true;
+      }
+    }
+
+    // Apply non-email profile updates.
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
       data: {
@@ -357,20 +471,13 @@ export async function PATCH(req: NextRequest) {
           username: requestedUsername,
           usernameLastChangedAt: new Date(),
         }),
-        ...(normalizedEmail && emailChanged && {
-          email: normalizedEmail,
-          emailVerified: null,
-          emailVerifyToken: null,
-          emailVerifyTokenExpiry: null,
-          emailVerificationAttempts: 0,
-        }),
-        ...(normalizedEmail && !emailChanged && { email: normalizedEmail }), // keep verification status
         ...(normalizedAvatar !== undefined && { image: normalizedAvatar }),
       },
       select: {
         id: true,
         username: true,
         email: true,
+        pendingEmail: true,
         emailVerified: true,
         updatedAt: true,
         usernameLastChangedAt: true,
@@ -409,7 +516,16 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({
       user: updatedUser,
-      message: "Profile updated successfully",
+      message: emailChange?.requested
+        ? emailChange.sent
+          ? "Verification code sent. Your email will update after verification."
+          : emailChange.retryAfterSeconds
+            ? "A verification code was recently sent. Please wait before requesting another."
+            : "Verification code request received."
+        : cancelPendingEmail
+          ? "Email change canceled."
+          : "Profile updated successfully",
+      emailChange,
     });
   } catch (error) {
     logUserOperation.error(requestId, "update_user_profile", error, {
@@ -426,8 +542,19 @@ export async function PATCH(req: NextRequest) {
 /**
  * DELETE - Delete user account
  */
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
   const requestId = uuidv4();
+
+  const { allowed, headers } = await rateLimiter.applyRateLimit(req, "/api/user:DELETE");
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers });
+  }
+
+  // CSRF for unsafe method
+  const csrfError = validateCSRF(req);
+  if (csrfError) {
+    return NextResponse.json({ error: csrfError }, { status: 403 });
+  }
 
   try {
     const session = await auth();
@@ -444,66 +571,95 @@ export async function DELETE() {
 
     logUserOperation.start(requestId, "delete_user_account", session.user.id);
 
+    const userId = session.user.id;
+
     // Safe debug logging for account deletion
     logging.debugSensitive("User account deletion started", {
       requestId,
-      userId: session.user.id
+      userId
     });
 
     // Delete user and all related data (cascade)
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Delete player profile first
-      await tx.playerProfile.deleteMany({
-        where: { userId: session.user.id },
-      });
+    // Use a non-interactive transaction for better compatibility in serverless.
+    await prisma.$transaction([
+      // Delete player profile first (relation doesn't specify onDelete cascade)
+      prisma.playerProfile.deleteMany({ where: { userId } }),
 
-      // Delete session stats
-      await tx.sessionStat.deleteMany({
-        where: { userId: session.user.id },
-      });
+      // Delete stats and auth/session artifacts
+      prisma.sessionStat.deleteMany({ where: { userId } }),
+      prisma.session.deleteMany({ where: { userId } }),
+      prisma.account.deleteMany({ where: { userId } }),
+      prisma.authenticator.deleteMany({ where: { userId } }),
 
-      // Delete user sessions
-      await tx.session.deleteMany({
-        where: { userId: session.user.id },
-      });
+      // Finally delete the user. deleteMany avoids throwing if already deleted.
+      prisma.user.deleteMany({ where: { id: userId } }),
+    ]);
 
-      // Delete accounts
-      await tx.account.deleteMany({
-        where: { userId: session.user.id },
-      });
-
-      // Delete authenticators
-      await tx.authenticator.deleteMany({
-        where: { userId: session.user.id },
-      });
-
-      // Finally delete the user
-      await tx.user.delete({
-        where: { id: session.user.id },
-      });
-    });
-
-    logUserOperation.success(requestId, "delete_user_account", {
-      userId: session.user.id,
-    });
+    logUserOperation.success(requestId, "delete_user_account", { userId });
 
     // Production-safe success logging
     logging.info("User account deleted successfully", {
       requestId,
-      userId: session.user.id,
+      userId,
       service: SERVICE_TYPE
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       message: "Account deleted successfully",
     });
+
+    response.cookies.set({
+      name: "__flash_success",
+      value: "account_deleted",
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60,
+      secure: process.env.NODE_ENV === "production",
+    });
+
+    // Best-effort: clear Auth.js / NextAuth session cookies so the browser is treated as logged out.
+    // This is important for JWT sessions where deleting the DB user does not invalidate the cookie.
+    const cookieNames = [
+      // Auth.js v5
+      "authjs.session-token",
+      "__Secure-authjs.session-token",
+      "authjs.csrf-token",
+      "__Host-authjs.csrf-token",
+      "authjs.callback-url",
+      "__Secure-authjs.callback-url",
+
+      // NextAuth legacy names (defensive)
+      "next-auth.session-token",
+      "__Secure-next-auth.session-token",
+      "next-auth.csrf-token",
+      "__Host-next-auth.csrf-token",
+      "next-auth.callback-url",
+      "__Secure-next-auth.callback-url",
+    ];
+
+    for (const name of cookieNames) {
+      response.cookies.set({
+        name,
+        value: "",
+        path: "/",
+        maxAge: 0,
+      });
+    }
+
+    return response;
   } catch (error) {
+    const prismaCode =
+      typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : null;
+
     logUserOperation.error(requestId, "delete_user_account", error, {
       operationPhase: "delete_user_account",
+      prismaCode,
     });
 
     return NextResponse.json(
-      { error: "Failed to delete account" },
+      { error: "Failed to delete account", requestId, ...(prismaCode ? { code: prismaCode } : {}) },
       { status: 500 }
     );
   }

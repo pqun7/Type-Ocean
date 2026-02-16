@@ -16,6 +16,8 @@ export function generateEmergencyProfile(userId: string): PlayerProfile & { user
     user: {
       id: userId,
       email: 'fallback@example.com',
+      pendingEmail: null,
+      pendingEmailRequestedAt: null,
       emailVerified: null,
       username: 'Guest',
       usernameLastChangedAt: null,
@@ -29,6 +31,10 @@ export function generateEmergencyProfile(userId: string): PlayerProfile & { user
       emailVerifyToken: null,
       emailVerifyTokenExpiry: null,
       emailVerificationAttempts: 0,
+      emailVerifyOtpHash: null,
+      emailVerifyOtpExpiry: null,
+      emailVerifyOtpSentAt: null,
+      emailVerifyOtpFailedAttempts: 0,
       verificationReminderShownAt: null,
     },
   };

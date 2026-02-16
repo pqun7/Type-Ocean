@@ -110,6 +110,46 @@ export async function verifyEmail(token: string) {
       alreadyVerified: !!user.emailVerified
     });
 
+    // If this token was issued for an email change request, apply it now.
+    const pendingEmail = (user as unknown as { pendingEmail?: string | null }).pendingEmail ?? null;
+
+    if (pendingEmail) {
+      const normalizedPending = pendingEmail.toLowerCase().trim();
+
+      const conflict = await prisma.user.findFirst({
+        where: {
+          id: { not: user.id },
+          OR: [{ email: normalizedPending }, { pendingEmail: normalizedPending }],
+        },
+        select: { id: true },
+      });
+
+      if (conflict) {
+        redirect("/auth?error=EMAIL_ALREADY_IN_USE");
+      }
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          email: normalizedPending,
+          pendingEmail: null,
+          pendingEmailRequestedAt: null,
+          emailVerified: new Date(),
+          emailVerifyToken: null,
+          emailVerifyTokenExpiry: null,
+          emailVerificationAttempts: 0,
+        },
+      });
+
+      logVerificationOperation.success("verify_email", {
+        requestId,
+        userId: user.id,
+        status: "pending_email_applied_and_verified",
+      });
+
+      redirect("/auth?verified=success");
+    }
+
     if (user.emailVerified) {
       logVerificationOperation.error("verify_email", new Error("Email already verified"), {
         requestId,

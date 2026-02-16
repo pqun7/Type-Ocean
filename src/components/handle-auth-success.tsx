@@ -28,6 +28,15 @@ export function HandleAuthSuccess() {
   const prevKey = useRef<string | null>(null);
 
   useEffect(() => {
+    const flashSuccess = consumeFlashCookie("__flash_success");
+    if (flashSuccess === "account_deleted") {
+      // Show a single success message after redirecting to /auth.
+      // Also suppress any leftover auth success flashes.
+      consumeFlashCookie("__flash_auth");
+      showAlert("Account deleted successfully.", "success", { durationMs: 3500 });
+      return;
+    }
+
     const flash = consumeFlashCookie("__flash_auth");
     if (flash) {
       const [status, rawProvider] = flash.split(":");

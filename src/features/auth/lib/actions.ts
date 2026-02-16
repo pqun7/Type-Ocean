@@ -10,6 +10,7 @@ import { logging } from '@/log/ServerLogger';
 import { headers } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import type { Prisma } from "@prisma/client";
+import { normalizeUsernameForStorage } from "@/features/auth/utils/username";
 
 // Safe logging utilities for auth operations
 const logAuthOperation = {
@@ -60,7 +61,7 @@ export const signUp = async (formData: FormData) => {
       where: {
         OR: [
           { email: validatedData.email.toLowerCase() },
-          { username: validatedData.username.toLowerCase() }
+          { username: normalizeUsernameForStorage(validatedData.username) }
         ]
       }
     });
@@ -88,7 +89,7 @@ export const signUp = async (formData: FormData) => {
     }
 
     const normalizedEmail = validatedData.email.toLowerCase();
-    const normalizedUsername = validatedData.username.toLowerCase();
+    const normalizedUsername = normalizeUsernameForStorage(validatedData.username);
 
     // Rate limit signup email sending.
     const headersInstance = await headers();

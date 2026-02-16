@@ -99,7 +99,7 @@ export const sessionStatsService = {
       });
 
       // Extract longTermStats from response
-      const longTermStats = response.longTermStats;
+      const { longTermStats } = response;
 
       const duration = Date.now() - startTime;
       void duration;
