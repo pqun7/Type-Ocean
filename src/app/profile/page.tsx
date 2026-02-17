@@ -4,10 +4,9 @@ import { auth } from "@/features/auth/lib/auth";
 import { SignOut } from "@/components/auth/sign-out";
 import prisma from "@/features/auth/lib/db";
 import { getDefaultLongTermStats, getLongTermCumulativeStats } from "@/helper/session-stats";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import ProfileClient from "./profile-client";
-import { DeleteAccountButton } from "./delete-account-button";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -94,7 +93,7 @@ export default async function ProfilePage() {
 
     return (
       <div className="min-h-svh p-6 md:p-10">
-        <div className="mx-auto max-w-2xl space-y-4">
+        <div className="mx-auto w-full max-w-none space-y-4">
           <h1 className="text-2xl font-semibold text-slate-100">Profile</h1>
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
@@ -111,9 +110,8 @@ export default async function ProfilePage() {
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
             <h2 className="text-lg font-medium text-slate-100">Account</h2>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3">
               <SignOut />
-              <DeleteAccountButton />
             </div>
           </div>
         </div>
@@ -162,9 +160,34 @@ export default async function ProfilePage() {
     // Keep default stats if Redis is unavailable
   }
 
+  let dailyActivity: Array<{
+    localDate: string;
+    sessionsCount: number;
+    totalTimeSpentSec: number;
+    sumWpm: number;
+    sumAccuracy: number;
+  }> = [];
+
+  try {
+    dailyActivity = await prisma.dailyTypingActivity.findMany({
+      where: { userId: user.id },
+      orderBy: { localDate: "desc" },
+      take: 370,
+      select: {
+        localDate: true,
+        sessionsCount: true,
+        totalTimeSpentSec: true,
+        sumWpm: true,
+        sumAccuracy: true,
+      },
+    });
+  } catch {
+    dailyActivity = [];
+  }
+
   return (
     <div className="min-h-svh p-6 md:p-10">
-      <div className="mx-auto max-w-2xl space-y-4">
+      <div className="mx-auto w-full max-w-none space-y-4">
         <h1 className="text-2xl font-semibold text-slate-100">Profile</h1>
         <ProfileClient
           user={{
@@ -178,9 +201,7 @@ export default async function ProfilePage() {
             pendingEmailRequestedAt: user.pendingEmailRequestedAt
               ? user.pendingEmailRequestedAt.toISOString()
               : null,
-            emailVerifyOtpSentAt: user.emailVerifyOtpSentAt
-              ? user.emailVerifyOtpSentAt.toISOString()
-              : null,
+            emailVerifyOtpSentAt: user.emailVerifyOtpSentAt ? user.emailVerifyOtpSentAt.toISOString() : null,
             emailVerified: user.emailVerified ? user.emailVerified.toISOString() : null,
             image: user.image,
             hasPassword: user.hasPassword,
@@ -195,13 +216,13 @@ export default async function ProfilePage() {
             avatar: profile.avatar,
           }}
           stats={stats}
+          dailyActivity={dailyActivity}
         />
 
         <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
           <h2 className="text-lg font-medium text-slate-100">Account</h2>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3">
             <SignOut />
-            <DeleteAccountButton />
           </div>
         </div>
       </div>

@@ -19,21 +19,28 @@
 // export { SignOut };
 import { signOut } from "@/features/auth/lib/auth";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-export function SignOut() {
+type SignOutProps = {
+  label?: string;
+  redirectTo?: string;
+  className?: string;
+};
+
+export function SignOut({ label = "Sign Out", redirectTo = "/auth", className }: SignOutProps) {
   return (
     <form
       action={async () => {
         "use server";
-        await signOut({ redirectTo: "/auth" });
+        await signOut({ redirectTo });
       }}
     >
       <Button
         type="submit"
         variant="destructive"
-        className="w-full"
+        className={cn("w-full", className)}
       >
-        Sign Out
+        {label}
       </Button>
     </form>
   );

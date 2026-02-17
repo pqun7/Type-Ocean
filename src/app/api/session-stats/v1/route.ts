@@ -199,12 +199,16 @@ export async function POST(req: NextRequest) {
   // Sanitize and enrich session data
   const sanitizedSession: NormalizedSessionData = sanitizeSessionData(typedSessionData);
   const timestamp = new Date().toISOString();
+  const { localDate: providedLocalDate, tzOffsetMinutes } = typedSessionData;
+  const localDate = providedLocalDate ?? timestamp.slice(0, 10);
 
   const enrichedSession = {
     ...sanitizedSession,
     id: uuidv4(),
     userId,
     timestamp,
+    localDate,
+    tzOffsetMinutes,
   };
 
   // Idempotency based on X-Session-ID
@@ -371,6 +375,35 @@ export async function POST(req: NextRequest) {
       });
     } catch {
       // best-effort
+    }
+
+    // Persist per-day aggregates for profile heatmap (best-effort).
+    try {
+      await prisma.dailyTypingActivity.upsert({
+        where: {
+          userId_localDate: {
+            userId,
+            localDate,
+          },
+        },
+        update: {
+          sessionsCount: { increment: 1 },
+          totalTimeSpentSec: { increment: sanitizedSession.timeSpent },
+          sumWpm: { increment: sanitizedSession.wpm },
+          sumAccuracy: { increment: sanitizedSession.accuracy },
+        },
+        create: {
+          userId,
+          localDate,
+          sessionsCount: 1,
+          totalTimeSpentSec: sanitizedSession.timeSpent,
+          sumWpm: sanitizedSession.wpm,
+          sumAccuracy: sanitizedSession.accuracy,
+        },
+        select: { id: true },
+      });
+    } catch {
+      // best-effort; do not block session recording
     }
 
     // Prepare response immediately for better performance

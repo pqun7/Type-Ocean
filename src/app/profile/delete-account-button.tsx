@@ -41,7 +41,7 @@ export function DeleteAccountButton() {
       // Ensure session cookies are cleared immediately (JWT sessions won't auto-expire on user deletion).
       await nextAuthSignOut({ redirect: false });
 
-      showAlert("Account deleted", "success");
+    //   showAlert("Account deleted", "success");
       setOpen(false);
       router.replace("/auth");
       router.refresh();

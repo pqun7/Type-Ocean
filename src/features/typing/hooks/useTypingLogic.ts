@@ -213,6 +213,11 @@ export default function useTypingLogic(
           timeSpent: timeSpentSeconds,
           mistakes: sessionMistakes,
           corrections: sessionCorrections,
+          localDate: (() => {
+            const now = new Date();
+            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          })(),
+          tzOffsetMinutes: new Date().getTimezoneOffset(),
         });
 
         // Handle daily challenge in the background; award challenge XP when it completes.

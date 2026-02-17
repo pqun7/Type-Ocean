@@ -37,6 +37,8 @@ interface EnhancedSessionData {
   mode?: string;
   mistakes?: number;
   corrections?: number;
+  localDate?: string;
+  tzOffsetMinutes?: number;
   timestamp?: number;
   sessionId?: string;
 }
@@ -208,6 +210,11 @@ async function validateAndPrepareSessionData(
     throw new Error("Invalid session data: missing required fields");
   }
 
+  const now = new Date();
+  const localDate =
+    sessionData?.localDate ??
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
   const payload = {
     wpm: Math.max(0, wpm),
     accuracy: Math.max(0, Math.min(100, accuracy)),
@@ -217,6 +224,8 @@ async function validateAndPrepareSessionData(
     mode: sessionData?.mode || 'normal',
     mistakes: sessionData?.mistakes || 0,
     corrections: sessionData?.corrections || 0,
+    localDate,
+    tzOffsetMinutes: sessionData?.tzOffsetMinutes ?? now.getTimezoneOffset(),
   };
 
   // تحقق إضافي للتأكد من صحة JSON

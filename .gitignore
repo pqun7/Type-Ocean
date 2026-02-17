@@ -1,6 +1,6 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Dependencies
+# dependencies
 /node_modules
 /.pnp
 .pnp.*
@@ -10,54 +10,40 @@
 !.yarn/releases
 !.yarn/versions
 
-# Testing
+# testing
 /coverage
 
-# Next.js - تجاهل جميع مجلدات البناء والـ cache (بما في ذلك .next-dev إذا وجد)
+# next.js
 /.next/
-/.next-dev/
-/.next*/
 /out/
+
+# production
 /build
 
-# Production build (بعض المشاريع تستخدم build بدلاً من .next)
-/build
-
-# Misc
+# misc
 .DS_Store
 *.pem
-*.log
+
+# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-lerna-debug.log*
 
-# Local env files - لا ترفع أبدًا الملفات الحساسة
+# app logs
+/logs/*.log
+/logs/*.log.*
+
+# env files (can opt-in for committing if needed)
 .env*
-!.env.example    # إذا كان لديك ملف مثالي عام، يمكن رفعه
 
-# Vercel
+
+# vercel
 .vercel
 
-# TypeScript
+# typescript
 *.tsbuildinfo
 next-env.d.ts
 
-# Logs
-/logs
-/logs/*
-*.log
-
-# Custom data folders (مثل قاعدة بيانات محلية أو بيانات حساسة)
-/lib/db/data
 */lib/db/data
 
-# IDE / Editor files (اختياري لكن مفيد)
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS generated files
-Thumbs.db

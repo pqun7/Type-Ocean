@@ -22,6 +22,26 @@ model SessionStat {
   updatedAt DateTime @updatedAt
 }
 
+model DailyTypingActivity {
+  id               String @id @default(uuid())
+  userId           String
+  /// Local date key (YYYY-MM-DD) computed client-side for the user.
+  localDate        String
+  sessionsCount    Int    @default(0)
+  totalTimeSpentSec Int   @default(0)
+  sumWpm           Float  @default(0)
+  sumAccuracy      Float  @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, localDate])
+  @@index([userId, localDate])
+  @@map("daily_typing_activity")
+}
+
 model PlayerProfile {
   id           String  @id @default(uuid())
   userId       String  @unique
@@ -55,6 +75,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   sessionStats  SessionStat[]
+  dailyTypingActivity DailyTypingActivity[]
   profile PlayerProfile? @relation(name: "UserProfile")
 
   // Optional for WebAuthn support

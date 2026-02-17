@@ -72,6 +72,9 @@ export type HeatmapCalendarProps = {
   endDate?: Date;
   weekStartsOn?: 0 | 1;
 
+  /** Auto-scale cell size/gap to fit available width (default false) */
+  responsive?: boolean;
+
   /** Cell size in px (default 12) */
   cellSize?: number;
   /** Gap between cells in px (default 3) */
@@ -125,9 +128,20 @@ function addDays(d: Date, days: number) {
 }
 
 function toKey(d: Date) {
-  // Using UTC ISO date key keeps things stable for demos.
-  // If you want strict local timezone day mapping, swap this to local YYYY-MM-DD generation.
-  return d.toISOString().slice(0, 10);
+  // Local YYYY-MM-DD key to match user-local day bucketing.
+  // (Important when the server stores localDate strings computed client-side.)
+  const x = startOfDay(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+}
+
+function parseLocalDateKey(value: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const monthIndex = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const d = new Date(year, monthIndex, day);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function startOfWeek(d: Date, weekStartsOn: 0 | 1) {
@@ -141,9 +155,9 @@ function startOfWeek(d: Date, weekStartsOn: 0 | 1) {
 /** Default GitHub-ish buckets. */
 function getLevel(value: number) {
   if (value <= 0) return 0;
-  if (value <= 2) return 1;
-  if (value <= 5) return 2;
-  if (value <= 10) return 3;
+  if (value <= 5) return 1;
+  if (value <= 15) return 2;
+  if (value <= 30) return 3;
   return 4;
 }
 
@@ -185,7 +199,8 @@ export function HeatmapCalendar({
   data,
   rangeDays = 365,
   endDate = new Date(),
-  weekStartsOn = 1,
+  weekStartsOn = 0, // Start weeks on Sunday
+  responsive = false,
   cellSize = 12,
   cellGap = 3,
   onCellClick,
@@ -217,7 +232,8 @@ export function HeatmapCalendar({
   const showAxis = axisCfg.show ?? true;
   const showWeekdays = axisCfg.showWeekdays ?? true;
   const showMonths = axisCfg.showMonths ?? true;
-  const weekdayIndices = axisCfg.weekdayIndices ?? [1, 3, 5];
+  const weekdayIndices = axisCfg.weekdayIndices ?? [0, 2, 4, 6]; // Show Sun, Tue, Thu, Sat by default
+    const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const monthFormat = axisCfg.monthFormat ?? "short";
   const minWeekSpacing = axisCfg.minWeekSpacing ?? 3;
 
@@ -227,7 +243,10 @@ export function HeatmapCalendar({
   const valueMap = React.useMemo(() => {
     const map = new Map<string, { value: number; meta?: unknown }>();
     for (const item of data) {
-      const d = typeof item.date === "string" ? new Date(item.date) : item.date;
+      const d =
+        typeof item.date === "string"
+          ? (parseLocalDateKey(item.date) ?? new Date(item.date))
+          : item.date;
       const key = toKey(d);
 
       const prev = map.get(key);
@@ -273,29 +292,57 @@ export function HeatmapCalendar({
     columns.push(cells.slice(i * 7, i * 7 + 7));
   }
 
-  const monthLabels = React.useMemo(() => {
-    if (!showAxis || !showMonths) return [] as { colIndex: number; text: string }[];
+  // Weekday column is width 40px with Tailwind `mr-2` (8px) gap.
+  const weekdayLabelWidth = showAxis && showWeekdays ? 48 : 0;
 
-    const labels: { colIndex: number; text: string }[] = [];
-    let lastLabeledWeek = -999;
+  const calendarRef = React.useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = React.useState<number | null>(null);
 
-    for (let i = 0; i < columns.length; i++) {
-      const col = columns[i];
-      const firstInCol = col.find((c) => !c.disabled)?.date ?? col[0].date;
+  React.useEffect(() => {
+    if (!responsive) return;
+    const el = calendarRef.current;
+    if (!el) return;
 
-      const prevCol = i > 0 ? columns[i - 1] : null;
-      const prevFirst = prevCol?.find((c) => !c.disabled)?.date ?? prevCol?.[0]?.date;
+    const update = () => setContainerWidth(el.clientWidth);
+    update();
 
-      const monthChanged = !prevFirst || !sameMonth(firstInCol, prevFirst);
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [responsive]);
 
-      if (monthChanged && i - lastLabeledWeek >= minWeekSpacing) {
-        labels.push({ colIndex: i, text: formatMonth(firstInCol, monthFormat) });
-        lastLabeledWeek = i;
-      }
+  const effectiveSizing = React.useMemo(() => {
+    if (!responsive || !containerWidth) {
+      return { cellSize, cellGap };
     }
 
-    return labels;
-  }, [columns, showAxis, showMonths, monthFormat, minWeekSpacing]);
+    const available = Math.max(0, containerWidth - weekdayLabelWidth);
+    const requested = cellSize;
+    const requestedGap = cellGap;
+
+    // Fit all week columns into available width.
+    const sizeThatFits = Math.floor((available + requestedGap) / Math.max(1, columns.length) - requestedGap);
+    const nextSize = Math.max(10, Math.min(requested, sizeThatFits));
+    const factor = requested > 0 ? nextSize / requested : 1;
+    const nextGap = Math.max(2, Math.min(requestedGap, Math.round(requestedGap * factor)));
+    return { cellSize: nextSize, cellGap: nextGap };
+  }, [responsive, containerWidth, weekdayLabelWidth, cellSize, cellGap, columns.length]);
+
+  // Month label row: for each column (week), for each cell (day), label only the cell where the 1st of the month is
+  const monthLabelRow: (string | null)[] = [];
+  if (showAxis && showMonths) {
+    for (let col = 0; col < columns.length; col++) {
+      let label: string | null = null;
+      for (let row = 0; row < columns[col].length; row++) {
+        const cell = columns[col][row];
+        if (!cell.disabled && cell.date.getDate() === 1) {
+          label = formatMonth(cell.date, monthFormat);
+          break;
+        }
+      }
+      monthLabelRow.push(label);
+    }
+  }
 
   /* ---------------- legend ---------------- */
 
@@ -352,7 +399,7 @@ export function HeatmapCalendar({
 
   const tooltipNode = (cell: HeatmapCell) => {
     if (renderTooltip) return renderTooltip(cell);
-    if (cell.disabled) return "Outside range";
+    else if (cell.disabled) return "Outside range";
     const unit = cell.value === 1 ? "event" : "events";
     return (
       <div className="text-sm">
@@ -364,7 +411,7 @@ export function HeatmapCalendar({
     );
   };
 
-  const weekdayLabelWidth = showAxis && showWeekdays ? 44 : 0;
+  const { cellSize: computedCellSize, cellGap: computedCellGap } = effectiveSizing;
 
   return (
     <Card className={cn(className)}>
@@ -374,32 +421,27 @@ export function HeatmapCalendar({
 
       <CardContent>
         <TooltipProvider delayDuration={80}>
-          <div className={cn("flex gap-4 overflow-x-auto", placement === "bottom" && "flex-col")}>
+          <div className={cn("flex w-full gap-4 overflow-x-auto", placement === "bottom" && "flex-col")}>
             {/* Labeled calendar area */}
-            <div className={cn("min-w-0", axisCfg.className)}>
-              {/* Month labels row */}
+            <div ref={calendarRef} className={cn("min-w-0 w-full", axisCfg.className)} dir="ltr">
+              {/* Month labels row: render as a row of cells, label only the cell where the 1st of the month is */}
               {showAxis && showMonths ? (
-                <div className="flex items-end" style={{ paddingLeft: weekdayLabelWidth }}>
-                  <div
-                    className="relative"
-                    style={{
-                      height: 18,
-                      width: columns.length * (cellSize + cellGap) - cellGap,
-                    }}
-                  >
-                    {monthLabels.map((m) => (
-                      <div
-                        key={m.colIndex}
-                        className="absolute text-xs text-muted-foreground"
-                        style={{
-                          left: m.colIndex * (cellSize + cellGap),
-                          top: 0,
-                        }}
-                      >
-                        {m.text}
-                      </div>
-                    ))}
-                  </div>
+                <div className="flex" style={{ paddingLeft: weekdayLabelWidth, marginBottom: 2 }}>
+                  {monthLabelRow.map((label, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-center text-xs text-muted-foreground"
+                      style={{
+                        width: computedCellSize,
+                        height: 18,
+                        marginRight: i < monthLabelRow.length - 1 ? computedCellGap : 0,
+                        fontWeight: label ? 600 : undefined,
+                        opacity: label ? 1 : 0,
+                      }}
+                    >
+                      {label || ''}
+                    </div>
+                  ))}
                 </div>
               ) : null}
 
@@ -408,14 +450,14 @@ export function HeatmapCalendar({
                 {showAxis && showWeekdays ? (
                   <div
                     className="mr-2 flex flex-col"
-                    style={{ gap: `${cellGap}px` }}
+                    style={{ gap: `${computedCellGap}px` }}
                     aria-hidden="true"
                   >
                     {Array.from({ length: 7 }).map((_, rowIdx) => (
                       <div
                         key={rowIdx}
                         className="flex items-center justify-end text-xs text-muted-foreground"
-                        style={{ width: 40, height: cellSize }}
+                        style={{ width: 40, height: computedCellSize }}
                       >
                         {weekdayIndices.includes(rowIdx)
                           ? weekdayLabelForIndex(rowIdx, weekStartsOn)
@@ -428,7 +470,7 @@ export function HeatmapCalendar({
                 {/* Heatmap grid */}
                 <div
                   className="flex"
-                  style={{ gap: `${cellGap}px` }}
+                  style={{ gap: `${computedCellGap}px` }}
                   role="grid"
                   aria-label="Heatmap calendar"
                 >
@@ -436,11 +478,12 @@ export function HeatmapCalendar({
                     <div
                       key={i}
                       className="flex flex-col"
-                      style={{ gap: `${cellGap}px` }}
+                      style={{ gap: `${computedCellGap}px` }}
                       role="rowgroup"
                     >
                       {col.map((cell) => {
                         const cls = levels[clampLevel(cell.level, levels.length)];
+                        const isMonthStart = !cell.disabled && cell.date.getDate() === 1;
                         return (
                           <Tooltip key={`${cell.key}-${i}`}>
                             <TooltipTrigger asChild>
@@ -449,13 +492,14 @@ export function HeatmapCalendar({
                                 disabled={cell.disabled}
                                 onClick={() => !cell.disabled && onCellClick?.(cell)}
                                 className={cn(
-                                  "rounded-[3px] outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                  "rounded-[3px] border border-border/40 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                                   !palette?.length && cls,
+                                  isMonthStart && "border-primary/60",
                                   cell.disabled && "cursor-default opacity-30 pointer-events-none",
                                 )}
                                 style={{
-                                  width: cellSize,
-                                  height: cellSize,
+                                  width: computedCellSize,
+                                  height: computedCellSize,
                                   ...(bgStyleForLevel(cell.level, palette) ?? {}),
                                 }}
                                 aria-label={

@@ -23,6 +23,10 @@ export interface SessionInputData {
   mode?: string;
   mistakes?: number;
   corrections?: number;
+  /** Local date key (YYYY-MM-DD) computed on the client. */
+  localDate?: string;
+  /** Minutes offset from UTC as returned by Date#getTimezoneOffset(). */
+  tzOffsetMinutes?: number;
 }
 
 // Normalized/sanitized session structure used internally
@@ -42,6 +46,12 @@ export interface EnrichedSession extends NormalizedSessionData {
   id: string;
   userId: string;
   timestamp: string;
+  localDate?: string;
+  tzOffsetMinutes?: number;
+}
+
+function isLocalDateKey(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 // Long-term cumulative statistics structure
@@ -178,6 +188,21 @@ export function validateSessionData(data: unknown): {
     errors.push("Corrections must be a number");
   }
 
+  if (
+    obj.localDate !== undefined &&
+    (typeof obj.localDate !== "string" || !isLocalDateKey(obj.localDate))
+  ) {
+    errors.push("localDate must be a string in YYYY-MM-DD format");
+  }
+
+  if (obj.tzOffsetMinutes !== undefined) {
+    if (typeof obj.tzOffsetMinutes !== "number" || !Number.isInteger(obj.tzOffsetMinutes)) {
+      errors.push("tzOffsetMinutes must be an integer number");
+    } else if (obj.tzOffsetMinutes < -840 || obj.tzOffsetMinutes > 840) {
+      errors.push("tzOffsetMinutes out of range (-840..840)");
+    }
+  }
+
   // Reasonable bounds checking
   if (typeof obj.wpm === "number" && obj.wpm > 500) {
     errors.push('WPM seems unrealistically high (>500)');
@@ -203,6 +228,8 @@ export function validateSessionData(data: unknown): {
     ...(obj.mode !== undefined ? { mode: obj.mode as string } : {}),
     ...(obj.mistakes !== undefined ? { mistakes: obj.mistakes as number } : {}),
     ...(obj.corrections !== undefined ? { corrections: obj.corrections as number } : {}),
+    ...(obj.localDate !== undefined ? { localDate: obj.localDate as string } : {}),
+    ...(obj.tzOffsetMinutes !== undefined ? { tzOffsetMinutes: obj.tzOffsetMinutes as number } : {}),
   };
 
   return {

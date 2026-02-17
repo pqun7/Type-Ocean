@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { HeatmapCalendar, HeatmapDatum, HeatmapCell } from "@/components/ui/heatmap-calendar";
 import { useAlert } from "@/contexts/alert-context";
 import { VerifyEmailOtpDialog } from "@/components/auth/verification/verify-email-otp-dialog";
 import AccountStatsChart from "./account-stats-chart";
@@ -48,6 +49,58 @@ type LongTermStats = {
   bestAccuracyDate: string | null;
   lastUpdated: string;
 };
+
+type DailyTypingActivity = {
+  localDate: string;
+  sessionsCount: number;
+  totalTimeSpentSec: number;
+  sumWpm: number;
+  sumAccuracy: number;
+};
+
+function formatLocalDateKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function generateDemoHeatmapData(days: number): HeatmapDatum[] {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+
+  const out: HeatmapDatum[] = [];
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date(end);
+    d.setDate(d.getDate() - i);
+
+    // Deterministic pattern: most days low, some medium, occasional spikes.
+    const dayIndex = Math.floor((d.getTime() / 86400000) % 100000);
+    const base = (dayIndex * 9301 + 49297) % 233280;
+    const r = base / 233280;
+
+    let totalMinutes = 0;
+    if (r < 0.55) totalMinutes = Math.floor(r * 6); // 0..3
+    else if (r < 0.85) totalMinutes = 6 + Math.floor((r - 0.55) * 40); // 6..18
+    else totalMinutes = 25 + Math.floor((r - 0.85) * 220); // 25..58
+
+    // Add a weekly spike to make the map visibly varied.
+    if (d.getDay() === 6) totalMinutes += 35; // Saturdays
+
+    const sessionsCount = totalMinutes === 0 ? 0 : Math.max(1, Math.round(totalMinutes / 12));
+    const avgWpm = sessionsCount ? 72 + Math.round((r - 0.5) * 35) : 0;
+    const avgAccuracy = sessionsCount ? 93 + Math.round((0.5 - Math.abs(r - 0.5)) * 6) : 0;
+
+    out.push({
+      date: formatLocalDateKey(d),
+      value: totalMinutes,
+      meta: {
+        sessionsCount,
+        totalMinutes,
+        avgWpm,
+        avgAccuracy,
+      },
+    });
+  }
+  return out;
+}
 
 function formatDurationSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
@@ -133,6 +186,7 @@ export default function ProfileClient(props: {
   user: UserData;
   profile: ProfileData;
   stats: LongTermStats;
+  dailyActivity: DailyTypingActivity[];
 }) {
   const router = useRouter();
   const { showAlert } = useAlert();
@@ -243,6 +297,77 @@ export default function ProfileClient(props: {
   const bestWpmAt = useMemo(() => safeDate(props.stats.bestWPMDate), [props.stats.bestWPMDate]);
   const bestAccuracyAt = useMemo(() => safeDate(props.stats.bestAccuracyDate), [props.stats.bestAccuracyDate]);
   const lastUpdatedAt = useMemo(() => safeDate(props.stats.lastUpdated), [props.stats.lastUpdated]);
+
+  const heatmapRange = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const end = new Date(year, 11, 31);
+    end.setHours(0, 0, 0, 0);
+    const start = new Date(year, 0, 1);
+    start.setHours(0, 0, 0, 0);
+    const rangeDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    return { endDate: end, rangeDays };
+  }, []);
+
+  const heatmapData: HeatmapDatum[] = useMemo(() => {
+    const realData = (props.dailyActivity ?? []).map((row) => {
+      const totalMinutes = row.totalTimeSpentSec > 0 ? row.totalTimeSpentSec / 60 : 0;
+      const sessions = Math.max(0, row.sessionsCount);
+      const avgWpm = sessions > 0 ? row.sumWpm / sessions : 0;
+      const avgAccuracy = sessions > 0 ? row.sumAccuracy / sessions : 0;
+
+      return {
+        date: row.localDate,
+        value: Math.round(totalMinutes),
+        meta: {
+          sessionsCount: sessions,
+          totalMinutes,
+          avgWpm,
+          avgAccuracy,
+        },
+      };
+    });
+
+    if (realData.length > 0) return realData;
+    if (process.env.NODE_ENV === "production") return [];
+
+    return generateDemoHeatmapData(365);
+  }, [props.dailyActivity]);
+
+  const renderHeatmapTooltip = useCallback((cell: HeatmapCell) => {
+    if (cell.disabled) return "Outside range";
+
+    const meta = (cell.meta ?? null) as null | {
+      sessionsCount: number;
+      totalMinutes: number;
+      avgWpm: number;
+      avgAccuracy: number;
+    };
+
+    if (!meta) {
+      return (
+        <div className="text-sm">
+          <div className="font-medium">0 sessions</div>
+          <div className="text-muted-foreground">{cell.label}</div>
+        </div>
+      );
+    }
+
+    const sessionsLabel = meta.sessionsCount === 1 ? "session" : "sessions";
+    const minutesRounded = Math.round(meta.totalMinutes);
+
+    return (
+      <div className="text-sm">
+        <div className="font-medium">
+          {meta.sessionsCount} {sessionsLabel} · {minutesRounded}m
+        </div>
+        <div className="text-muted-foreground">
+          Avg {Math.round(meta.avgWpm)} WPM · {Math.round(meta.avgAccuracy)}%
+        </div>
+        <div className="text-muted-foreground">{cell.label}</div>
+      </div>
+    );
+  }, []);
 
   async function patchUser(body: unknown) {
     const res = await fetch("/api/user", {
@@ -986,6 +1111,38 @@ export default function ProfileClient(props: {
       </Card>
 
       <AccountStatsChart stats={props.stats} />
+
+      <HeatmapCalendar
+        title="Activity"
+        data={heatmapData}
+        rangeDays={heatmapRange.rangeDays}
+        endDate={heatmapRange.endDate}
+        className="border-white/10 bg-white/5 backdrop-blur"
+        responsive
+        cellSize={20}
+        cellGap={4}
+        palette={[
+          "hsl(var(--border) / 0.22)",
+          "oklch(0.55 0.22 263 / 0.22)",
+          "oklch(0.55 0.22 263 / 0.38)",
+          "oklch(0.55 0.22 263 / 0.58)",
+          "oklch(0.55 0.22 263 / 0.78)",
+        ]}
+        axisLabels={{
+          show: true,
+          showWeekdays: true,
+          showMonths: true,
+          weekdayIndices: [0, 1, 2, 3, 4, 5, 6],
+          monthFormat: "short",
+          minWeekSpacing: 1,
+        }}
+        renderTooltip={renderHeatmapTooltip}
+        legend={{
+          showText: false,
+          showArrow: false,
+          placement: "right",
+        }}
+      />
 
       <Card className="border-white/10 bg-white/5 backdrop-blur">
         <CardHeader>
