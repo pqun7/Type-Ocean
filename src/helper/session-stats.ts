@@ -64,6 +64,7 @@ export interface LongTermStats {
   totalCorrections: number;
   averageWPM: number;
   averageAccuracy: number;
+  averageConsistency: number;
   bestWPM: number;
   bestWPMDate: string | null;
   bestAccuracy: number;
@@ -115,6 +116,16 @@ function computeLongTermFromSessions(sessions: EnrichedSession[]): LongTermStats
   }
 
   const totalSessions = sessions.length;
+  // Calculate averageConsistency if available
+  let sumConsistency = 0;
+  let consistencyCount = 0;
+  for (const s of sessions) {
+    if (typeof (s as any).consistency === 'number') {
+      sumConsistency += (s as any).consistency;
+      consistencyCount++;
+    }
+  }
+  const averageConsistency = consistencyCount ? sumConsistency / consistencyCount : 0;
   return {
     totalSessions,
     totalTimeTyped,
@@ -124,6 +135,7 @@ function computeLongTermFromSessions(sessions: EnrichedSession[]): LongTermStats
     totalCorrections,
     averageWPM: totalSessions ? sumWpm / totalSessions : 0,
     averageAccuracy: totalSessions ? sumAccuracy / totalSessions : 0,
+    averageConsistency,
     bestWPM,
     bestWPMDate,
     bestAccuracy,
@@ -327,6 +339,9 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
         case 'averageAccuracy':
           updatedStats.averageAccuracy = parseFloat(String(value)) || 0;
           break;
+        case 'averageConsistency':
+          updatedStats.averageConsistency = parseFloat(String(value)) || 0;
+          break;
         case 'bestWPM':
           updatedStats.bestWPM = parseFloat(String(value)) || 0;
           break;
@@ -349,6 +364,7 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
       totalCorrections: updatedStats.totalCorrections ?? 0,
       averageWPM: updatedStats.averageWPM ?? 0,
       averageAccuracy: updatedStats.averageAccuracy ?? 0,
+      averageConsistency: updatedStats.averageConsistency ?? 0,
       bestWPM: updatedStats.bestWPM ?? 0,
       bestWPMDate: updatedStats.bestWPMDate ?? null,
       bestAccuracy: updatedStats.bestAccuracy ?? 0,
@@ -435,6 +451,7 @@ export async function getLongTermCumulativeStats(userId: string): Promise<LongTe
         totalCorrections: parseInt(String(data.totalCorrections ?? "0"), 10) || 0,
         averageWPM: parseFloat(String(data.averageWPM) || "0"),
         averageAccuracy: parseFloat(String(data.averageAccuracy) || "0"),
+        averageConsistency: parseFloat(String(data.averageConsistency) || "0"),
         bestWPM: parseFloat(String(data.bestWPM) || "0"),
         bestWPMDate: String(data.bestWPMDate) || null,
         bestAccuracy: parseFloat(String(data.bestAccuracy) || "0"),
@@ -499,6 +516,7 @@ export function getDefaultLongTermStats(): LongTermStats {
     totalCorrections: 0,
     averageWPM: 0,
     averageAccuracy: 0,
+    averageConsistency: 0,
     bestWPM: 0,
     bestWPMDate: null,
     bestAccuracy: 0,

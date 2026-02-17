@@ -43,6 +43,7 @@ type LongTermStats = {
   totalCorrections: number;
   averageWPM: number;
   averageAccuracy: number;
+  averageConsistency: number;
   bestWPM: number;
   bestWPMDate: string | null;
   bestAccuracy: number;
@@ -1179,6 +1180,11 @@ export default function ProfileClient(props: {
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <StatTile label="Avg WPM" value={`${Math.round(props.stats.averageWPM)} WPM`} />
             <StatTile label="Avg accuracy" value={`${Math.round(props.stats.averageAccuracy)}%`} />
+            <StatTile label="Avg consistency" value={
+              props.stats.averageConsistency !== undefined
+                ? `${props.stats.averageConsistency.toFixed(2)}`
+                : "—"
+            } subValue="Lower is better" />
             <StatTile label="Words typed" value={props.stats.totalWordsTyped.toLocaleString()} />
             <StatTile label="Characters typed" value={props.stats.totalCharactersTyped.toLocaleString()} />
           </div>

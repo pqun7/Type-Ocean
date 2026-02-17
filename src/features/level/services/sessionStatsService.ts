@@ -13,6 +13,7 @@ export type LongTermStats = {
   totalCorrections: number;
   averageWPM: number;
   averageAccuracy: number;
+  averageConsistency: number;
   bestWPM: number;
   bestWPMDate: string | null;
   bestAccuracy: number;

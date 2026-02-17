@@ -6,6 +6,7 @@ import { getPreviousWpm } from "../utils/getPreviousWpm";
 import { useLevel } from "@/features/level/hooks/useLevel";
 import { SessionData } from "@/features/level/types/level";
 import { logger } from "@/log/clientLogger";
+import { computeWeightedPerSessionConsistency } from "@/features/typing/utils/consistency";
 
 
 /**
@@ -68,6 +69,8 @@ export default function useTypingLogic(
     commitSession,
     rollback,
   } = useWpmHistory();
+
+  // consistency helper is provided by utils/consistency.ts
 
   // Derived values
   const textRef = useRef(text);
@@ -207,6 +210,9 @@ export default function useTypingLogic(
         const immediateXP = sessionXP + topUpXP;
         void addXP(immediateXP);
 
+        // Calculate consistency using a weighted per-session approach (guard NaN)
+        const rawConsistency = computeWeightedPerSessionConsistency(wpmHistory as any);
+        const consistency = Number.isFinite(rawConsistency) ? rawConsistency : 0;
         // Record stats in the background (non-blocking)
         void recordSessionStats?.(wpm, accuracy, {
           textLength: text.length,
@@ -218,6 +224,7 @@ export default function useTypingLogic(
             return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
           })(),
           tzOffsetMinutes: new Date().getTimezoneOffset(),
+          consistency,
         });
 
         // Handle daily challenge in the background; award challenge XP when it completes.
