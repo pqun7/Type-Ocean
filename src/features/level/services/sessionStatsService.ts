@@ -32,6 +32,8 @@ export type SessionResponse = {
 interface EnhancedSessionData {
   wpm: number;
   accuracy: number;
+  consistency?: number;
+  textType?: "SHORT" | "MEDIUM" | "LONG";
   textLength?: number;
   timeSpent?: number;
   language?: string;
@@ -219,6 +221,16 @@ async function validateAndPrepareSessionData(
   const payload = {
     wpm: Math.max(0, wpm),
     accuracy: Math.max(0, Math.min(100, accuracy)),
+    ...(typeof sessionData?.consistency === "number" &&
+    Number.isFinite(sessionData.consistency) &&
+    sessionData.consistency >= 0 &&
+    sessionData.consistency <= 100
+      ? { consistency: sessionData.consistency }
+      : {}),
+    ...(typeof sessionData?.textType === "string" &&
+    ["SHORT", "MEDIUM", "LONG"].includes(sessionData.textType.toUpperCase())
+      ? { textType: sessionData.textType.toUpperCase() as "SHORT" | "MEDIUM" | "LONG" }
+      : {}),
     textLength: sessionData?.textLength || 100,
     timeSpent: sessionData?.timeSpent || 60,
     language: sessionData?.language || 'en',

@@ -1,3 +1,6 @@
+$ErrorActionPreference = 'Stop'
+
+$content = @'
 /**
  * Computes the WPM consistency as a percentage (0-100).
  *
@@ -10,11 +13,10 @@
  * 4) Consistency = 100 - (CV * 100).
  * 5) Clamp to [0, 100] and round to 2 decimals.
  *
- * Requires at least 2 valid points. Returns 
-ull if insufficient data.
+ * Requires at least 2 valid points. Returns 0 if insufficient data.
  */
-export function computeConsistency(history: Array<Array<{ wpm?: number }>>): number | null {
-  if (!Array.isArray(history) || history.length === 0) return null;
+export function computeConsistency(history: Array<Array<{ wpm?: number }>>): number {
+  if (!Array.isArray(history) || history.length === 0) return 0;
 
   const validPoints: number[] = [];
 
@@ -31,10 +33,10 @@ export function computeConsistency(history: Array<Array<{ wpm?: number }>>): num
   }
 
   const n = validPoints.length;
-  if (n < 2) return null;
+  if (n < 2) return 0;
 
   const mean = validPoints.reduce((sum, v) => sum + v, 0) / n;
-  if (mean === 0) return null;
+  if (mean === 0) return 0;
 
   const variance =
     validPoints.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / (n - 1);
@@ -46,3 +48,7 @@ export function computeConsistency(history: Array<Array<{ wpm?: number }>>): num
   percentage = Math.max(0, Math.min(100, percentage));
   return Number(percentage.toFixed(2));
 }
+'@
+
+Set-Content -Path "src/features/typing/utils/consistency.ts" -Value $content -Encoding utf8
+Write-Host "Rewrote src/features/typing/utils/consistency.ts" -ForegroundColor Green

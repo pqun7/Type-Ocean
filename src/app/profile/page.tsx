@@ -1,9 +1,14 @@
+// src/app/api/profile/page
 import { redirect } from "next/navigation";
 
 import { auth } from "@/features/auth/lib/auth";
 import { SignOut } from "@/components/auth/sign-out";
 import prisma from "@/features/auth/lib/db";
-import { getDefaultLongTermStats, getLongTermCumulativeStats } from "@/helper/session-stats";
+import {
+  getDefaultLongTermStats,
+  getLongTermCumulativeStats,
+  getSessionHistory,
+} from "@/helper/session-stats";
 import { Prisma } from "@prisma/client";
 
 import ProfileClient from "./profile-client";
@@ -165,6 +170,7 @@ export default async function ProfilePage() {
     sessionsCount: number;
     totalTimeSpentSec: number;
     sumWpm: number;
+    sumWpmTime: number;
     sumAccuracy: number;
   }> = [];
 
@@ -178,11 +184,31 @@ export default async function ProfilePage() {
         sessionsCount: true,
         totalTimeSpentSec: true,
         sumWpm: true,
+        sumWpmTime: true,
         sumAccuracy: true,
       },
     });
   } catch {
     dailyActivity = [];
+  }
+
+  let sessionHistory: Array<{
+    id: string;
+    timestamp: string;
+    textType?: "SHORT" | "MEDIUM" | "LONG";
+    textLength: number;
+  }> = [];
+
+  try {
+    const recentSessions = await getSessionHistory(user.id, 100);
+    sessionHistory = recentSessions.map((session) => ({
+      id: session.id,
+      timestamp: session.timestamp,
+      textType: session.textType,
+      textLength: session.textLength,
+    }));
+  } catch {
+    sessionHistory = [];
   }
 
   return (
@@ -217,6 +243,7 @@ export default async function ProfilePage() {
           }}
           stats={stats}
           dailyActivity={dailyActivity}
+          sessionHistory={sessionHistory}
         />
 
         <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">

@@ -41,6 +41,7 @@ export const LUA_UPDATE_STATS_SCRIPT = `
     -- ARGV[7] = TTL (seconds) (string)
   -- ARGV[8] = Mistakes (string)
   -- ARGV[9] = Corrections (string)
+  -- ARGV[10] = Consistency (0-100) (string, optional)
 
     local stats = redis.call('HGETALL', KEYS[1])
     local current = {}
@@ -58,6 +59,7 @@ export const LUA_UPDATE_STATS_SCRIPT = `
 
     local mistakes = tonumber(ARGV[8])
     local corrections = tonumber(ARGV[9])
+    local consistency = tonumber(ARGV[10])
 
     if not newWPM then newWPM = 0 end
     if not newAcc then newAcc = 0 end
@@ -66,6 +68,7 @@ export const LUA_UPDATE_STATS_SCRIPT = `
     if not wordsTyped then wordsTyped = 0 end
     if not mistakes then mistakes = 0 end
     if not corrections then corrections = 0 end
+    if consistency and (consistency < 0 or consistency > 100) then consistency = nil end
 
     local totalSessions
     if #stats == 0 then
@@ -76,6 +79,18 @@ export const LUA_UPDATE_STATS_SCRIPT = `
       local totalCharactersTyped = textLength
       local totalMistakes = mistakes
       local totalCorrections = corrections
+
+      local consistencySum = 0
+      local consistencyCount = 0
+      if consistency then
+        consistencySum = consistency
+        consistencyCount = 1
+      end
+
+      local avgConsistency = 0
+      if consistencyCount > 0 then
+        avgConsistency = consistencySum / consistencyCount
+      end
 
       -- Time-weighted averages
       local avgWPM = 0
@@ -104,6 +119,9 @@ export const LUA_UPDATE_STATS_SCRIPT = `
         "totalCorrections", tostring(totalCorrections),
         "averageWPM", tostring(math.floor(avgWPM * 100 + 0.5) / 100),
         "averageAccuracy", tostring(math.floor(avgAcc * 100 + 0.5) / 100),
+        "averageConsistency", tostring(math.floor(avgConsistency * 100 + 0.5) / 100),
+        "consistencySum", tostring(consistencySum),
+        "consistencyCount", tostring(consistencyCount),
         "accuracyTimeSum", tostring(accuracyTimeSum),
         "unweightedAverageWPM", tostring(math.floor(unweightedAvgWPM * 100 + 0.5) / 100),
         "unweightedAverageAccuracy", tostring(math.floor(unweightedAvgAcc * 100 + 0.5) / 100),
@@ -127,11 +145,26 @@ export const LUA_UPDATE_STATS_SCRIPT = `
       local prevTotalMistakes = tonumber(current.totalMistakes) or 0
       local prevTotalCorrections = tonumber(current.totalCorrections) or 0
 
+      local prevConsistencySum = tonumber(current.consistencySum) or 0
+      local prevConsistencyCount = tonumber(current.consistencyCount) or 0
+
       local newTotalTime = prevTotalTime + timeSpent
       local newTotalWords = prevTotalWords + wordsTyped
       local newTotalChars = prevTotalChars + textLength
       local newTotalMistakes = prevTotalMistakes + mistakes
       local newTotalCorrections = prevTotalCorrections + corrections
+
+      local newConsistencySum = prevConsistencySum
+      local newConsistencyCount = prevConsistencyCount
+      if consistency then
+        newConsistencySum = prevConsistencySum + consistency
+        newConsistencyCount = prevConsistencyCount + 1
+      end
+
+      local avgConsistency = 0
+      if newConsistencyCount > 0 then
+        avgConsistency = newConsistencySum / newConsistencyCount
+      end
 
       -- Weighted WPM from totals (seconds)
       local weightedAvgWPM = 0
@@ -178,6 +211,9 @@ export const LUA_UPDATE_STATS_SCRIPT = `
         "totalCorrections", tostring(newTotalCorrections),
         "averageWPM", tostring(math.floor(weightedAvgWPM * 100 + 0.5) / 100),
         "averageAccuracy", tostring(math.floor(weightedAvgAcc * 100 + 0.5) / 100),
+        "averageConsistency", tostring(math.floor(avgConsistency * 100 + 0.5) / 100),
+        "consistencySum", tostring(newConsistencySum),
+        "consistencyCount", tostring(newConsistencyCount),
         "accuracyTimeSum", tostring(newAccTimeSum),
         "unweightedAverageWPM", tostring(math.floor(newUnweightedAvgWPM * 100 + 0.5) / 100),
         "unweightedAverageAccuracy", tostring(math.floor(newUnweightedAvgAcc * 100 + 0.5) / 100),

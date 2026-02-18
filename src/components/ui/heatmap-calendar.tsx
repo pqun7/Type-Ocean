@@ -72,6 +72,19 @@ export type HeatmapCalendarProps = {
   endDate?: Date;
   weekStartsOn?: 0 | 1;
 
+  /**
+   * How to map numeric values to levels.
+   * - "quantile" (default): levels are distributed by value quantiles within the dataset.
+   * - "fixedThresholds": levels are computed against fixedThresholds (stable scale).
+   */
+  levelStrategy?: "quantile" | "fixedThresholds";
+
+  /**
+   * Thresholds for fixedThresholds strategy.
+   * Example for 9 levels (0..8): provide 8 ascending thresholds.
+   */
+  fixedThresholds?: number[];
+
   /** Auto-scale cell size/gap to fit available width (default false) */
   responsive?: boolean;
 
@@ -152,13 +165,62 @@ function startOfWeek(d: Date, weekStartsOn: 0 | 1) {
   return x;
 }
 
-/** Default GitHub-ish buckets. */
-function getLevel(value: number) {
+function buildQuantileThresholds(values: number[], positiveLevelCount: number) {
+  if (positiveLevelCount <= 1 || values.length === 0) return [] as number[];
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const thresholds: number[] = [];
+
+  for (let i = 1; i < positiveLevelCount; i += 1) {
+    const rank = (i / positiveLevelCount) * (sorted.length - 1);
+    const lowIndex = Math.floor(rank);
+    const highIndex = Math.ceil(rank);
+    const ratio = rank - lowIndex;
+
+    const low = sorted[lowIndex] ?? 0;
+    const high = sorted[highIndex] ?? low;
+    thresholds.push(low + (high - low) * ratio);
+  }
+
+  return thresholds;
+}
+
+function normalizeFixedThresholds(thresholds: number[] | undefined) {
+  if (!Array.isArray(thresholds) || thresholds.length === 0) return [] as number[];
+  return thresholds
+    .filter((t) => typeof t === "number" && Number.isFinite(t) && t > 0)
+    .slice()
+    .sort((a, b) => a - b);
+}
+
+function getQuantileLevel(value: number, thresholds: number[]) {
   if (value <= 0) return 0;
-  if (value <= 5) return 1;
-  if (value <= 15) return 2;
-  if (value <= 30) return 3;
-  return 4;
+
+  let level = 1;
+  for (const threshold of thresholds) {
+    if (value > threshold) {
+      level += 1;
+    } else {
+      break;
+    }
+  }
+
+  return level;
+}
+
+function getFixedThresholdLevel(value: number, thresholds: number[]) {
+  if (value <= 0) return 0;
+
+  let level = 1;
+  for (const threshold of thresholds) {
+    if (value > threshold) {
+      level += 1;
+    } else {
+      break;
+    }
+  }
+
+  return level;
 }
 
 function clampLevel(level: number, levelCount: number) {
@@ -200,6 +262,8 @@ export function HeatmapCalendar({
   rangeDays = 365,
   endDate = new Date(),
   weekStartsOn = 0, // Start weeks on Sunday
+  levelStrategy = "quantile",
+  fixedThresholds,
   responsive = false,
   cellSize = 12,
   cellGap = 3,
@@ -256,6 +320,19 @@ export function HeatmapCalendar({
     return map;
   }, [data]);
 
+  const levelThresholds = React.useMemo(() => {
+    if (levelStrategy === "fixedThresholds") {
+      return normalizeFixedThresholds(fixedThresholds);
+    }
+
+    const positiveValues = Array.from(valueMap.values())
+      .map((entry) => entry.value)
+      .filter((value) => Number.isFinite(value) && value > 0);
+
+    const positiveLevelCount = Math.max(1, levelCount - 1);
+    return buildQuantileThresholds(positiveValues, positiveLevelCount);
+  }, [fixedThresholds, levelCount, levelStrategy, valueMap]);
+
   const firstWeek = startOfWeek(start, weekStartsOn);
   const totalDays = Math.ceil((end.getTime() - firstWeek.getTime()) / 86400000) + 1;
   const weeks = Math.ceil(totalDays / 7);
@@ -269,7 +346,11 @@ export function HeatmapCalendar({
 
       const v = inRange ? (valueMap.get(key)?.value ?? 0) : 0;
       const meta = inRange ? valueMap.get(key)?.meta : undefined;
-      const lvl = inRange ? getLevel(v) : 0;
+      const lvl = !inRange
+        ? 0
+        : levelStrategy === "fixedThresholds"
+          ? getFixedThresholdLevel(v, levelThresholds)
+          : getQuantileLevel(v, levelThresholds);
 
       cells.push({
         date,

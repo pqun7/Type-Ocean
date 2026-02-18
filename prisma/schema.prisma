@@ -30,6 +30,8 @@ model DailyTypingActivity {
   sessionsCount    Int    @default(0)
   totalTimeSpentSec Int   @default(0)
   sumWpm           Float  @default(0)
+  /// Time-weighted WPM numerator: sum(wpm * timeSpentSec). Daily avg WPM = sumWpmTime / totalTimeSpentSec.
+  sumWpmTime       Float  @default(0)
   sumAccuracy      Float  @default(0)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

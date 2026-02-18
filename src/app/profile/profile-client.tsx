@@ -1,3 +1,4 @@
+// src/app/api/profile/page-client
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +13,8 @@ import { HeatmapCalendar, HeatmapDatum, HeatmapCell } from "@/components/ui/heat
 import { useAlert } from "@/contexts/alert-context";
 import { VerifyEmailOtpDialog } from "@/components/auth/verification/verify-email-otp-dialog";
 import AccountStatsChart from "./account-stats-chart";
+import { DeleteAccountButton } from "./delete-account-button";
+import { computeDailyActivityStrength } from "@/features/typing/utils/activity-strength";
 
 type ProfileData = {
   level: number;
@@ -56,7 +59,15 @@ type DailyTypingActivity = {
   sessionsCount: number;
   totalTimeSpentSec: number;
   sumWpm: number;
+  sumWpmTime: number;
   sumAccuracy: number;
+};
+
+type SessionHistoryEntry = {
+  id: string;
+  timestamp: string;
+  textType?: "SHORT" | "MEDIUM" | "LONG";
+  textLength: number;
 };
 
 function formatLocalDateKey(d: Date) {
@@ -188,9 +199,13 @@ export default function ProfileClient(props: {
   profile: ProfileData;
   stats: LongTermStats;
   dailyActivity: DailyTypingActivity[];
+  sessionHistory: SessionHistoryEntry[];
 }) {
   const router = useRouter();
   const { showAlert } = useAlert();
+
+  const isDev = process.env.NODE_ENV !== "production";
+  const [forceHeatmapDemo, setForceHeatmapDemo] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
@@ -311,29 +326,90 @@ export default function ProfileClient(props: {
   }, []);
 
   const heatmapData: HeatmapDatum[] = useMemo(() => {
-    const realData = (props.dailyActivity ?? []).map((row) => {
-      const totalMinutes = row.totalTimeSpentSec > 0 ? row.totalTimeSpentSec / 60 : 0;
-      const sessions = Math.max(0, row.sessionsCount);
-      const avgWpm = sessions > 0 ? row.sumWpm / sessions : 0;
-      const avgAccuracy = sessions > 0 ? row.sumAccuracy / sessions : 0;
+    const toStrengthDatum = (args: {
+      date: string;
+      totalMinutes: number;
+      sessionsCount: number;
+      avgWpm: number;
+      avgAccuracy: number;
+    }): HeatmapDatum => {
+      const strength = computeDailyActivityStrength({
+        totalMinutes: args.totalMinutes,
+        sessionsCount: args.sessionsCount,
+        avgWpm: args.avgWpm,
+        avgAccuracy: args.avgAccuracy,
+      });
 
       return {
-        date: row.localDate,
-        value: Math.round(totalMinutes),
+        date: args.date,
+        // Normalized stable strength (0..100) so small values are still visible.
+        value: strength.strength100,
         meta: {
-          sessionsCount: sessions,
-          totalMinutes,
-          avgWpm,
-          avgAccuracy,
+          sessionsCount: args.sessionsCount,
+          totalMinutes: args.totalMinutes,
+          avgWpm: args.avgWpm,
+          avgAccuracy: args.avgAccuracy,
+          strength100: strength.strength100,
+          rawStrengthScore: strength.rawScore,
         },
       };
+    };
+
+    const realData = (props.dailyActivity ?? []).map((row) => {
+      const totalMinutes = row.totalTimeSpentSec > 0 ? row.totalTimeSpentSec / 60 : 0;
+      const sessionsCount = Math.max(0, row.sessionsCount);
+      const hasTimeWeightedWpm = row.totalTimeSpentSec > 0 && row.sumWpmTime > 0;
+      const avgWpm = hasTimeWeightedWpm
+        ? row.sumWpmTime / row.totalTimeSpentSec
+        : sessionsCount > 0
+          ? row.sumWpm / sessionsCount
+          : 0;
+      const avgAccuracy = sessionsCount > 0 ? row.sumAccuracy / sessionsCount : 0;
+
+      return toStrengthDatum({
+        date: row.localDate,
+        totalMinutes,
+        sessionsCount,
+        avgWpm,
+        avgAccuracy,
+      });
     });
 
-    if (realData.length > 0) return realData;
-    if (process.env.NODE_ENV === "production") return [];
+    const demoData = isDev ? generateDemoHeatmapData(365) : [];
+    const demoStrengthData = demoData.map((d) => {
+      const meta = (d.meta ?? null) as null | {
+        sessionsCount: number;
+        totalMinutes: number;
+        avgWpm: number;
+        avgAccuracy: number;
+      };
 
-    return generateDemoHeatmapData(365);
-  }, [props.dailyActivity]);
+      if (!meta || typeof d.date !== "string") {
+        const dateKey = typeof d.date === "string" ? d.date : formatLocalDateKey(d.date);
+        return toStrengthDatum({
+          date: dateKey,
+          totalMinutes: typeof d.value === "number" ? d.value : 0,
+          sessionsCount: 0,
+          avgWpm: 0,
+          avgAccuracy: 0,
+        });
+      }
+
+      const dateKey = typeof d.date === "string" ? d.date : formatLocalDateKey(d.date);
+      return toStrengthDatum({
+        date: dateKey,
+        totalMinutes: meta.totalMinutes,
+        sessionsCount: meta.sessionsCount,
+        avgWpm: meta.avgWpm,
+        avgAccuracy: meta.avgAccuracy,
+      });
+    });
+
+    if (isDev && forceHeatmapDemo) return demoStrengthData;
+    if (realData.length > 0) return realData;
+    if (!isDev) return [];
+    return demoStrengthData;
+  }, [forceHeatmapDemo, isDev, props.dailyActivity]);
 
   const renderHeatmapTooltip = useCallback((cell: HeatmapCell) => {
     if (cell.disabled) return "Outside range";
@@ -343,6 +419,7 @@ export default function ProfileClient(props: {
       totalMinutes: number;
       avgWpm: number;
       avgAccuracy: number;
+      strength100?: number;
     };
 
     if (!meta) {
@@ -356,14 +433,15 @@ export default function ProfileClient(props: {
 
     const sessionsLabel = meta.sessionsCount === 1 ? "session" : "sessions";
     const minutesRounded = Math.round(meta.totalMinutes);
+    const strengthRounded = Math.round(typeof meta.strength100 === "number" ? meta.strength100 : cell.value);
 
     return (
       <div className="text-sm">
         <div className="font-medium">
-          {meta.sessionsCount} {sessionsLabel} · {minutesRounded}m
+          Strength {strengthRounded}/100
         </div>
         <div className="text-muted-foreground">
-          Avg {Math.round(meta.avgWpm)} WPM · {Math.round(meta.avgAccuracy)}%
+          {meta.sessionsCount} {sessionsLabel} · {minutesRounded}m · Avg {Math.round(meta.avgWpm)} WPM · {Math.round(meta.avgAccuracy)}%
         </div>
         <div className="text-muted-foreground">{cell.label}</div>
       </div>
@@ -1111,7 +1189,24 @@ export default function ProfileClient(props: {
         </CardContent>
       </Card>
 
-      <AccountStatsChart stats={props.stats} />
+      <AccountStatsChart
+        stats={props.stats}
+        dailyActivity={props.dailyActivity}
+        sessionHistory={props.sessionHistory}
+      />
+
+      {isDev ? (
+        <div className="flex items-center justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setForceHeatmapDemo((v) => !v)}
+          >
+            {forceHeatmapDemo ? "Heatmap: demo values" : "Heatmap: real values"}
+          </Button>
+        </div>
+      ) : null}
 
       <HeatmapCalendar
         title="Activity"
@@ -1122,12 +1217,14 @@ export default function ProfileClient(props: {
         responsive
         cellSize={20}
         cellGap={4}
+        levelStrategy="fixedThresholds"
+        fixedThresholds={[10, 25, 45, 70]}
         palette={[
-          "hsl(var(--border) / 0.22)",
-          "oklch(0.55 0.22 263 / 0.22)",
-          "oklch(0.55 0.22 263 / 0.38)",
-          "oklch(0.55 0.22 263 / 0.58)",
-          "oklch(0.55 0.22 263 / 0.78)",
+          "rgba(255, 255, 255, 0.06)",
+          "rgba(120, 200, 255, 0.22)",
+          "rgba(120, 200, 255, 0.42)",
+          "rgba(120, 200, 255, 0.68)",
+          "rgba(120, 200, 255, 0.96)",
         ]}
         axisLabels={{
           show: true,
@@ -1139,8 +1236,10 @@ export default function ProfileClient(props: {
         }}
         renderTooltip={renderHeatmapTooltip}
         legend={{
-          showText: false,
-          showArrow: false,
+          showText: true,
+          showArrow: true,
+          lessText: "Low strength",
+          moreText: "High strength",
           placement: "right",
         }}
       />
@@ -1181,10 +1280,10 @@ export default function ProfileClient(props: {
             <StatTile label="Avg WPM" value={`${Math.round(props.stats.averageWPM)} WPM`} />
             <StatTile label="Avg accuracy" value={`${Math.round(props.stats.averageAccuracy)}%`} />
             <StatTile label="Avg consistency" value={
-              props.stats.averageConsistency !== undefined
-                ? `${props.stats.averageConsistency.toFixed(2)}`
+              Number.isFinite(props.stats.averageConsistency)
+                ? `${props.stats.averageConsistency.toFixed(2)}%`
                 : "—"
-            } subValue="Lower is better" />
+            }/>
             <StatTile label="Words typed" value={props.stats.totalWordsTyped.toLocaleString()} />
             <StatTile label="Characters typed" value={props.stats.totalCharactersTyped.toLocaleString()} />
           </div>
@@ -1193,6 +1292,18 @@ export default function ProfileClient(props: {
             <StatTile label="Total mistakes" value={props.stats.totalMistakes.toLocaleString()} />
             <StatTile label="Total corrections" value={props.stats.totalCorrections.toLocaleString()} />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-white/10 bg-white/5 backdrop-blur">
+        <CardHeader>
+          <CardTitle className="text-slate-100">Account</CardTitle>
+          <CardDescription className="text-slate-300">
+            Manage your account.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DeleteAccountButton />
         </CardContent>
       </Card>
     </div>

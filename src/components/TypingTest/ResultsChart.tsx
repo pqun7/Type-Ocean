@@ -25,6 +25,8 @@ import {
   CrossCircledIcon,
 } from "@radix-ui/react-icons";
 
+import { computeConsistency } from "@/features/typing/utils/consistency";
+
 interface ResultsChartProps {
   wpm: number;
   accuracy: number;
@@ -64,6 +66,11 @@ const ResultsChart = ({
 
    
   }
+
+  const sessionConsistency = React.useMemo(() => {
+    const currentSession = wpmHistory[wpmHistory.length - 1] || [];
+    return computeConsistency([currentSession] as any);
+  }, [wpmHistory]);
 
   const chartConfig = {
     wpm: {
@@ -187,7 +194,7 @@ const ResultsChart = ({
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
                   <motion.div
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -278,6 +285,25 @@ const ResultsChart = ({
                     </p>
                     <p className="text-xs mt-2 text-[rgba(200,240,255,0.6)]">
                       Remaining at End
+                    </p>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 1.4 }}
+                    className="text-center p-5 bg-[rgba(20,50,80,0.3)] rounded-xl border border-[rgba(160,220,255,0.15)] backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all"
+                  >
+                    <p className="text-sm text-[rgba(200,240,255,0.8)] uppercase tracking-wider mb-3">
+                      Consistency
+                    </p>
+                    <p className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+                      {sessionConsistency === null ? "—" : (
+                        <NumberAnimation value={sessionConsistency} unit="%" delay={1.5} />
+                      )}
+                    </p>
+                    <p className="text-xs mt-2 text-[rgba(200,240,255,0.6)]">
+                      Higher is better
                     </p>
                   </motion.div>
                 </div>

@@ -258,6 +258,11 @@ export async function POST(req: NextRequest) {
             const timeMinutes = timeSpent > 0 ? timeSpent / 60 : 0;
             const wordsTyped = Math.max(0, Math.round(sanitizedSession.wpm * timeMinutes));
 
+            const prevTotalTimeTyped = Number(prev.totalTimeTyped ?? 0);
+            const prevTotalWordsTyped = Number(prev.totalWordsTyped ?? 0);
+            const nextTotalTimeTyped = prevTotalTimeTyped + timeSpent;
+            const nextTotalWordsTyped = prevTotalWordsTyped + wordsTyped;
+
             const nextBestWpm = Math.max(Number(prev.bestWPM ?? 0), sanitizedSession.wpm);
             const nextBestWpmDate = sanitizedSession.wpm >= Number(prev.bestWPM ?? 0)
               ? new Date().toISOString()
@@ -269,24 +274,40 @@ export async function POST(req: NextRequest) {
               : (prev.bestAccuracyDate ?? null);
 
             const nextAvgWpm =
-              nextTotalSessions > 0
-                ? ((Number(prev.averageWPM ?? 0) * prevSessions) + sanitizedSession.wpm) / nextTotalSessions
-                : sanitizedSession.wpm;
+              nextTotalTimeTyped > 0 ? (nextTotalWordsTyped * 60) / nextTotalTimeTyped : 0;
 
+            const prevAccuracyTimeSum = Number((prev as any).accuracyTimeSum ?? (Number(prev.averageAccuracy ?? 0) * prevTotalTimeTyped));
+            const nextAccuracyTimeSum = prevAccuracyTimeSum + (sanitizedSession.accuracy * timeSpent);
             const nextAvgAcc =
-              nextTotalSessions > 0
-                ? ((Number(prev.averageAccuracy ?? 0) * prevSessions) + sanitizedSession.accuracy) / nextTotalSessions
-                : sanitizedSession.accuracy;
+              nextTotalTimeTyped > 0 ? nextAccuracyTimeSum / nextTotalTimeTyped : sanitizedSession.accuracy;
+
+            const prevConsistencySum = Number((prev as any).consistencySum ?? 0);
+            const prevConsistencyCount = Number((prev as any).consistencyCount ?? 0);
+            const sessionConsistency = (sanitizedSession as any).consistency;
+            const hasSessionConsistency =
+              typeof sessionConsistency === "number" && Number.isFinite(sessionConsistency);
+            const nextConsistencySum = hasSessionConsistency
+              ? prevConsistencySum + sessionConsistency
+              : prevConsistencySum;
+            const nextConsistencyCount = hasSessionConsistency
+              ? prevConsistencyCount + 1
+              : prevConsistencyCount;
+            const nextAvgConsistency =
+              nextConsistencyCount > 0 ? nextConsistencySum / nextConsistencyCount : 0;
 
             return {
               totalSessions: nextTotalSessions,
-              totalTimeTyped: Number(prev.totalTimeTyped ?? 0) + timeSpent,
-              totalWordsTyped: Number(prev.totalWordsTyped ?? 0) + wordsTyped,
+              totalTimeTyped: nextTotalTimeTyped,
+              totalWordsTyped: nextTotalWordsTyped,
               totalCharactersTyped: Number(prev.totalCharactersTyped ?? 0) + Number(sanitizedSession.textLength ?? 0),
               totalMistakes: Number(prev.totalMistakes ?? 0) + Number(sanitizedSession.mistakes ?? 0),
               totalCorrections: Number(prev.totalCorrections ?? 0) + Number(sanitizedSession.corrections ?? 0),
               averageWPM: nextAvgWpm,
               averageAccuracy: nextAvgAcc,
+              averageConsistency: nextAvgConsistency,
+              consistencySum: nextConsistencySum,
+              consistencyCount: nextConsistencyCount,
+              accuracyTimeSum: nextAccuracyTimeSum,
               bestWPM: nextBestWpm,
               bestWPMDate: nextBestWpmDate,
               bestAccuracy: nextBestAcc,
@@ -317,6 +338,11 @@ export async function POST(req: NextRequest) {
             const timeMinutes = timeSpent > 0 ? timeSpent / 60 : 0;
             const wordsTyped = Math.max(0, Math.round(sanitizedSession.wpm * timeMinutes));
 
+            const prevTotalTimeTyped = Number(prev.totalTimeTyped ?? 0);
+            const prevTotalWordsTyped = Number(prev.totalWordsTyped ?? 0);
+            const nextTotalTimeTyped = prevTotalTimeTyped + timeSpent;
+            const nextTotalWordsTyped = prevTotalWordsTyped + wordsTyped;
+
             const nextBestWpm = Math.max(Number(prev.bestWPM ?? 0), sanitizedSession.wpm);
             const nextBestWpmDate =
               sanitizedSession.wpm >= Number(prev.bestWPM ?? 0)
@@ -330,25 +356,41 @@ export async function POST(req: NextRequest) {
                 : (prev.bestAccuracyDate ?? null);
 
             const nextAvgWpm =
-              nextTotalSessions > 0
-                ? (Number(prev.averageWPM ?? 0) * prevSessions + sanitizedSession.wpm) / nextTotalSessions
-                : sanitizedSession.wpm;
+              nextTotalTimeTyped > 0 ? (nextTotalWordsTyped * 60) / nextTotalTimeTyped : 0;
 
+            const prevAccuracyTimeSum = Number((prev as any).accuracyTimeSum ?? (Number(prev.averageAccuracy ?? 0) * prevTotalTimeTyped));
+            const nextAccuracyTimeSum = prevAccuracyTimeSum + (sanitizedSession.accuracy * timeSpent);
             const nextAvgAcc =
-              nextTotalSessions > 0
-                ? (Number(prev.averageAccuracy ?? 0) * prevSessions + sanitizedSession.accuracy) / nextTotalSessions
-                : sanitizedSession.accuracy;
+              nextTotalTimeTyped > 0 ? nextAccuracyTimeSum / nextTotalTimeTyped : sanitizedSession.accuracy;
+
+            const prevConsistencySum = Number((prev as any).consistencySum ?? 0);
+            const prevConsistencyCount = Number((prev as any).consistencyCount ?? 0);
+            const sessionConsistency = (sanitizedSession as any).consistency;
+            const hasSessionConsistency =
+              typeof sessionConsistency === "number" && Number.isFinite(sessionConsistency);
+            const nextConsistencySum = hasSessionConsistency
+              ? prevConsistencySum + sessionConsistency
+              : prevConsistencySum;
+            const nextConsistencyCount = hasSessionConsistency
+              ? prevConsistencyCount + 1
+              : prevConsistencyCount;
+            const nextAvgConsistency =
+              nextConsistencyCount > 0 ? nextConsistencySum / nextConsistencyCount : 0;
 
             return {
               totalSessions: nextTotalSessions,
-              totalTimeTyped: Number(prev.totalTimeTyped ?? 0) + timeSpent,
-              totalWordsTyped: Number(prev.totalWordsTyped ?? 0) + wordsTyped,
+              totalTimeTyped: nextTotalTimeTyped,
+              totalWordsTyped: nextTotalWordsTyped,
               totalCharactersTyped:
                 Number(prev.totalCharactersTyped ?? 0) + Number(sanitizedSession.textLength ?? 0),
               totalMistakes: Number(prev.totalMistakes ?? 0) + Number(sanitizedSession.mistakes ?? 0),
               totalCorrections: Number(prev.totalCorrections ?? 0) + Number(sanitizedSession.corrections ?? 0),
               averageWPM: nextAvgWpm,
               averageAccuracy: nextAvgAcc,
+              averageConsistency: nextAvgConsistency,
+              consistencySum: nextConsistencySum,
+              consistencyCount: nextConsistencyCount,
+              accuracyTimeSum: nextAccuracyTimeSum,
               bestWPM: nextBestWpm,
               bestWPMDate: nextBestWpmDate,
               bestAccuracy: nextBestAcc,
@@ -379,6 +421,7 @@ export async function POST(req: NextRequest) {
 
     // Persist per-day aggregates for profile heatmap (best-effort).
     try {
+      const wpmTime = sanitizedSession.wpm * sanitizedSession.timeSpent;
       await prisma.dailyTypingActivity.upsert({
         where: {
           userId_localDate: {
@@ -390,6 +433,7 @@ export async function POST(req: NextRequest) {
           sessionsCount: { increment: 1 },
           totalTimeSpentSec: { increment: sanitizedSession.timeSpent },
           sumWpm: { increment: sanitizedSession.wpm },
+          sumWpmTime: { increment: wpmTime },
           sumAccuracy: { increment: sanitizedSession.accuracy },
         },
         create: {
@@ -398,6 +442,7 @@ export async function POST(req: NextRequest) {
           sessionsCount: 1,
           totalTimeSpentSec: sanitizedSession.timeSpent,
           sumWpm: sanitizedSession.wpm,
+          sumWpmTime: wpmTime,
           sumAccuracy: sanitizedSession.accuracy,
         },
         select: { id: true },

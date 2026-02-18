@@ -233,6 +233,7 @@ export function AuthForm() {
     transition: { type: "spring" as const, stiffness: 300, damping: 20 },
   };
 
+  // auth-form.tsx
   // Don't render form content until mounted to prevent hydration mismatch
   if (!mounted) {
     return (
@@ -251,7 +252,7 @@ export function AuthForm() {
       </div>
     );
   }
-
+  
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-4 md:p-6">
       <div className="flex w-full max-w-sm flex-col gap-6">

@@ -6,7 +6,7 @@ import { getPreviousWpm } from "../utils/getPreviousWpm";
 import { useLevel } from "@/features/level/hooks/useLevel";
 import { SessionData } from "@/features/level/types/level";
 import { logger } from "@/log/clientLogger";
-import { computeWeightedPerSessionConsistency } from "@/features/typing/utils/consistency";
+import { computeConsistency } from "@/features/typing/utils/consistency";
 
 
 /**
@@ -114,11 +114,26 @@ export default function useTypingLogic(
       (correctChars / Math.max(input.length, 1)) *
       100
     ).toFixed(1);
-    const minutes = getActiveTime() / 60000;
-    const wpm = Math.round(correctChars / 5 / Math.max(minutes, 0.016667));
+    const activeTime = getActiveTime();
+    const minutes = activeTime / 60000;
+    const baseWpm = (correctChars / 5) / Math.max(minutes, 0.016667);
+
+    const EARLY_SESSION_MS = 5000;
+    const EARLY_WPM_CAP = 300;
+    const HARD_WPM_CAP = 500;
+
+    const cappedWpm = Math.min(
+      Math.max(0, baseWpm),
+      activeTime < EARLY_SESSION_MS ? EARLY_WPM_CAP : Infinity,
+      HARD_WPM_CAP
+    );
+
+    const wpm = Math.round(cappedWpm);
 
     return { accuracy: Math.max(0, accuracy), wpm };
   }, [getActiveTime]);
+
+  const roundTo2 = (value: number) => Math.round(value * 100) / 100;
 
   // Session management and adding XP
   const handleSessionStart = useCallback(() => {
@@ -138,7 +153,35 @@ export default function useTypingLogic(
     try {
       // Optimistic UI updates for all users
       const activeTime = getActiveTime();
-      const { wpm, accuracy } = calculateMetrics();
+
+      const inputNow = userInputRef.current;
+      const targetNow = textRef.current;
+
+      const correctChars = targetNow
+        .slice(0, inputNow.length)
+        .split("")
+        .filter((char, i) => char === inputNow[i]).length;
+
+      const accuracy = +(
+        (correctChars / Math.max(inputNow.length, 1)) *
+        100
+      ).toFixed(1);
+
+      const minutes = activeTime / 60000;
+      const baseWpm = (correctChars / 5) / Math.max(minutes, 0.016667);
+
+      const EARLY_SESSION_MS = 5000;
+      const EARLY_WPM_CAP = 300;
+      const HARD_WPM_CAP = 500;
+
+      const wpmPrecise = Math.min(
+        Math.max(0, baseWpm),
+        activeTime < EARLY_SESSION_MS ? EARLY_WPM_CAP : Infinity,
+        HARD_WPM_CAP
+      );
+
+      const wpm = Math.round(wpmPrecise);
+      const wpmForStorage = roundTo2(wpmPrecise);
 
       setState("end");
       setMetrics((prev) => ({
@@ -154,7 +197,7 @@ export default function useTypingLogic(
           window.localStorage.setItem(
             `typing:lastResult:${selectedLevel}`,
             JSON.stringify({
-              wpm,
+              wpm: wpmForStorage,
               accuracy,
               ts: Date.now(),
               textLength: text.length,
@@ -171,8 +214,6 @@ export default function useTypingLogic(
       if (userId) {
         const timeSpentSeconds = Math.floor(activeTime / 1000);
 
-        const inputNow = userInputRef.current;
-        const targetNow = textRef.current;
         let computedErrors = 0;
         for (let i = 0; i < inputNow.length; i += 1) {
           if (targetNow[i] !== inputNow[i]) computedErrors += 1;
@@ -210,11 +251,13 @@ export default function useTypingLogic(
         const immediateXP = sessionXP + topUpXP;
         void addXP(immediateXP);
 
-        // Calculate consistency using a weighted per-session approach (guard NaN)
-        const rawConsistency = computeWeightedPerSessionConsistency(wpmHistory as any);
-        const consistency = Number.isFinite(rawConsistency) ? rawConsistency : 0;
+        // Calculate per-session consistency (percentage 0-100)
+        const currentSession = wpmHistory[wpmHistory.length - 1] ?? [];
+        const rawConsistency = computeConsistency([currentSession] as any);
+        const consistency = rawConsistency ?? undefined;
         // Record stats in the background (non-blocking)
-        void recordSessionStats?.(wpm, accuracy, {
+        void recordSessionStats?.(wpmForStorage, accuracy, {
+          textType: selectedLevel,
           textLength: text.length,
           timeSpent: timeSpentSeconds,
           mistakes: sessionMistakes,
@@ -224,7 +267,7 @@ export default function useTypingLogic(
             return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
           })(),
           tzOffsetMinutes: new Date().getTimezoneOffset(),
-          consistency,
+          ...(typeof consistency === "number" ? { consistency } : {}),
         });
 
         // Handle daily challenge in the background; award challenge XP when it completes.
@@ -244,14 +287,14 @@ export default function useTypingLogic(
         logger.session.info("Session completed for authenticated user", {
           userId,
           duration: performance.now() - sessionStartTime,
-          wpm,
+          wpm: wpmForStorage,
           accuracy,
           xpEarned: immediateXP,
         });
       } else {
         // Guest user handling
         logger.session.info("Guest session completed", {
-          wpm,
+          wpm: wpmForStorage,
           accuracy,
           duration: performance.now() - sessionStartTime,
         });

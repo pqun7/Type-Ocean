@@ -74,7 +74,7 @@ const HeaderGame = ({
 the `optimizePerformance` prop to `true`. This prop is being passed to the `<ResultsChart>`
 component to optimize its performance. The specific implementation and usage of this prop would be
 defined within the `<ResultsChart>` component itself. */
-          optimizePerformance = {true}
+          // optimizePerformance = {true}
         />
       )}
 

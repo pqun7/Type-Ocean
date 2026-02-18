@@ -18,7 +18,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 
-export const description = "A radar chart with a grid filled"
+export const description = "A radar chart with a grid and circle fill"
 
 const chartData = [
   { month: "January", desktop: 186 },
@@ -36,11 +36,11 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-export function ChartRadarGridFill() {
+export function ChartRadarGridCircleFill() {
   return (
     <Card>
       <CardHeader className="items-center pb-4">
-        <CardTitle>Radar Chart - Grid Filled</CardTitle>
+        <CardTitle>Radar Chart - Grid Circle Filled</CardTitle>
         <CardDescription>
           Showing total visitors for the last 6 months
         </CardDescription>
@@ -51,11 +51,11 @@ export function ChartRadarGridFill() {
           className="mx-auto aspect-square max-h-[250px]"
         >
           <RadarChart data={chartData}>
-            <ChartTooltip
-              cursor={false}
-              content={<ChartTooltipContent hideLabel />}
+            <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+            <PolarGrid
+              className="fill-(--color-desktop) opacity-20"
+              gridType="circle"
             />
-            <PolarGrid className="fill-(--color-desktop) opacity-20" />
             <PolarAngleAxis dataKey="month" />
             <Radar
               dataKey="desktop"

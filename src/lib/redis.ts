@@ -19,7 +19,8 @@ declare module "ioredis" {
       timestamp: string,
       ttl: string,
       mistakes: string,
-      corrections: string
+      corrections: string,
+      consistency: string
     ): Promise<string[]>; // returns [key1, val1, key2, val2, ...]
   }
 }

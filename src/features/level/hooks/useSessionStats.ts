@@ -14,13 +14,27 @@ export const useSessionStats = (userId?: string) => {
   const pendingRef = useRef<{
     wpm: number;
     accuracy: number;
-    sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number; mistakes?: number; corrections?: number };
+    sessionData?: {
+      sessionId?: string;
+      textLength?: number;
+      timeSpent?: number;
+      mistakes?: number;
+      corrections?: number;
+      consistency?: number;
+    };
   } | null>(null);
 
   const buildFallback = (
     wpm: number,
     accuracy: number,
-    sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number; mistakes?: number; corrections?: number }
+    sessionData?: {
+      sessionId?: string;
+      textLength?: number;
+      timeSpent?: number;
+      mistakes?: number;
+      corrections?: number;
+      consistency?: number;
+    }
   ): LongTermStats => ({
     totalSessions: 1,
     totalTimeTyped: sessionData?.timeSpent || 60,
@@ -42,7 +56,14 @@ export const useSessionStats = (userId?: string) => {
     async (
       wpm: number,
       accuracy: number,
-      sessionData?: { sessionId?: string; textLength?: number; timeSpent?: number; mistakes?: number; corrections?: number }
+      sessionData?: {
+        sessionId?: string;
+        textLength?: number;
+        timeSpent?: number;
+        mistakes?: number;
+        corrections?: number;
+        consistency?: number;
+      }
     ): Promise<LongTermStats> => {
       try {
         if (!userId) {
@@ -155,6 +176,7 @@ export const useSessionStats = (userId?: string) => {
             timeSpent: sessionData?.timeSpent,
             mistakes: sessionData?.mistakes,
             corrections: sessionData?.corrections,
+            consistency: sessionData?.consistency,
           }
         );
 

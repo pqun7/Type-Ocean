@@ -2,6 +2,7 @@ import { auth } from "@/features/auth/lib/auth";
 import prisma from "@/features/auth/lib/db";
 import type { Prisma } from "@prisma/client";
 import { logging } from "@/log/ServerLogger";
+import { connectIfNeeded, redis } from "@/lib/redis";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
@@ -594,6 +595,18 @@ export async function DELETE(req: NextRequest) {
       // Finally delete the user. deleteMany avoids throwing if already deleted.
       prisma.user.deleteMany({ where: { id: userId } }),
     ]);
+
+    // Best-effort: clear Redis keys for this user.
+    try {
+      await connectIfNeeded();
+      await redis.del(`user:longterm:${userId}`, `user:sessions:${userId}`);
+    } catch (error) {
+      logging.warn("Failed to delete user Redis keys", {
+        requestId,
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     logUserOperation.success(requestId, "delete_user_account", { userId });
 

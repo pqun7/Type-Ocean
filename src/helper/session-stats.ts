@@ -17,6 +17,10 @@ export const MAX_SESSIONS_STORED = 100;
 export interface SessionInputData {
   wpm: number;
   accuracy: number;
+  /** Per-session consistency percentage (0-100). Optional. */
+  consistency?: number;
+  /** Text size bucket from gameplay level. */
+  textType?: "SHORT" | "MEDIUM" | "LONG";
   textLength?: number;
   timeSpent?: number;
   language?: string;
@@ -33,6 +37,8 @@ export interface SessionInputData {
 export interface NormalizedSessionData {
   wpm: number;
   accuracy: number;
+  consistency?: number;
+  textType?: "SHORT" | "MEDIUM" | "LONG";
   textLength: number;
   timeSpent: number;
   language: string;
@@ -79,8 +85,7 @@ function computeLongTermFromSessions(sessions: EnrichedSession[]): LongTermStats
   let totalTimeTyped = 0;
   let totalCharactersTyped = 0;
   let totalWordsTyped = 0;
-  let sumWpm = 0;
-  let sumAccuracy = 0;
+  let accuracyTimeSum = 0;
   let bestWPM = 0;
   let bestWPMDate: string | null = null;
   let bestAccuracy = 0;
@@ -99,8 +104,7 @@ function computeLongTermFromSessions(sessions: EnrichedSession[]): LongTermStats
     const wordsTyped = Math.max(0, Math.round(s.wpm * timeMinutes));
     totalWordsTyped += wordsTyped;
 
-    sumWpm += s.wpm;
-    sumAccuracy += s.accuracy;
+    accuracyTimeSum += s.accuracy * Math.max(0, timeSpent);
 
     totalMistakes += Math.max(0, typeof s.mistakes === "number" ? s.mistakes : 0);
     totalCorrections += Math.max(0, typeof s.corrections === "number" ? s.corrections : 0);
@@ -116,6 +120,9 @@ function computeLongTermFromSessions(sessions: EnrichedSession[]): LongTermStats
   }
 
   const totalSessions = sessions.length;
+  const averageWPM = totalTimeTyped > 0 ? (totalWordsTyped * 60) / totalTimeTyped : 0;
+  const averageAccuracy = totalTimeTyped > 0 ? accuracyTimeSum / totalTimeTyped : 0;
+
   // Calculate averageConsistency if available
   let sumConsistency = 0;
   let consistencyCount = 0;
@@ -133,8 +140,8 @@ function computeLongTermFromSessions(sessions: EnrichedSession[]): LongTermStats
     totalCharactersTyped,
     totalMistakes,
     totalCorrections,
-    averageWPM: totalSessions ? sumWpm / totalSessions : 0,
-    averageAccuracy: totalSessions ? sumAccuracy / totalSessions : 0,
+    averageWPM,
+    averageAccuracy,
     averageConsistency,
     bestWPM,
     bestWPMDate,
@@ -170,11 +177,30 @@ export function validateSessionData(data: unknown): {
   }
 
   // Optional but validated fields
+  if (obj.consistency !== undefined) {
+    if (typeof obj.consistency !== "number" || !Number.isFinite(obj.consistency)) {
+      errors.push("Consistency must be a finite number");
+    } else if (obj.consistency < 0 || obj.consistency > 100) {
+      errors.push("Consistency must be between 0 and 100");
+    }
+  }
+
   if (
     obj.textLength !== undefined &&
     (typeof obj.textLength !== "number" || obj.textLength <= 0)
   ) {
     errors.push('Text length must be a positive number');
+  }
+
+  if (obj.textType !== undefined) {
+    if (typeof obj.textType !== "string") {
+      errors.push("textType must be a string");
+    } else {
+      const normalizedType = obj.textType.toUpperCase();
+      if (normalizedType !== "SHORT" && normalizedType !== "MEDIUM" && normalizedType !== "LONG") {
+        errors.push("textType must be one of SHORT, MEDIUM, LONG");
+      }
+    }
   }
 
   if (
@@ -234,6 +260,8 @@ export function validateSessionData(data: unknown): {
   const parsed: SessionInputData = {
     wpm: obj.wpm as number,
     accuracy: obj.accuracy as number,
+    ...(obj.consistency !== undefined ? { consistency: obj.consistency as number } : {}),
+    ...(obj.textType !== undefined ? { textType: String(obj.textType).toUpperCase() as "SHORT" | "MEDIUM" | "LONG" } : {}),
     ...(obj.textLength !== undefined ? { textLength: obj.textLength as number } : {}),
     ...(obj.timeSpent !== undefined ? { timeSpent: obj.timeSpent as number } : {}),
     ...(obj.language !== undefined ? { language: obj.language as string } : {}),
@@ -255,9 +283,21 @@ export function validateSessionData(data: unknown): {
  * Sanitize and normalize session data
  */
 export function sanitizeSessionData(data: SessionInputData): NormalizedSessionData {
+  const rawConsistency = data.consistency;
+  const normalizedConsistency =
+    typeof rawConsistency === "number" && Number.isFinite(rawConsistency)
+      ? Math.max(0, Math.min(100, Math.round(rawConsistency * 100) / 100))
+      : undefined;
+  const normalizedTextType =
+    data.textType === "SHORT" || data.textType === "MEDIUM" || data.textType === "LONG"
+      ? data.textType
+      : undefined;
+
   return {
     wpm: Math.round(data.wpm * 100) / 100,
     accuracy: Math.round(data.accuracy * 100) / 100,
+    ...(typeof normalizedConsistency === "number" ? { consistency: normalizedConsistency } : {}),
+    ...(typeof normalizedTextType === "string" ? { textType: normalizedTextType } : {}),
     textLength: data.textLength ? Math.max(1, Math.round(data.textLength)) : 0,
     timeSpent: data.timeSpent ? Math.max(1, Math.round(data.timeSpent)) : 0,
     language: data.language || 'en',
@@ -291,7 +331,10 @@ export async function updateLongTermCumulativeStats(userId: string, session: Nor
       timestamp,
       String(LONG_TERM_TTL),
       String(session.mistakes || 0),
-      String(session.corrections || 0)
+      String(session.corrections || 0),
+      typeof session.consistency === "number" && Number.isFinite(session.consistency)
+        ? String(session.consistency)
+        : ""
     );
 
     // 3. تحويل الرد (مصفوفة) إلى كائن (Object)
@@ -442,6 +485,7 @@ export async function getLongTermCumulativeStats(userId: string): Promise<LongTe
   try {
     const data = await redis.hgetall(statsKey);
     if (data && Object.keys(data).length > 0) {
+      const avgConsistencyRaw = parseFloat(String(data.averageConsistency ?? "0"));
       return {
         totalSessions: parseInt(String(data.totalSessions ?? "0"), 10) || 0,
         totalTimeTyped: parseInt(String(data.totalTimeTyped ?? "0"), 10) || 0,
@@ -451,7 +495,7 @@ export async function getLongTermCumulativeStats(userId: string): Promise<LongTe
         totalCorrections: parseInt(String(data.totalCorrections ?? "0"), 10) || 0,
         averageWPM: parseFloat(String(data.averageWPM) || "0"),
         averageAccuracy: parseFloat(String(data.averageAccuracy) || "0"),
-        averageConsistency: parseFloat(String(data.averageConsistency) || "0"),
+        averageConsistency: Number.isFinite(avgConsistencyRaw) ? avgConsistencyRaw : 0,
         bestWPM: parseFloat(String(data.bestWPM) || "0"),
         bestWPMDate: String(data.bestWPMDate) || null,
         bestAccuracy: parseFloat(String(data.bestAccuracy) || "0"),
