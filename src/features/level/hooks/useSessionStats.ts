@@ -16,11 +16,14 @@ export const useSessionStats = (userId?: string) => {
     accuracy: number;
     sessionData?: {
       sessionId?: string;
+      textType?: "SHORT" | "MEDIUM" | "LONG";
       textLength?: number;
       timeSpent?: number;
       mistakes?: number;
       corrections?: number;
       consistency?: number;
+      localDate?: string;
+      tzOffsetMinutes?: number;
     };
   } | null>(null);
 
@@ -29,11 +32,14 @@ export const useSessionStats = (userId?: string) => {
     accuracy: number,
     sessionData?: {
       sessionId?: string;
+      textType?: "SHORT" | "MEDIUM" | "LONG";
       textLength?: number;
       timeSpent?: number;
       mistakes?: number;
       corrections?: number;
       consistency?: number;
+      localDate?: string;
+      tzOffsetMinutes?: number;
     }
   ): LongTermStats => ({
     totalSessions: 1,
@@ -58,11 +64,14 @@ export const useSessionStats = (userId?: string) => {
       accuracy: number,
       sessionData?: {
         sessionId?: string;
+        textType?: "SHORT" | "MEDIUM" | "LONG";
         textLength?: number;
         timeSpent?: number;
         mistakes?: number;
         corrections?: number;
         consistency?: number;
+        localDate?: string;
+        tzOffsetMinutes?: number;
       }
     ): Promise<LongTermStats> => {
       try {
@@ -172,11 +181,14 @@ export const useSessionStats = (userId?: string) => {
           {
             sessionId: sessionData?.sessionId || crypto.randomUUID(),
             timestamp: Date.now(),
+            textType: sessionData?.textType,
             textLength: sessionData?.textLength,
             timeSpent: sessionData?.timeSpent,
             mistakes: sessionData?.mistakes,
             corrections: sessionData?.corrections,
             consistency: sessionData?.consistency,
+            localDate: sessionData?.localDate,
+            tzOffsetMinutes: sessionData?.tzOffsetMinutes,
           }
         );
 

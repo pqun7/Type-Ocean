@@ -1,4 +1,4 @@
-// src/app/profile/account-stats-chart
+// src/app/profile/account-stats-chart.tsx
 "use client";
 
 import * as React from "react";
@@ -16,6 +16,17 @@ import {
   ResponsiveContainer,
   XAxis,
 } from "recharts";
+import { motion, type Variants } from "framer-motion";
+import {
+  RadarIcon,
+  PieChartIcon,
+  TrendingUpIcon,
+  CpuIcon,
+  ActivityIcon,
+  AwardIcon,
+  FlameIcon,
+  SparklesIcon,
+} from "lucide-react";
 
 import {
   ChartConfig,
@@ -30,6 +41,8 @@ import {
   computePerformanceIntelligence,
   type PerformanceTrendCategory,
 } from "@/features/typing/utils/performance-intelligence";
+
+import { NumberAnimation } from "@/components/core/number-animation-view";
 
 type LongTermStats = {
   totalSessions: number;
@@ -62,6 +75,13 @@ type SessionHistoryEntry = {
   timestamp: string;
   textType?: "SHORT" | "MEDIUM" | "LONG";
   textLength: number;
+  wpm?: number;
+  accuracy?: number;
+  consistency?: number;
+  timeSpent?: number;
+  mistakes?: number;
+  corrections?: number;
+  localDate?: string;
 };
 
 type DailySeriesPoint = {
@@ -144,17 +164,60 @@ function computeStreaks(localDatesAsc: string[]) {
   return { longest, current };
 }
 
+function sum(values: number[]) {
+  return values.reduce((acc, v) => acc + v, 0);
+}
+
+function mean(values: number[]) {
+  return values.length === 0 ? 0 : sum(values) / values.length;
+}
+
+function quantile(values: number[], q: number) {
+  if (values.length === 0) return 0;
+  const qq = clamp(q, 0, 1);
+  const sorted = [...values].sort((a, b) => a - b);
+  const pos = (sorted.length - 1) * qq;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  const next = sorted[base + 1];
+  return next === undefined ? sorted[base] : sorted[base] + rest * (next - sorted[base]);
+}
+
+function weightedMean(values: number[], weights: number[]) {
+  const n = Math.min(values.length, weights.length);
+  if (n === 0) return 0;
+  let wSum = 0;
+  let vwSum = 0;
+  for (let i = 0; i < n; i++) {
+    const v = values[i];
+    const w = weights[i];
+    if (!Number.isFinite(v) || !Number.isFinite(w) || w <= 0) continue;
+    wSum += w;
+    vwSum += v * w;
+  }
+  return wSum > 0 ? vwSum / wSum : 0;
+}
+
 function formatTrendCategory(category: PerformanceTrendCategory) {
   switch (category) {
     case "ACCELERATING":
-      return "🚀 Accelerating";
+      return "Accelerating";
     case "IMPROVING":
-      return "📈 Improving";
+      return "Improving";
     case "DECLINING":
-      return "📉 Declining";
+      return "Declining";
     default:
-      return "➖ Stable";
+      return "Stable";
   }
+}
+
+function classifyPlayerLevel(compositeIndex: number): { label: string; note: string } {
+  const score = clamp(Math.round(compositeIndex), 0, 100);
+  if (score >= 90) return { label: "Elite", note: "Top-tier overall performance" };
+  if (score >= 75) return { label: "Expert", note: "Strong across most dimensions" };
+  if (score >= 60) return { label: "Advanced", note: "Consistently solid" };
+  if (score >= 45) return { label: "Intermediate", note: "Good base with room to grow" };
+  return { label: "Beginner", note: "Early stage — focus on consistency" };
 }
 
 export default function AccountStatsChart({
@@ -166,6 +229,70 @@ export default function AccountStatsChart({
   dailyActivity: DailyTypingActivity[];
   sessionHistory: SessionHistoryEntry[];
 }) {
+  const sessionInsights = React.useMemo(() => {
+    const sessions = [...(sessionHistory ?? [])]
+      .filter((s) => typeof s.wpm === "number" && Number.isFinite(s.wpm))
+      .map((s) => {
+        const wpm = clamp(s.wpm ?? 0, 0, 500);
+        const accuracy = clamp(s.accuracy ?? 0, 0, 100);
+        const timeSpent = Math.max(0, Math.floor(s.timeSpent ?? 0));
+        const textLength = Math.max(0, Math.floor(s.textLength ?? 0));
+        const mistakes = Math.max(0, Math.floor(s.mistakes ?? 0));
+        const corrections = Math.max(0, Math.floor(s.corrections ?? 0));
+
+        return {
+          wpm,
+          accuracy,
+          timeSpent,
+          textLength,
+          mistakes,
+          corrections,
+        };
+      });
+
+    const count = sessions.length;
+    const wpm = sessions.map((s) => s.wpm);
+    const accuracy = sessions.map((s) => s.accuracy);
+    const weights = sessions.map((s) => s.timeSpent);
+
+    const timeWeightedWpm = weightedMean(wpm, weights);
+    const timeWeightedAccuracy = weightedMean(accuracy, weights);
+    const effectiveWpm = weightedMean(
+      sessions.map((s) => s.wpm * (s.accuracy / 100)),
+      weights
+    );
+
+    const medianWpm = quantile(wpm, 0.5);
+    const p90Wpm = quantile(wpm, 0.9);
+
+    const timeSpentValues = sessions.map((s) => s.timeSpent).filter((t) => t > 0);
+    const avgSessionSec = mean(timeSpentValues);
+    const deepFocusSharePct = count === 0 ? 0 : (sessions.filter((s) => s.timeSpent >= 120).length / count) * 100;
+
+    const totalChars = sum(sessions.map((s) => s.textLength).filter((v) => v > 0));
+    const totalMistakes = sum(sessions.map((s) => s.mistakes));
+    const totalCorrections = sum(sessions.map((s) => s.corrections));
+
+    const mistakesPer100Chars = totalChars > 0 ? (totalMistakes / totalChars) * 100 : 0;
+    const correctionsPer100Chars = totalChars > 0 ? (totalCorrections / totalChars) * 100 : 0;
+
+    const enoughForPercentiles = count >= 10;
+
+    return {
+      count,
+      enoughForPercentiles,
+      timeWeightedWpm,
+      timeWeightedAccuracy,
+      effectiveWpm,
+      medianWpm,
+      p90Wpm,
+      avgSessionSec,
+      deepFocusSharePct,
+      mistakesPer100Chars,
+      correctionsPer100Chars,
+    };
+  }, [sessionHistory]);
+
   const pieData = React.useMemo(() => {
     const buckets = {
       short: 0,
@@ -244,11 +371,6 @@ export default function AccountStatsChart({
       };
     });
 
-    const mean = (values: number[]) =>
-      values.length === 0 ? 0 : values.reduce((sum, v) => sum + v, 0) / values.length;
-
-    const sum = (values: number[]) => values.reduce((sumVal, v) => sumVal + v, 0);
-
     const recentAvgWpm = mean(recent.map((d) => d.avgWpm));
     const previousAvgWpm = mean(previous.map((d) => d.avgWpm));
 
@@ -305,9 +427,6 @@ export default function AccountStatsChart({
     const recent7 = last28.slice(Math.max(0, last28.length - 7));
     const prev7 = last28.slice(Math.max(0, last28.length - 14), Math.max(0, last28.length - 7));
 
-    const mean = (values: number[]) =>
-      values.length === 0 ? 0 : values.reduce((sum, v) => sum + v, 0) / values.length;
-
     const recentWpm = mean(recent7.map((d) => d.avgWpm));
     const prevWpm = mean(prev7.map((d) => d.avgWpm));
     const recentAcc = mean(recent7.map((d) => d.avgAccuracy));
@@ -329,12 +448,11 @@ export default function AccountStatsChart({
   }, [dailyActivity, intelligence.trend.pointsUsed, intelligence.trend.r2, intelligence.trend.stabilityScore, intelligence.trend.volatilityCv]);
 
   const radarData = React.useMemo(() => {
-    const consistencyScore = clamp(Math.round(stats.averageConsistency), 0, 100);
-    const wpmScore = clamp(Math.round((stats.averageWPM / 120) * 100), 0, 100);
-    const accuracyScore = clamp(Math.round(stats.averageAccuracy), 0, 100);
-    const { cleanlinessScore } = intelligence.scores;
-    const { stabilityScore: stabilityScoreRaw } = intelligence.trend;
-    const stabilityScore = clamp(Math.round(stabilityScoreRaw), 0, 100);
+    const consistencyScore = clamp(Math.round(intelligence.scores.consistencyScore), 0, 100);
+    const wpmScore = clamp(Math.round(intelligence.scores.wpmScore), 0, 100);
+    const accuracyScore = clamp(Math.round(intelligence.scores.accuracyScore), 0, 100);
+    const cleanlinessScore = clamp(Math.round(intelligence.scores.cleanlinessScore), 0, 100);
+    const stabilityScore = clamp(Math.round(intelligence.scores.stabilityScore), 0, 100);
 
     return [
       { metric: "Consistency", score: consistencyScore },
@@ -344,12 +462,17 @@ export default function AccountStatsChart({
       { metric: "Stability", score: stabilityScore },
     ];
   }, [
-    intelligence.scores.cleanlinessScore,
-    intelligence.trend.stabilityScore,
-    stats.averageAccuracy,
-    stats.averageConsistency,
-    stats.averageWPM,
+    intelligence.scores,
   ]);
+
+  const trendHeadline = React.useMemo(() => {
+    const label = formatTrendCategory(intelligence.trend.category);
+    return label;
+  }, [intelligence.scores.stabilityScore, intelligence.trend.category]);
+
+  const playerLevel = React.useMemo(() => {
+    return classifyPlayerLevel(intelligence.scores.compositeIndex);
+  }, [intelligence.scores.compositeIndex]);
 
   const pieConfig = {
     short: { label: "Short", color: "hsl(var(--chart-1))" },
@@ -369,21 +492,111 @@ export default function AccountStatsChart({
     prevWpm: { label: "Previous 14", color: "hsl(var(--chart-3))" },
   } satisfies ChartConfig;
 
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-      <div className="mb-4 flex items-end justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium text-slate-100">Activity overview</div>
-          <div className="text-xs text-slate-400">Session distribution and strength profile</div>
-        </div>
-        <div className="text-right text-xs text-slate-400">
-          {totalSessions === 0 ? "No sessions yet" : `${totalSessions} recent sessions`}
-        </div>
-      </div>
+  // Animation variants for staggered cards
+  const containerVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.15,
+        delayChildren: 0.1,
+      },
+    },
+  };
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-          <div className="mb-2 text-xs text-slate-400">Sessions by text size</div>
+  const cardVariants: Variants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { type: "spring" as const, stiffness: 300, damping: 25 },
+    },
+  };
+
+  const headerIconVariants: Variants = {
+    hidden: { scale: 0.8, opacity: 0 },
+    visible: { scale: 1, opacity: 1, transition: { delay: 0.2, type: "spring" as const } },
+  };
+
+  return (
+    <motion.div
+      className="space-y-6"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
+      {/* Performance Profile Card */}
+      <motion.section
+        variants={cardVariants}
+        className="rounded-xl bg-[rgba(20,50,80,0.3)] backdrop-blur-sm border border-[rgba(160,220,255,0.15)] p-6 hover:border-[rgba(160,220,255,0.3)] transition-all shadow-xl"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <motion.div variants={headerIconVariants} className="p-2 rounded-lg bg-[rgba(160,220,255,0.1)]">
+            <RadarIcon className="w-5 h-5 text-cyan-300" />
+          </motion.div>
+          <h3 className="text-lg font-medium bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+            Performance Profile
+          </h3>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <ChartContainer config={radarConfig} className="h-[260px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarData}>
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <PolarGrid className="opacity-35" gridType="circle" stroke="rgba(160,220,255,0.2)" />
+                <PolarAngleAxis dataKey="metric" tick={{ fill: "#8A8FB5", fontSize: 12 }} />
+                <Radar
+                  dataKey="score"
+                  fill="var(--color-score)"
+                  stroke="var(--color-score)"
+                  fillOpacity={0.35}
+                />
+              </RadarChart>
+            </ResponsiveContainer>
+          </ChartContainer>
+          <div>
+            <div className="mb-4 flex items-center gap-2">
+              <ActivityIcon className="w-4 h-4 text-cyan-300" />
+              <div className="text-sm text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Trend</div>
+              <div className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+                {trendHeadline}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-lg border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all">
+                <div className="text-xs text-[rgba(200,240,255,0.6)]">Player level</div>
+                <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+                  {playerLevel.label}
+                </div>
+                <div className="mt-1 text-xs text-[#8A8FB5]">{playerLevel.note}</div>
+              </div>
+              <div className="rounded-lg border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all">
+                <div className="text-xs text-[rgba(200,240,255,0.6)]">Stability</div>
+                <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+                  <NumberAnimation value={intelligence.scores.stabilityScore} delay={0.35} />
+                  <span className="ml-1 text-sm text-slate-400">/100</span>
+                </div>
+                <div className="mt-1 text-xs text-[#8A8FB5]">Higher = steadier performance</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.section>
+
+      {/* Session Distribution Card */}
+      <motion.section
+        variants={cardVariants}
+        className="rounded-xl bg-[rgba(20,50,80,0.3)] backdrop-blur-sm border border-[rgba(80,210,150,0.15)] p-6 hover:border-[rgba(80,210,150,0.3)] transition-all shadow-xl"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <motion.div variants={headerIconVariants} className="p-2 rounded-lg bg-[rgba(80,210,150,0.1)]">
+            <PieChartIcon className="w-5 h-5 text-green-300" />
+          </motion.div>
+          <h3 className="text-lg font-medium bg-clip-text text-transparent bg-gradient-to-r from-green-300 to-teal-400">
+            Session Distribution
+          </h3>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
           <ChartContainer config={pieConfig} className="h-[260px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -396,200 +609,244 @@ export default function AccountStatsChart({
               </PieChart>
             </ResponsiveContainer>
           </ChartContainer>
-        </div>
-
-        <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-          <div className="mb-2 flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs text-slate-400">Performance intelligence</div>
-              {/* <div className="mt-0.5 text-xs text-slate-500">WPM score is normalized (120 WPM = 100)</div> */}
-              {/*
-            //   <div className="mt-0.5 text-sm font-medium text-slate-100">
-            //     {formatTrendCategory(intelligence.trend.category)}
-            //   </div>
-              <div className="mt-0.5 text-xs text-slate-500">
-                Accelerating = improving faster · Improving = steady up · Stable = normal variation · Declining = trending down
-              </div>
-              <div className="mt-0.5 text-xs text-slate-400">
-                {intelligence.comparison.wpmDelta >= 0 ? "+" : ""}
-                {intelligence.comparison.wpmDelta.toFixed(1)} WPM · {intelligence.comparison.accuracyDelta >= 0 ? "+" : ""}
-                {intelligence.comparison.accuracyDelta.toFixed(1)}% (last 14d vs prev)
-              </div>
-              <div className="mt-0.5 text-xs text-slate-500">
-                Cleanliness reflects mistakes + corrections per character typed (higher is better)
-              </div>
-              <div className="mt-0.5 text-xs text-slate-500">
-                slope {intelligence.trend.slopePerDay >= 0 ? "+" : ""}
-                {intelligence.trend.slopePerDay.toFixed(2)}/day · accel {intelligence.trend.accelerationPerDay2 >= 0 ? "+" : ""}
-                {intelligence.trend.accelerationPerDay2.toFixed(2)}/day² · R² {intelligence.trend.r2.toFixed(2)} · stability {Math.round(intelligence.trend.stabilityScore)}
-              </div>
+          <div className="space-y-4">
+            <div className="flex justify-between text-sm border-b border-[rgba(80,210,150,0.2)] pb-2">
+              <span className="text-[rgba(200,240,255,0.8)]">Total sessions:</span>
+              <span className="font-medium text-[#E0E7FF]">
+                <NumberAnimation value={totalSessions} delay={0.5} />
+              </span>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-slate-400">Index</div>
-              <div className="text-lg font-semibold text-slate-100">{intelligence.scores.compositeIndex}</div>
-            </div>
-            */}
-            </div>
+            {pieData.map((item, idx) => (
+              <div key={item.key} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-3 w-3 rounded-full" style={{ backgroundColor: item.fill }} />
+                  <span className="text-[rgba(200,240,255,0.8)]">{item.label}</span>
+                </div>
+                <span className="font-medium text-[#E0E7FF]">
+                  <NumberAnimation value={item.value} delay={0.6 + idx * 0.1} />
+                </span>
+              </div>
+            ))}
           </div>
-          <ChartContainer config={radarConfig} className="h-[260px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={radarData}>
-                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                <PolarGrid className="opacity-35" gridType="circle" />
-                <PolarAngleAxis dataKey="metric" tick={{ fill: "rgba(226,232,240,0.85)", fontSize: 12 }} />
-                <Radar
-                  dataKey="score"
-                  fill="var(--color-score)"
-                  stroke="var(--color-score)"
-                  fillOpacity={0.35}
-                />
-              </RadarChart>
-            </ResponsiveContainer>
-          </ChartContainer>
         </div>
-      </div>
+      </motion.section>
 
-      <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3">
-        <div className="mb-2 flex items-end justify-between gap-3">
-          <div>
-            <div className="text-xs text-slate-400">Recent vs previous</div>
-            <div className="mt-0.5 text-sm font-medium text-slate-100">Last 14 active days vs the 14 before</div>
-          </div>
-          <div className="text-right text-xs text-slate-400">{recentVsPrevious14.pointsUsed} days used</div>
+      {/* Recent vs Previous Card */}
+      <motion.section
+        variants={cardVariants}
+        className="rounded-xl bg-[rgba(20,50,80,0.3)] backdrop-blur-sm border border-[rgba(160,220,255,0.15)] p-6 hover:border-[rgba(160,220,255,0.3)] transition-all shadow-xl"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <motion.div variants={headerIconVariants} className="p-2 rounded-lg bg-[rgba(160,220,255,0.1)]">
+            <TrendingUpIcon className="w-5 h-5 text-cyan-300" />
+          </motion.div>
+          <h3 className="text-lg font-medium bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+            Recent vs Previous (14 days)
+          </h3>
         </div>
-
-        <div className="mb-3 rounded-md border border-white/10 bg-white/5 p-3">
-          <ChartContainer config={recentVsPreviousChartConfig} className="h-[180px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={recentVsPrevious14.chartData} margin={{ left: 0, right: 0, top: 8, bottom: 0 }}>
-                <CartesianGrid vertical={false} className="opacity-20" />
-                <XAxis
-                  dataKey="date"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  minTickGap={16}
-                  tick={{ fill: "rgba(226,232,240,0.75)", fontSize: 12 }}
-                />
-                <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+        <ChartContainer config={recentVsPreviousChartConfig} className="mt-4 h-[200px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={recentVsPrevious14.chartData}>
+              <CartesianGrid vertical={false} className="opacity-20" stroke="rgba(160,220,255,0.1)" />
+              <XAxis
+                dataKey="date"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                tick={{ fill: "#8A8FB5", fontSize: 12 }}
+              />
+              <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+              <Area
+                dataKey="wpm"
+                type="natural"
+                fill="var(--color-wpm)"
+                stroke="var(--color-wpm)"
+                fillOpacity={0.15}
+                strokeWidth={2}
+              />
+              {recentVsPrevious14.showPreviousSeries && (
                 <Area
-                  dataKey="wpm"
+                  dataKey="prevWpm"
                   type="natural"
-                  fill="var(--color-wpm)"
-                  stroke="var(--color-wpm)"
-                  fillOpacity={0.15}
+                  fill="var(--color-prevWpm)"
+                  stroke="var(--color-prevWpm)"
+                  fillOpacity={0.08}
                   strokeWidth={2}
                 />
-                {recentVsPrevious14.showPreviousSeries && (
-                  <Area
-                    dataKey="prevWpm"
-                    type="natural"
-                    fill="var(--color-prevWpm)"
-                    stroke="var(--color-prevWpm)"
-                    fillOpacity={0.08}
-                    strokeWidth={2}
-                  />
-                )}
-                <ChartLegend content={<ChartLegendContent />} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-          {!recentVsPrevious14.showPreviousSeries ? (
-            <div className="mt-2 text-xs text-slate-500">Previous line appears once you have 28 active days</div>
-          ) : null}
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">Recent avg WPM</div>
-            <div className="text-lg font-semibold text-slate-100">{recentVsPrevious14.recentAvgWpm.toFixed(1)}</div>
-            <div className="mt-0.5 text-xs text-slate-500">{recentVsPrevious14.recentDaysUsed}/14 days</div>
-          </div>
-
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">Previous avg WPM</div>
-            <div className="text-lg font-semibold text-slate-100">
-              {recentVsPrevious14.hasPreviousWindow ? recentVsPrevious14.previousAvgWpm.toFixed(1) : "—"}
-            </div>
-            <div className="mt-0.5 text-xs text-slate-500">
-              {recentVsPrevious14.hasPreviousWindow ? `${recentVsPrevious14.previousDaysUsed}/14 days` : "Need 28 active days"}
+              )}
+              <ChartLegend content={<ChartLegendContent />} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </ChartContainer>
+        <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-5">
+          <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
+            <div className="text-xs text-[rgba(200,240,255,0.6)]">Recent avg WPM</div>
+            <div className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+              <NumberAnimation value={recentVsPrevious14.recentAvgWpm} delay={0.7} decimals={1} />
             </div>
           </div>
-
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">Δ WPM</div>
-            <div className="text-lg font-semibold text-slate-100">
-              {recentVsPrevious14.hasPreviousWindow
-                ? `${recentVsPrevious14.deltaWpm >= 0 ? "+" : ""}${recentVsPrevious14.deltaWpm.toFixed(1)}`
-                : "—"}
+          <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
+            <div className="text-xs text-[rgba(200,240,255,0.6)]">Previous avg WPM</div>
+            <div className="text-lg font-semibold text-[#E0E7FF]">
+              {recentVsPrevious14.hasPreviousWindow ? (
+                <NumberAnimation value={recentVsPrevious14.previousAvgWpm} delay={0.8} />
+              ) : (
+                "—"
+              )}
             </div>
-            <div className="mt-0.5 text-xs text-slate-500">Recent minus previous</div>
           </div>
-
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">Recent sessions</div>
-            <div className="text-lg font-semibold text-slate-100">{recentVsPrevious14.recentSessions}</div>
-            <div className="mt-0.5 text-xs text-slate-500">Last 14 active days</div>
-          </div>
-
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">Recent minutes</div>
-            <div className="text-lg font-semibold text-slate-100">{recentVsPrevious14.recentMinutes}</div>
-            <div className="mt-0.5 text-xs text-slate-500">Time spent typing</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3">
-        <div className="mb-2 flex items-end justify-between gap-3">
-          <div>
-            <div className="text-xs text-slate-400">Advanced analytics</div>
-            <div className="mt-0.5 text-sm font-medium text-slate-100">Signals from your last 28 active days</div>
-          </div>
-          <div className="text-right text-xs text-slate-400">{advanced.pointsUsed} days used</div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">Trend confidence</div>
-            <div className="text-lg font-semibold text-slate-100">{advanced.confidencePct}%</div>
-            <div className="mt-0.5 text-xs text-slate-500">Based on R² (higher = clearer trend)</div>
-          </div>
-
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">Volatility</div>
-            <div className="text-lg font-semibold text-slate-100">{advanced.volatilityCvPct}%</div>
-            <div className="mt-0.5 text-xs text-slate-500">Lower = steadier performance</div>
-          </div>
-
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">Streaks</div>
-            <div className="text-lg font-semibold text-slate-100">{advanced.streaks.current} / {advanced.streaks.longest}</div>
-            <div className="mt-0.5 text-xs text-slate-500">Current / longest active-day streak</div>
-          </div>
-
-          <div className="rounded-md border border-white/10 bg-white/5 p-3">
-            <div className="text-xs text-slate-400">7-day shift</div>
-            <div className="text-lg font-semibold text-slate-100">
-              {advanced.wpmDelta7 >= 0 ? "+" : ""}{advanced.wpmDelta7.toFixed(1)} WPM
+          <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
+            <div className="text-xs text-[rgba(200,240,255,0.6)]">Δ WPM</div>
+            <div className={`text-lg font-semibold ${recentVsPrevious14.deltaWpm >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {recentVsPrevious14.hasPreviousWindow ? (
+                <>
+                  {recentVsPrevious14.deltaWpm >= 0 ? '+' : ''}
+                  <NumberAnimation value={recentVsPrevious14.deltaWpm} delay={0.9} />
+                </>
+              ) : "—"}
             </div>
-            <div className="mt-0.5 text-xs text-slate-400">
-              {advanced.accDelta7 >= 0 ? "+" : ""}{advanced.accDelta7.toFixed(1)}% accuracy
+          </div>
+          <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
+            <div className="text-xs text-[rgba(200,240,255,0.6)]">Recent sessions</div>
+            <div className="text-lg font-semibold text-[#E0E7FF]">
+              <NumberAnimation value={recentVsPrevious14.recentSessions} delay={1.0} />
+            </div>
+          </div>
+          <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
+            <div className="text-xs text-[rgba(200,240,255,0.6)]">Recent minutes</div>
+            <div className="text-lg font-semibold text-[#E0E7FF]">
+              <NumberAnimation value={recentVsPrevious14.recentMinutes} delay={1.1} />
             </div>
           </div>
         </div>
+      </motion.section>
 
-        <div className="mt-3 rounded-md border border-white/10 bg-white/5 p-3">
-          <div className="text-xs text-slate-400">Best day (quality index)</div>
-          {advanced.bestDay ? (
-            <div className="mt-0.5 text-sm text-slate-100">
-              {formatShortDate(advanced.bestDay.localDate)} · {advanced.bestDay.avgWpm.toFixed(1)} WPM · {advanced.bestDay.avgAccuracy.toFixed(1)}% · {advanced.bestDay.totalMinutes}m · {advanced.bestDay.sessionsCount} sessions
-            </div>
-          ) : (
-            <div className="mt-0.5 text-sm text-slate-500">Not enough recent activity yet</div>
-          )}
+      {/* Advanced Analytics Card */}
+      <motion.section
+        variants={cardVariants}
+        className="rounded-xl bg-[rgba(20,50,80,0.3)] backdrop-blur-sm border border-[rgba(220,180,255,0.15)] p-6 hover:border-[rgba(220,180,255,0.3)] transition-all shadow-xl"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <motion.div variants={headerIconVariants} className="p-2 rounded-lg bg-[rgba(220,180,255,0.1)]">
+            <CpuIcon className="w-5 h-5 text-purple-300" />
+          </motion.div>
+          <h3 className="text-lg font-medium bg-clip-text text-transparent bg-gradient-to-r from-purple-300 to-pink-400">
+            Advanced Analytics
+          </h3>
         </div>
-      </div>
-    </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
+            <div className="flex items-center gap-1 mb-1">
+              <SparklesIcon className="w-3 h-3 text-purple-300" />
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">Trend confidence</div>
+            </div>
+            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-300 to-pink-400">
+              <NumberAnimation value={advanced.confidencePct} unit="%" delay={1.2} />
+            </div>
+            <div className="mt-1 text-xs text-slate-500">Based on R² (higher = clearer trend)</div>
+          </div>
+          <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
+            <div className="flex items-center gap-1 mb-1">
+              <ActivityIcon className="w-3 h-3 text-purple-300" />
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">Volatility</div>
+            </div>
+            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400">
+              <NumberAnimation value={advanced.volatilityCvPct} unit="%" delay={1.3} />
+            </div>
+            <div className="mt-1 text-xs text-slate-500">Lower = steadier performance</div>
+          </div>
+          <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
+            <div className="flex items-center gap-1 mb-1">
+              <FlameIcon className="w-3 h-3 text-purple-300" />
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">Streaks</div>
+            </div>
+            <div className="text-xl font-semibold text-[#E0E7FF]">
+              <NumberAnimation value={advanced.streaks.current} delay={1.4} /> / <NumberAnimation value={advanced.streaks.longest} delay={1.45} />
+            </div>
+            <div className="mt-1 text-xs text-slate-500">Current / longest active-day streak</div>
+          </div>
+          <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
+            <div className="flex items-center gap-1 mb-1">
+              <TrendingUpIcon className="w-3 h-3 text-purple-300" />
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">7-day shift</div>
+            </div>
+            <div className={`text-xl font-semibold text-slate-500`}>
+              {advanced.wpmDelta7 >= 0 ? '+' : ''}
+              <NumberAnimation value={advanced.wpmDelta7} delay={1.5} /> WPM
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
+            <div className="flex items-center gap-1 mb-1">
+              <CpuIcon className="w-3 h-3 text-purple-300" />
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">Effective WPM</div>
+            </div>
+            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-300 to-pink-400">
+              <NumberAnimation value={sessionInsights.effectiveWpm} delay={1.55} decimals={1} />
+            </div>
+            <div className="mt-1 text-xs text-slate-500">Time-weighted: WPM × (accuracy)</div>
+          </div>
+
+          <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
+            <div className="flex items-center gap-1 mb-1">
+              <TrendingUpIcon className="w-3 h-3 text-purple-300" />
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">P90 WPM</div>
+            </div>
+            <div className="text-xl font-semibold text-[#E0E7FF]">
+              {sessionInsights.enoughForPercentiles ? (
+                <NumberAnimation value={sessionInsights.p90Wpm} delay={1.6} decimals={1} />
+              ) : (
+                "—"
+              )}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">Top 10% speed (needs 10+ sessions)</div>
+          </div>
+
+          <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
+            <div className="flex items-center gap-1 mb-1">
+              <ActivityIcon className="w-3 h-3 text-purple-300" />
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">Error rate</div>
+            </div>
+            <div className="text-xl font-semibold text-[#E0E7FF]">
+              <NumberAnimation value={sessionInsights.mistakesPer100Chars} delay={1.65} decimals={2} />
+              <span className="ml-1 text-sm text-slate-400">/100c</span>
+            </div>
+            <div className="mt-1 text-xs text-slate-500">Mistakes per 100 typed chars</div>
+          </div>
+
+          <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
+            <div className="flex items-center gap-1 mb-1">
+              <FlameIcon className="w-3 h-3 text-purple-300" />
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">Deep focus</div>
+            </div>
+            <div className="text-xl font-semibold text-[#E0E7FF]">
+              <NumberAnimation value={sessionInsights.deepFocusSharePct} unit="%" delay={1.7} decimals={0} />
+            </div>
+            <div className="mt-1 text-xs text-slate-500">Sessions lasting 2+ minutes</div>
+          </div>
+        </div>
+        {advanced.bestDay && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.6 }}
+            className="mt-4 rounded-lg border border-[rgba(220,180,255,0.2)] bg-[rgba(20,50,80,0.3)] p-3 backdrop-blur-sm flex items-center gap-3"
+          >
+            <AwardIcon className="w-5 h-5 text-yellow-300" />
+            <div>
+              <div className="text-xs text-[rgba(200,240,255,0.6)]">Best day</div>
+              <div className="text-sm text-[#E0E7FF]">
+                {formatShortDate(advanced.bestDay.localDate)} ·{" "}
+                <NumberAnimation value={advanced.bestDay.avgWpm} decimals={1} delay={1.7} /> WPM ·{" "}
+                <NumberAnimation value={advanced.bestDay.avgAccuracy} decimals={1} delay={1.8} />% ·{" "}
+                <NumberAnimation value={advanced.bestDay.totalMinutes} delay={1.9} />m
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </motion.section>
+    </motion.div>
   );
 }

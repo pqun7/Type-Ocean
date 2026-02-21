@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Area, AreaChart, CartesianGrid, XAxis } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
-import { NumberAnimation } from "../core/number-animation";
+import { NumberAnimation } from "../core/number-animation-view";
 import {
   Card,
   CardContent,
@@ -69,7 +69,7 @@ const ResultsChart = ({
 
   const sessionConsistency = React.useMemo(() => {
     const currentSession = wpmHistory[wpmHistory.length - 1] || [];
-    return computeConsistency([currentSession] as any);
+    return computeConsistency([currentSession]);
   }, [wpmHistory]);
 
   const chartConfig = {

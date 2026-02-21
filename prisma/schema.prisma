@@ -50,6 +50,9 @@ model PlayerProfile {
   username     String
   level        Int     @default(1)
   xp           Int     @default(0)
+  rating       Int     @default(1000)
+  ratingDeviation Int  @default(350)
+  ratingUpdatedAt DateTime?
   achievements Json    @default("[]")
   longTermStats Json?
   avatar       String?
@@ -57,6 +60,8 @@ model PlayerProfile {
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([rating])
 
   @@map("player_profile")
 }

@@ -42,7 +42,7 @@ export function computeDailyActivityStrength(
 
   // Volume: minutes dominate; sessions add smaller signal.
   // The quality factor slightly boosts minutes so higher-quality practice "counts" more.
-  const sessionWeight = 2; // minutes-equivalent per session
+  const sessionWeight = 0.25; // minutes-equivalent per session (small signal)
   const minutesFactor = 0.7 + 0.3 * quality01;
 
   const rawScore = totalMinutes * minutesFactor + sessionsCount * sessionWeight;
@@ -55,12 +55,11 @@ export function computeDailyActivityStrength(
   const denom = Math.log1p(referenceRaw);
   const volume01 = denom <= 0 ? 0 : clamp(Math.log1p(rawScore) / denom, 0, 1);
 
-  // Apply a small-day penalty to make extremely short sessions score lower
-  // while preserving the original log normalization and diminishing returns
-  // behavior for medium->large days.
-  const smallRef = 12; // rawScore below this is considered "very small"
-  const smallPenalty = clamp(rawScore / smallRef, 0, 1);
-  const strength01 = clamp(volume01 * smallPenalty, 0, 1);
+  // Penalize very short days so a bunch of tiny sessions don't light up the heatmap too much.
+  // Use minutes as the main gate (time spent matters most for activity strength).
+  const minutesRef = 20;
+  const minutesPenalty = clamp(Math.sqrt(totalMinutes / minutesRef), 0, 1);
+  const strength01 = clamp(volume01 * minutesPenalty, 0, 1);
   const strength100 = Number((strength01 * 100).toFixed(2));
 
   return {

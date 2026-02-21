@@ -1,6 +1,9 @@
+// auth/verification/verify-email-otp-dialog (improved)
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import dynamic from "next/dynamic";
 
 import {
   Dialog,
@@ -12,11 +15,15 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { HiOutlineMail } from "react-icons/hi";
+import { Loader } from "@/assets";
 
 import { useAlert } from "@/contexts/alert-context";
 import { requestEmailVerificationOtp } from "@/actions/email-verification-otp";
 import { verifyEmailOtp } from "@/actions/verify-email-otp";
 import { emailOtpErrorToMessage, maskEmail } from "@/components/auth/verification/email-otp-ui";
+
+const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 type VerifyState = { success: boolean; error: string | null };
 
@@ -133,58 +140,97 @@ export function VerifyEmailOtpDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="border-white/10 bg-slate-950/90 text-slate-100 backdrop-blur">
-        <DialogHeader>
-          <DialogTitle>Verify email</DialogTitle>
-          <DialogDescription className="text-slate-300">
-            Enter the 6-digit code sent to {destinationMasked}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          <Button
-            type="button"
-            onClick={handleSend}
-            disabled={resendDisabled}
-            variant="outline"
-            className="w-full border-white/10 bg-slate-900/70 text-slate-100 shadow-sm backdrop-blur hover:bg-slate-900"
+      <AnimatePresence>
+        {props.open && (
+          <DialogContent
+            className="border border-[#ffffff15] bg-[#0a0a1f]/90 text-[#E0E7FF] backdrop-blur-lg sm:max-w-md"
+            forceMount
           >
-            {isSending
-              ? "Sending…"
-              : cooldownRemaining > 0
-                ? `Resend in ${cooldownRemaining}s`
-                : "Send / Resend code"}
-          </Button>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+            >
+              <DialogHeader>
+                <div className="mx-auto mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 backdrop-blur-sm">
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                  >
+                    <HiOutlineMail
+                      className="h-10 w-10 text-primary drop-shadow-glow"
+                      style={{
+                        filter: "drop-shadow(0 0 8px rgba(105, 208, 255, 0.4))",
+                      }}
+                    />
+                  </motion.div>
+                </div>
+                <DialogTitle className="text-center text-xl text-[#E0E7FF]">
+                  Verify your email
+                </DialogTitle>
+                <DialogDescription className="text-center text-[#8A8FB5]">
+                  Enter the 6-digit code sent to <span className="font-medium text-[#69d0ff]">{destinationMasked}</span>
+                </DialogDescription>
+              </DialogHeader>
 
-          <form action={formAction} className="space-y-3">
-            <input type="hidden" name="redirect" value="false" />
+              <div className="space-y-4">
+                <Button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={resendDisabled}
+                  variant="outline"
+                  className="w-full rounded-lg border-[#fb923c] py-5 text-[#fb923c] transition-colors duration-300 hover:bg-[#fb923c]/20 hover:text-[#fed7aa] disabled:opacity-50"
+                >
+                  {isSending ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Lottie animationData={Loader} loop className="h-5 w-5" />
+                      Sending...
+                    </span>
+                  ) : cooldownRemaining > 0 ? (
+                    `Resend in ${cooldownRemaining}s`
+                  ) : (
+                    "Resend code"
+                  )}
+                </Button>
 
-            <div className="grid gap-2">
-              <Label htmlFor="otp-code" className="text-slate-200">
-                Verification code
-              </Label>
-              <Input
-                id="otp-code"
-                name="code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                placeholder="123456"
-                className="tracking-widest text-center"
-                onInput={(e) => {
-                  const el = e.currentTarget;
-                  el.value = el.value.replace(/\D/g, "").slice(0, 6);
-                }}
-                required
-              />
-            </div>
+                <form action={formAction} className="space-y-4">
+                  <input type="hidden" name="redirect" value="false" />
 
-            <Button type="submit" className="w-full" disabled={isPending}>
-              {isPending ? "Verifying…" : "Verify"}
-            </Button>
-          </form>
-        </div>
-      </DialogContent>
+                  <div className="grid gap-2">
+                    <Label htmlFor="otp-code" className="text-[#E0E7FF]">
+                      Verification code
+                    </Label>
+                    <Input
+                      id="otp-code"
+                      name="code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      placeholder="123456"
+                      className="border-[#3A3A5F] bg-[#1D2B3A]/30 text-center tracking-widest text-[#E0E7FF] focus:border-[#69d0ff]"
+                      onInput={(e) => {
+                        const el = e.currentTarget;
+                        el.value = el.value.replace(/\D/g, "").slice(0, 6);
+                      }}
+                      required
+                    />
+                  </div>
+
+                  <Button type="submit" className="btn-main w-full py-5" disabled={isPending}>
+                    {isPending ? (
+                      <Lottie animationData={Loader} loop className="h-6 w-6" />
+                    ) : (
+                      "Verify"
+                    )}
+                  </Button>
+                </form>
+              </div>
+            </motion.div>
+          </DialogContent>
+        )}
+      </AnimatePresence>
     </Dialog>
   );
 }

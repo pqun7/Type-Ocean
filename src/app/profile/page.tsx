@@ -1,4 +1,4 @@
-// src/app/api/profile/page
+// src/app/profile/page.tsx
 import { redirect } from "next/navigation";
 
 import { auth } from "@/features/auth/lib/auth";
@@ -10,6 +10,7 @@ import {
   getSessionHistory,
 } from "@/helper/session-stats";
 import { Prisma } from "@prisma/client";
+import { getRankInfo } from "@/features/ranking/rating";
 
 import ProfileClient from "./profile-client";
 
@@ -47,6 +48,7 @@ export default async function ProfilePage() {
         select: {
           level: true;
           xp: true;
+          rating: true;
           achievements: true;
           avatar: true;
         };
@@ -54,7 +56,9 @@ export default async function ProfilePage() {
     };
   }>;
 
-  type ProfilePageUser = Omit<ProfileDbUser, "passwordHash"> & { hasPassword: boolean };
+  type ProfilePageUser = Omit<ProfileDbUser, "passwordHash"> & {
+    hasPassword: boolean;
+  };
 
   let user: ProfilePageUser | null = null;
 
@@ -77,6 +81,7 @@ export default async function ProfilePage() {
           select: {
             level: true,
             xp: true,
+            rating: true,
             achievements: true,
             avatar: true,
           },
@@ -94,29 +99,32 @@ export default async function ProfilePage() {
     const code = getPrismaErrorCode(err);
     console.error("/profile prisma.user.findUnique failed", { code, err });
 
-    const isNetworkLike = code === "P5010" || (err instanceof Error && err.message.toLowerCase().includes("fetch failed"));
+    const isNetworkLike =
+      code === "P5010" ||
+      (err instanceof Error && err.message.toLowerCase().includes("fetch failed"));
 
     return (
-      <div className="min-h-svh p-6 md:p-10">
-        <div className="mx-auto w-full max-w-none space-y-4">
-          <h1 className="text-2xl font-semibold text-slate-100">Profile</h1>
+      <div className="min-h-svh bg-[#0a0a1f] p-6 md:p-10">
+        <div className="mx-auto max-w-6xl">
+          <h1 className="mb-8 text-4xl font-bold text-[#E0E7FF]">Profile</h1>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <h2 className="text-lg font-medium text-slate-100">Temporarily unavailable</h2>
-            <p className="mt-2 text-sm text-slate-300">
-              {isNetworkLike
-                ? "We couldn’t reach the database service. Please try again in a moment."
-                : "We couldn’t load your profile right now. Please try again later."}
-            </p>
-            {/* <p className="mt-2 text-xs text-slate-400">
-              If you’re deploying, double-check your `DATABASE_URL` environment variable.
-            </p> */}
-          </div>
+          <div className="space-y-6">
+            <div className="border-b border-white/10 pb-4">
+              <h2 className="text-2xl font-semibold text-[#E0E7FF]">
+                Temporarily unavailable
+              </h2>
+              <p className="mt-2 text-[#8A8FB5]">
+                {isNetworkLike
+                  ? "We couldn’t reach the database service. Please try again in a moment."
+                  : "We couldn’t load your profile right now. Please try again later."}
+              </p>
+            </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-            <h2 className="text-lg font-medium text-slate-100">Account</h2>
-            <div className="mt-3">
-              <SignOut />
+            <div>
+              <h2 className="mb-4 text-2xl font-semibold text-[#E0E7FF]">
+                Account
+              </h2>
+              <SignOut className="w-full rounded-lg border border-[#69d0ff] py-5 font-medium text-[#60a5fa] transition-colors duration-300 hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] md:w-auto" />
             </div>
           </div>
         </div>
@@ -128,8 +136,7 @@ export default async function ProfilePage() {
     redirect("/auth?form=login");
   }
 
-  // Ensure PlayerProfile exists for legacy users
-  let profile = user.profile;
+  let { profile } = user;
   if (!profile) {
     try {
       profile = await prisma.playerProfile.upsert({
@@ -146,6 +153,7 @@ export default async function ProfilePage() {
         select: {
           level: true,
           xp: true,
+          rating: true,
           achievements: true,
           avatar: true,
         },
@@ -153,8 +161,7 @@ export default async function ProfilePage() {
     } catch (err) {
       const code = getPrismaErrorCode(err);
       console.error("/profile prisma.playerProfile.upsert failed", { code, err });
-      // Keep page alive with minimal defaults.
-      profile = { level: 1, xp: 0, achievements: [], avatar: null };
+      profile = { level: 1, xp: 0, rating: 1000, achievements: [], avatar: null };
     }
   }
 
@@ -197,6 +204,13 @@ export default async function ProfilePage() {
     timestamp: string;
     textType?: "SHORT" | "MEDIUM" | "LONG";
     textLength: number;
+    wpm?: number;
+    accuracy?: number;
+    consistency?: number;
+    timeSpent?: number;
+    mistakes?: number;
+    corrections?: number;
+    localDate?: string;
   }> = [];
 
   try {
@@ -206,6 +220,13 @@ export default async function ProfilePage() {
       timestamp: session.timestamp,
       textType: session.textType,
       textLength: session.textLength,
+      wpm: session.wpm,
+      accuracy: session.accuracy,
+      consistency: session.consistency,
+      timeSpent: session.timeSpent,
+      mistakes: session.mistakes,
+      corrections: session.corrections,
+      localDate: session.localDate,
     }));
   } catch {
     sessionHistory = [];
@@ -213,8 +234,9 @@ export default async function ProfilePage() {
 
   return (
     <div className="min-h-svh p-6 md:p-10">
-      <div className="mx-auto w-full max-w-none space-y-4">
-        <h1 className="text-2xl font-semibold text-slate-100">Profile</h1>
+      <div className="mx-auto max-w-6xl">
+        {/* <h1 className="mb-8 text-4xl font-bold text-[#E0E7FF]">Profile</h1> */}
+
         <ProfileClient
           user={{
             id: user.id,
@@ -227,7 +249,9 @@ export default async function ProfilePage() {
             pendingEmailRequestedAt: user.pendingEmailRequestedAt
               ? user.pendingEmailRequestedAt.toISOString()
               : null,
-            emailVerifyOtpSentAt: user.emailVerifyOtpSentAt ? user.emailVerifyOtpSentAt.toISOString() : null,
+            emailVerifyOtpSentAt: user.emailVerifyOtpSentAt
+              ? user.emailVerifyOtpSentAt.toISOString()
+              : null,
             emailVerified: user.emailVerified ? user.emailVerified.toISOString() : null,
             image: user.image,
             hasPassword: user.hasPassword,
@@ -236,22 +260,22 @@ export default async function ProfilePage() {
           profile={{
             level: profile.level,
             xp: profile.xp,
+            rating: profile.rating,
             achievementsCount: Array.isArray(profile.achievements)
               ? profile.achievements.length
               : 0,
             avatar: profile.avatar,
+            rank: getRankInfo(profile.rating),
           }}
           stats={stats}
           dailyActivity={dailyActivity}
           sessionHistory={sessionHistory}
         />
 
-        <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-          <h2 className="text-lg font-medium text-slate-100">Account</h2>
-          <div className="mt-3">
-            <SignOut />
-          </div>
-        </div>
+        {/* <div className="mt-16 border-t border-white/10 pt-8">
+          <h2 className="mb-4 text-2xl font-semibold text-[#E0E7FF]">Account</h2>
+          <SignOut className="w-full rounded-lg border border-[#69d0ff] py-5 font-medium text-[#60a5fa] transition-colors duration-300 hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] md:w-auto" />
+        </div> */}
       </div>
     </div>
   );

@@ -1,26 +1,62 @@
-// src/app/api/profile/page-client
+// src/app/api/profile/page-client.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Camera, CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Pencil, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Camera,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  Pencil,
+  X,
+  TrendingUp,
+  Clock,
+  Target,
+  Award,
+  BarChart3,
+  TrendingUpIcon,
+  Activity,
+} from "lucide-react";
+import { HiOutlineMail, HiOutlineUser } from "react-icons/hi";
+import { motion, LayoutGroup } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { HeatmapCalendar, HeatmapDatum, HeatmapCell } from "@/components/ui/heatmap-calendar";
 import { useAlert } from "@/contexts/alert-context";
 import { VerifyEmailOtpDialog } from "@/components/auth/verification/verify-email-otp-dialog";
 import AccountStatsChart from "./account-stats-chart";
 import { DeleteAccountButton } from "./delete-account-button";
+import { SignOut } from "@/components/auth/sign-out";
 import { computeDailyActivityStrength } from "@/features/typing/utils/activity-strength";
+import { NumberAnimation } from "@/components/core/number-animation-view";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 
 type ProfileData = {
   level: number;
   xp: number;
+  rating: number;
   achievementsCount: number;
   avatar: string | null;
+  rank: {
+    rating: number;
+    tier: string;
+    division: string;
+    progressPct: number;
+    nextAtRating: number | null;
+  };
 };
 
 type UserData = {
@@ -68,51 +104,14 @@ type SessionHistoryEntry = {
   timestamp: string;
   textType?: "SHORT" | "MEDIUM" | "LONG";
   textLength: number;
+  wpm?: number;
+  accuracy?: number;
+  consistency?: number;
+  timeSpent?: number;
+  mistakes?: number;
+  corrections?: number;
+  localDate?: string;
 };
-
-function formatLocalDateKey(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function generateDemoHeatmapData(days: number): HeatmapDatum[] {
-  const end = new Date();
-  end.setHours(0, 0, 0, 0);
-
-  const out: HeatmapDatum[] = [];
-  for (let i = days - 1; i >= 0; i -= 1) {
-    const d = new Date(end);
-    d.setDate(d.getDate() - i);
-
-    // Deterministic pattern: most days low, some medium, occasional spikes.
-    const dayIndex = Math.floor((d.getTime() / 86400000) % 100000);
-    const base = (dayIndex * 9301 + 49297) % 233280;
-    const r = base / 233280;
-
-    let totalMinutes = 0;
-    if (r < 0.55) totalMinutes = Math.floor(r * 6); // 0..3
-    else if (r < 0.85) totalMinutes = 6 + Math.floor((r - 0.55) * 40); // 6..18
-    else totalMinutes = 25 + Math.floor((r - 0.85) * 220); // 25..58
-
-    // Add a weekly spike to make the map visibly varied.
-    if (d.getDay() === 6) totalMinutes += 35; // Saturdays
-
-    const sessionsCount = totalMinutes === 0 ? 0 : Math.max(1, Math.round(totalMinutes / 12));
-    const avgWpm = sessionsCount ? 72 + Math.round((r - 0.5) * 35) : 0;
-    const avgAccuracy = sessionsCount ? 93 + Math.round((0.5 - Math.abs(r - 0.5)) * 6) : 0;
-
-    out.push({
-      date: formatLocalDateKey(d),
-      value: totalMinutes,
-      meta: {
-        sessionsCount,
-        totalMinutes,
-        avgWpm,
-        avgAccuracy,
-      },
-    });
-  }
-  return out;
-}
 
 function formatDurationSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
@@ -155,12 +154,12 @@ function AvatarView({ url, username }: { url: string | null; username: string })
   );
 }
 
+
 const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
 const INPUT_MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED_INPUT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const AVATAR_DIMENSION = 512;
 const AVATAR_QUALITY = 0.82;
-
 
 function safeDate(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -182,17 +181,39 @@ function StatTile(props: {
   label: string;
   value: React.ReactNode;
   subValue?: React.ReactNode;
+  icon?: React.ReactNode;
+  gradient?: string;
 }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-      <div className="text-xs text-slate-400">{props.label}</div>
-      <div className="text-lg font-semibold text-slate-100">{props.value}</div>
-      {props.subValue ? (
-        <div className="mt-0.5 text-xs text-slate-400">{props.subValue}</div>
-      ) : null}
-    </div>
+    <motion.div
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      className="rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-4 backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all"
+    >
+      <div className="flex items-center gap-2 text-[rgba(200,240,255,0.8)]">
+        {props.icon && <span className="text-cyan-300">{props.icon}</span>}
+        <span className="text-xs uppercase tracking-wider">{props.label}</span>
+      </div>
+      <div className={`mt-1 text-2xl font-bold ${props.gradient ? `bg-clip-text text-transparent ${props.gradient}` : "text-slate-100"}`}>
+        {props.value}
+      </div>
+      {props.subValue && <div className="mt-1 text-xs text-[rgba(200,240,255,0.6)]">{props.subValue}</div>}
+    </motion.div>
   );
 }
+
+const fadeInUp = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.4 },
+};
+
+const staggerContainer = {
+  animate: {
+    transition: {
+      staggerChildren: 0.1,
+    },
+  },
+};
 
 export default function ProfileClient(props: {
   user: UserData;
@@ -203,9 +224,6 @@ export default function ProfileClient(props: {
 }) {
   const router = useRouter();
   const { showAlert } = useAlert();
-
-  const isDev = process.env.NODE_ENV !== "production";
-  const [forceHeatmapDemo, setForceHeatmapDemo] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
@@ -220,12 +238,16 @@ export default function ProfileClient(props: {
   const [emailCurrentPassword, setEmailCurrentPassword] = useState("");
 
   const [editingPassword, setEditingPassword] = useState(false);
-  const [passwordCurrentPassword, setPasswordCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+
+  const passwordCurrentValueRef = useRef("");
+  const newPasswordValueRef = useRef("");
+  const confirmNewPasswordValueRef = useRef("");
+  const passwordCurrentInputRef = useRef<HTMLInputElement | null>(null);
+  const newPasswordInputRef = useRef<HTMLInputElement | null>(null);
+  const confirmNewPasswordInputRef = useRef<HTMLInputElement | null>(null);
 
   const [busy, setBusy] = useState<null | "username" | "avatar" | "email" | "password">(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -276,7 +298,7 @@ export default function ProfileClient(props: {
     setOtpDialogInitialSentAt(otpInitialSentAt);
   }, [otpDestinationEmail, otpInitialSentAt]);
 
-  async function cancelEmailChangeRequest() {
+async function cancelEmailChangeRequest() {
     try {
       await patchUser({
         // PATCHing the current email triggers cancelPendingEmail server-side.
@@ -355,7 +377,7 @@ export default function ProfileClient(props: {
       };
     };
 
-    const realData = (props.dailyActivity ?? []).map((row) => {
+    return (props.dailyActivity ?? []).map((row) => {
       const totalMinutes = row.totalTimeSpentSec > 0 ? row.totalTimeSpentSec / 60 : 0;
       const sessionsCount = Math.max(0, row.sessionsCount);
       const hasTimeWeightedWpm = row.totalTimeSpentSec > 0 && row.sumWpmTime > 0;
@@ -374,42 +396,7 @@ export default function ProfileClient(props: {
         avgAccuracy,
       });
     });
-
-    const demoData = isDev ? generateDemoHeatmapData(365) : [];
-    const demoStrengthData = demoData.map((d) => {
-      const meta = (d.meta ?? null) as null | {
-        sessionsCount: number;
-        totalMinutes: number;
-        avgWpm: number;
-        avgAccuracy: number;
-      };
-
-      if (!meta || typeof d.date !== "string") {
-        const dateKey = typeof d.date === "string" ? d.date : formatLocalDateKey(d.date);
-        return toStrengthDatum({
-          date: dateKey,
-          totalMinutes: typeof d.value === "number" ? d.value : 0,
-          sessionsCount: 0,
-          avgWpm: 0,
-          avgAccuracy: 0,
-        });
-      }
-
-      const dateKey = typeof d.date === "string" ? d.date : formatLocalDateKey(d.date);
-      return toStrengthDatum({
-        date: dateKey,
-        totalMinutes: meta.totalMinutes,
-        sessionsCount: meta.sessionsCount,
-        avgWpm: meta.avgWpm,
-        avgAccuracy: meta.avgAccuracy,
-      });
-    });
-
-    if (isDev && forceHeatmapDemo) return demoStrengthData;
-    if (realData.length > 0) return realData;
-    if (!isDev) return [];
-    return demoStrengthData;
-  }, [forceHeatmapDemo, isDev, props.dailyActivity]);
+  }, [props.dailyActivity]);
 
   const renderHeatmapTooltip = useCallback((cell: HeatmapCell) => {
     if (cell.disabled) return "Outside range";
@@ -422,14 +409,8 @@ export default function ProfileClient(props: {
       strength100?: number;
     };
 
-    if (!meta) {
-      return (
-        <div className="text-sm">
-          <div className="font-medium">0 sessions</div>
-          <div className="text-muted-foreground">{cell.label}</div>
-        </div>
-      );
-    }
+    if (!meta) return null;
+    if (meta?.sessionsCount === 0) return null;
 
     const sessionsLabel = meta.sessionsCount === 1 ? "session" : "sessions";
     const minutesRounded = Math.round(meta.totalMinutes);
@@ -437,9 +418,7 @@ export default function ProfileClient(props: {
 
     return (
       <div className="text-sm">
-        <div className="font-medium">
-          Strength {strengthRounded}/100
-        </div>
+        <div className="font-medium">Strength {strengthRounded}/100</div>
         <div className="text-muted-foreground">
           {meta.sessionsCount} {sessionsLabel} · {minutesRounded}m · Avg {Math.round(meta.avgWpm)} WPM · {Math.round(meta.avgAccuracy)}%
         </div>
@@ -447,6 +426,70 @@ export default function ProfileClient(props: {
       </div>
     );
   }, []);
+
+  const accountStatsChartSection = useMemo(
+    () => (
+      <motion.div variants={fadeInUp}>
+        <AccountStatsChart
+          stats={props.stats}
+          dailyActivity={props.dailyActivity}
+          sessionHistory={props.sessionHistory}
+        />
+      </motion.div>
+    ),
+    [props.dailyActivity, props.sessionHistory, props.stats]
+  );
+
+  const heatmapSection = useMemo(
+    () => (
+      <motion.div variants={fadeInUp}>
+        <HeatmapCalendar
+          title="Activity"
+          data={heatmapData}
+          rangeDays={heatmapRange.rangeDays}
+          endDate={heatmapRange.endDate}
+          className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all"
+          responsive
+          cellSize={22}
+          cellGap={4}
+          levelStrategy="fixedThresholds"
+          fixedThresholds={[10, 25, 45, 70]}
+          palette={[
+            "rgba(255, 255, 255, 0.06)",
+            "rgba(120, 200, 255, 0.22)",
+            "rgba(120, 200, 255, 0.42)",
+            "rgba(120, 200, 255, 0.68)",
+            "rgba(120, 200, 255, 0.96)",
+          ]}
+          axisLabels={{
+            show: true,
+            showWeekdays: true,
+            showMonths: true,
+            weekdayIndices: [0, 1, 2, 3, 4, 5, 6],
+            monthFormat: "short",
+            minWeekSpacing: 1,
+          }}
+          renderTooltip={renderHeatmapTooltip}
+          legend={{
+            showText: true,
+            showArrow: true,
+            lessText: "Low strength",
+            moreText: "High strength",
+            placement: "bottom",
+            direction: "row",
+            swatchSize: 10,
+            swatchGap: 3,
+          }}
+        />
+      </motion.div>
+    ),
+    [
+      heatmapData,
+      heatmapRange.endDate,
+      heatmapRange.rangeDays,
+      renderHeatmapTooltip,
+    ]
+  );
 
   async function patchUser(body: unknown) {
     const res = await fetch("/api/user", {
@@ -538,14 +581,23 @@ export default function ProfileClient(props: {
   }
 
   function startPasswordEdit() {
+    passwordCurrentValueRef.current = "";
+    newPasswordValueRef.current = "";
+    confirmNewPasswordValueRef.current = "";
+    if (passwordCurrentInputRef.current) passwordCurrentInputRef.current.value = "";
+    if (newPasswordInputRef.current) newPasswordInputRef.current.value = "";
+    if (confirmNewPasswordInputRef.current) confirmNewPasswordInputRef.current.value = "";
     setEditingPassword(true);
   }
 
   function cancelPasswordEdit() {
     setEditingPassword(false);
-    setPasswordCurrentPassword("");
-    setNewPassword("");
-    setConfirmNewPassword("");
+    passwordCurrentValueRef.current = "";
+    newPasswordValueRef.current = "";
+    confirmNewPasswordValueRef.current = "";
+    if (passwordCurrentInputRef.current) passwordCurrentInputRef.current.value = "";
+    if (newPasswordInputRef.current) newPasswordInputRef.current.value = "";
+    if (confirmNewPasswordInputRef.current) confirmNewPasswordInputRef.current.value = "";
     setShowCurrentPassword(false);
     setShowNewPassword(false);
     setShowConfirmNewPassword(false);
@@ -554,7 +606,9 @@ export default function ProfileClient(props: {
   async function onSavePassword() {
     if (busy !== null) return;
 
-    const next = newPassword;
+    const { current: next } = newPasswordValueRef;
+    const { current: confirm } = confirmNewPasswordValueRef;
+    const { current: currentPassword } = passwordCurrentValueRef;
     if (next.trim().length < 8) {
       showAlert("Password must be at least 8 characters", "error");
       return;
@@ -570,12 +624,12 @@ export default function ProfileClient(props: {
       return;
     }
 
-    if (next !== confirmNewPassword) {
+    if (next !== confirm) {
       showAlert("Passwords do not match", "error");
       return;
     }
 
-    if (props.user.hasPassword && !passwordCurrentPassword) {
+    if (props.user.hasPassword && !currentPassword) {
       showAlert("Please enter your current password", "error");
       return;
     }
@@ -586,7 +640,7 @@ export default function ProfileClient(props: {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          ...(props.user.hasPassword ? { currentPassword: passwordCurrentPassword } : {}),
+          ...(props.user.hasPassword ? { currentPassword: currentPassword } : {}),
           newPassword: next,
         }),
       });
@@ -666,7 +720,6 @@ export default function ProfileClient(props: {
   async function compressAvatarForUpload(
     file: File
   ): Promise<{ blob: Blob; contentType: "image/webp" | "image/jpeg"; filename: string }> {
-    // Prefer createImageBitmap when available.
     const bitmap = await (async () => {
       if (typeof createImageBitmap === "function") {
         try {
@@ -787,525 +840,630 @@ export default function ProfileClient(props: {
   }
 
   const canSaveUsername = busy === null && username.trim().length >= 3 && usernameIsDirty;
-
   const canStartUsernameEdit = busy === null;
 
   return (
-    <div className="space-y-6">
-      <Card className="border-white/10 bg-white/5 backdrop-blur">
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <div
+    <LayoutGroup>
+      <motion.div
+        className="space-y-6"
+        initial="initial"
+        animate="animate"
+        variants={staggerContainer}
+      >
+        {/* Profile Card */}
+        <motion.div variants={fadeInUp}>
+          <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl overflow-hidden hover:border-[rgba(160,220,255,0.3)] transition-all">
+            <LayoutGroup>
+              <CardHeader className="pb-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    {/* Avatar */}
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3, delay: 0.1 }}
+                      className="relative"
+                    >
+                      <div
+                        className={
+                          "rounded-full ring-2 ring-offset-2 ring-offset-slate-950 transition-all duration-300 " +
+                          (avatarError
+                            ? "ring-red-500/50"
+                            : "ring-[rgba(160,220,255,0.3)] hover:ring-[rgba(160,220,255,0.6)]")
+                        }
+                      >
+                        <AvatarView url={avatarUrl} username={props.user.username} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={busy !== null}
+                        aria-label="Change avatar"
+                        className="absolute bottom-0 left-0 inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.8)] text-cyan-300 shadow-sm backdrop-blur transition-all hover:border-[rgba(160,220,255,0.6)] hover:text-cyan-200 disabled:opacity-60"
+                      >
+                        {busy === "avatar" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Camera className="h-4 w-4" />
+                        )}
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.currentTarget.value = "";
+                          if (!file) return;
+                          await onPickAvatarFile(file);
+                        }}
+                      />
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.2 }}
+                    >
+                      <CardTitle className="text-xl text-[#E0E7FF]">
+                        {props.user.username}
+                      </CardTitle>
+                      <CardDescription className="text-[#8A8FB5] flex items-center gap-1">
+                        <HiOutlineMail className="w-3 h-3" />
+                        <span className="truncate max-w-[200px]">{props.user.email}</span>
+                      </CardDescription>
+                    </motion.div>
+                  </div>
+
+                  {/* Level & Achievements */}
+                  <div className="flex gap-3">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.3 }}
+                      className="text-center p-3 bg-[rgba(20,50,80,0.3)] rounded-xl border border-[rgba(160,220,255,0.15)] backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all min-w-[80px]"
+                    >
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <TrendingUpIcon className="w-4 h-4 text-cyan-300" />
+                        <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Level</p>
+                      </div>
+                      <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+                        <NumberAnimation value={props.profile.level} delay={0.4} />
+                      </p>
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4 }}
+                      className="text-center p-3 bg-[rgba(20,50,80,0.3)] rounded-xl border border-[rgba(80,210,150,0.15)] backdrop-blur-sm hover:border-[rgba(80,210,150,0.3)] transition-all min-w-[80px]"
+                    >
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Award className="w-4 h-4 text-green-300" />
+                        <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Achievements</p>
+                      </div>
+                      <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-300 to-teal-400">
+                        <NumberAnimation value={props.profile.achievementsCount} delay={0.5} />
+                      </p>
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.5 }}
+                      className="text-center p-3 bg-[rgba(20,50,80,0.3)] rounded-xl border border-[rgba(160,220,255,0.15)] backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all min-w-[140px]"
+                    >
+                      <div className="flex items-center justify-center gap-1 mb-1">
+                        <Target className="w-4 h-4 text-cyan-300" />
+                        <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Rank</p>
+                      </div>
+                      <p className="text-sm font-semibold text-[#E0E7FF] leading-tight">
+                        {props.profile.rank.tier} {props.profile.rank.division}
+                      </p>
+                      <p className="mt-1 text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+                        <NumberAnimation value={props.profile.rank.rating} delay={0.6} />
+                      </p>
+                      <div className="mt-2">
+                        <ProgressBar progress={props.profile.rank.progressPct} />
+                      </div>
+                    </motion.div>
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-6 pt-4">
+  {/* Email Section */}
+  <div className="space-y-2">
+    <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="email">
+      <HiOutlineMail className="w-4 h-4 text-cyan-300" />
+      Email
+    </Label>
+
+    {!editingEmail ? (
+      <div className="flex flex-col gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-base">
+              {props.user.email}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span
+                className={
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium " +
+                  (isEmailVerified
+                    ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
+                    : "border-orange-400/20 bg-orange-500/10 text-orange-100")
+                }
+              >
+                <span
                   className={
-                    "rounded-full" +
-                    (avatarError ? " ring-2 ring-red-500/50 ring-offset-2 ring-offset-slate-950" : "")
+                    "inline-flex h-5 w-5 items-center justify-center rounded-full " +
+                    (isEmailVerified
+                      ? "bg-emerald-500/15 text-emerald-200"
+                      : "bg-gradient-to-r from-orange-400 to-yellow-300 text-slate-950")
                   }
+                  aria-hidden="true"
                 >
-                  <AvatarView url={avatarUrl} username={props.user.username} />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={busy !== null}
-                  aria-label="Change avatar"
-                  className="absolute bottom-0 left-0 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-slate-900/70 text-slate-100 shadow-sm backdrop-blur transition hover:bg-slate-900 disabled:opacity-60"
-                >
-                  {busy === "avatar" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  {isEmailVerified ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
                   ) : (
-                    <Camera className="h-4 w-4" />
+                    <AlertTriangle className="h-3.5 w-3.5" />
                   )}
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    e.currentTarget.value = "";
-                    if (!file) return;
-                    await onPickAvatarFile(file);
-                  }}
-                />
+                </span>
+                <span>{isEmailVerified ? "Verified" : "Not verified"}</span>
+              </span>
 
-              </div>
-              <div>
-                <CardTitle className="text-slate-100">{props.user.username}</CardTitle>
-                <CardDescription className="text-slate-300">{props.user.email}</CardDescription>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-sm text-slate-300">Level</div>
-              <div className="text-lg font-semibold text-slate-100">
-                {props.profile.level}
-              </div>
-              <div className="mt-2 text-sm text-slate-300">Achievements</div>
-              <div className="text-lg font-semibold text-slate-100">
-                {props.profile.achievementsCount}
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-4">
-            <div className="space-y-2">
-              <Label className="text-slate-200" htmlFor="email">
-                Email
-              </Label>
-
-              {!editingEmail ? (
-                <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-100 sm:text-base">
-                        {props.user.email}
-                      </div>
-                      <div className="mt-1 inline-flex flex-wrap items-center gap-2">
-                        <span
-                          className={
-                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium " +
-                            (isEmailVerified
-                              ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
-                              : "border-orange-400/20 bg-orange-500/10 text-orange-100")
-                          }
-                        >
-                          <span
-                            className={
-                              "inline-flex h-5 w-5 items-center justify-center rounded-full " +
-                              (isEmailVerified
-                                ? "bg-emerald-500/15 text-emerald-200"
-                                : "bg-gradient-to-r from-orange-400 to-yellow-300 text-slate-950")
-                            }
-                            aria-hidden="true"
-                          >
-                            {isEmailVerified ? (
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                            ) : (
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                            )}
-                          </span>
-                          <span>{isEmailVerified ? "Verified" : "Not verified"}</span>
-                        </span>
-
-                        {isEmailVerified && emailVerifiedAt ? (
-                          <span className="text-[11px] text-slate-400">Verified {formatLocalDateTime(emailVerifiedAt)}</span>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <Button
-                      type="button"
-                      onClick={startEmailEdit}
-                      disabled={busy !== null}
-                      variant="outline"
-                      size="sm"
-                      className="border-white/10 bg-slate-900/70 text-slate-100 shadow-sm backdrop-blur hover:bg-slate-900"
-                    >
-                      Change
-                    </Button>
-                  </div>
-
-                  {!isEmailVerified || hasPendingEmail ? (
-                    <div className="pt-1 space-y-2">
-                      <p className="text-xs text-slate-400">
-                        Verification helps protect your account and enables secure email changes.
-                      </p>
-                    </div>
-                  ) : null}
-
-                  <VerifyEmailOtpDialog
-                    open={otpDialogOpen}
-                    onOpenChange={handleOtpDialogOpenChange}
-                    destinationEmail={otpDialogDestinationEmail}
-                    initialSentAt={otpDialogInitialSentAt}
-                    onVerified={handleOtpVerified}
-                  />
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-3 sm:p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Input
-                      id="email"
-                      value={emailDraft}
-                      onChange={(e) => setEmailDraft(e.target.value)}
-                      placeholder="name@example.com"
-                      autoComplete="email"
-                      className="sm:flex-1"
-                    />
-                    <div className="flex gap-2 sm:flex-none">
-                      <Button
-                        type="button"
-                        onClick={onSaveEmail}
-                        disabled={busy !== null || (!emailIsDirty && !hasPendingEmail)}
-                        size="sm"
-                      >
-                        {busy === "email" ? "Saving…" : "Save"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={cancelEmailEdit}
-                        disabled={busy !== null}
-                        size="sm"
-                      >
-                        <X className="h-4 w-4" />
-                        <span>Cancel</span>
-                      </Button>
-                    </div>
-                  </div>
-
-                  {props.user.hasPassword ? (
-                    <div className="space-y-2">
-                      <Label className="text-slate-200" htmlFor="currentPassword">
-                        Current password
-                      </Label>
-                      <Input
-                        id="currentPassword"
-                        type="password"
-                        value={emailCurrentPassword}
-                        onChange={(e) => setEmailCurrentPassword(e.target.value)}
-                        autoComplete="current-password"
-                        placeholder="Required for email changes"
-                      />
-                      <p className="text-xs text-slate-400">
-                        For security, we require your password before changing the email on password-based accounts.
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-slate-200" htmlFor="username">
-                Username
-              </Label>
-              {!editingUsername ? (
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-100 sm:text-lg">
-                      {props.user.username}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      Click edit to change your username
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={startUsernameEdit}
-                    disabled={!canStartUsernameEdit}
-                    variant="outline"
-                    size="icon"
-                    aria-label="Edit username"
-                    className="rounded-full border-white/10 bg-slate-900/70 text-slate-100 shadow-sm backdrop-blur hover:bg-slate-900"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Input
-                      ref={usernameInputRef}
-                      id="username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      placeholder="your_username"
-                      autoComplete="username"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          if (canSaveUsername) void onSaveUsername();
-                        }
-                        if (e.key === "Escape") {
-                          e.preventDefault();
-                          cancelUsernameEdit();
-                        }
-                      }}
-                      className="sm:flex-1"
-                    />
-                    <div className="flex gap-2 sm:flex-none">
-                      <Button
-                        type="button"
-                        onClick={onSaveUsername}
-                        disabled={!canSaveUsername}
-                        size="sm"
-                      >
-                        {busy === "username" ? "Saving…" : "Save"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={cancelUsernameEdit}
-                        disabled={busy !== null}
-                        size="sm"
-                      >
-                        <X className="h-4 w-4" />
-                        <span>Cancel</span>
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="text-xs text-slate-400">Letters, numbers, underscore. 3–20 chars. Press Enter to save, Esc to cancel.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-slate-200" htmlFor="newPassword">
-                Password
-              </Label>
-
-              {!editingPassword ? (
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-100 sm:text-lg">
-                      {props.user.hasPassword ? "••••••••" : "No password set"}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {props.user.hasPassword
-                        ? "Change your password to keep your account secure"
-                        : "Set a password to enable password-based sign-in"}
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={startPasswordEdit}
-                    disabled={busy !== null}
-                    variant="outline"
-                    size="icon"
-                    aria-label={props.user.hasPassword ? "Change password" : "Set password"}
-                    className="rounded-full border-white/10 bg-slate-900/70 text-slate-100 shadow-sm backdrop-blur hover:bg-slate-900"
-                  >
-                    <KeyRound className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/5 p-3 sm:p-4">
-                  {props.user.hasPassword ? (
-                    <div className="space-y-2">
-                      <Label className="text-slate-200" htmlFor="passwordCurrent">
-                        Current password
-                      </Label>
-                      <div className="relative">
-                        <Input
-                          id="passwordCurrent"
-                          type={showCurrentPassword ? "text" : "password"}
-                          value={passwordCurrentPassword}
-                          onChange={(e) => setPasswordCurrentPassword(e.target.value)}
-                          autoComplete="current-password"
-                          placeholder="Enter current password"
-                          className="pr-10"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowCurrentPassword((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 transition-colors hover:text-slate-100"
-                          aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
-                        >
-                          {showCurrentPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="space-y-2">
-                    <Label className="text-slate-200" htmlFor="newPassword">
-                      New password
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="newPassword"
-                        type={showNewPassword ? "text" : "password"}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        autoComplete="new-password"
-                        placeholder="••••••••"
-                        className="pr-10"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPassword((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 transition-colors hover:text-slate-100"
-                        aria-label={showNewPassword ? "Hide new password" : "Show new password"}
-                      >
-                        {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-slate-200" htmlFor="confirmNewPassword">
-                      Confirm new password
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="confirmNewPassword"
-                        type={showConfirmNewPassword ? "text" : "password"}
-                        value={confirmNewPassword}
-                        onChange={(e) => setConfirmNewPassword(e.target.value)}
-                        autoComplete="new-password"
-                        placeholder="••••••••"
-                        className="pr-10"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmNewPassword((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 transition-colors hover:text-slate-100"
-                        aria-label={showConfirmNewPassword ? "Hide confirm password" : "Show confirm password"}
-                      >
-                        {showConfirmNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-                    <Button
-                      type="button"
-                      onClick={onSavePassword}
-                      disabled={busy !== null}
-                      size="sm"
-                    >
-                      {busy === "password" ? "Saving…" : props.user.hasPassword ? "Update password" : "Set password"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={cancelPasswordEdit}
-                      disabled={busy !== null}
-                      size="sm"
-                    >
-                      <X className="h-4 w-4" />
-                      <span>Cancel</span>
-                    </Button>
-                  </div>
-                </div>
-              )}
+              {isEmailVerified && emailVerifiedAt ? (
+                <span className="text-[11px] text-[#8A8FB5]">
+                  Verified {formatLocalDateTime(emailVerifiedAt)}
+                </span>
+              ) : null}
             </div>
           </div>
 
-        </CardContent>
-      </Card>
+          <Button
+            type="button"
+            onClick={startEmailEdit}
+            disabled={busy !== null}
+            variant="outline"
+            size="sm"
+            className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
+          >
+            Change
+          </Button>
+        </div>
 
-      <AccountStatsChart
-        stats={props.stats}
-        dailyActivity={props.dailyActivity}
-        sessionHistory={props.sessionHistory}
-      />
+        {(!isEmailVerified || hasPendingEmail) && (
+          <div className="pt-1 space-y-2">
+            <p className="text-xs text-[#8A8FB5]">
+              Verification helps protect your account and enables secure email changes.
+            </p>
+          </div>
+        )}
 
-      {isDev ? (
-        <div className="flex items-center justify-end">
+        <VerifyEmailOtpDialog
+          open={otpDialogOpen}
+          onOpenChange={handleOtpDialogOpenChange}
+          destinationEmail={otpDialogDestinationEmail}
+          initialSentAt={otpDialogInitialSentAt}
+          onVerified={handleOtpVerified}
+        />
+      </div>
+    ) : (
+      <div className="flex flex-col gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-4 backdrop-blur-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            id="email"
+            value={emailDraft}
+            onChange={(e) => setEmailDraft(e.target.value)}
+            placeholder="name@example.com"
+            autoComplete="email"
+            className="flex-1 border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+          />
+          <div className="flex gap-2 sm:flex-none">
+            {/* Save button (page style with stronger border) */}
+            <Button
+              type="button"
+              onClick={onSaveEmail}
+              disabled={busy !== null || (!emailIsDirty && !hasPendingEmail)}
+              size="sm"
+              className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
+            >
+              {busy === "email" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              {busy === "email" ? "Saving…" : "Save"}
+            </Button>
+            {/* Cancel button (red) */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={cancelEmailEdit}
+              disabled={busy !== null}
+              size="sm"
+              className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
+            >
+              <X className="h-4 w-4 mr-1" />
+              Cancel
+            </Button>
+          </div>
+        </div>
+
+        {props.user.hasPassword && (
+          <div className="space-y-2">
+            <Label className="text-[#E0E7FF]" htmlFor="currentPassword">
+              Current password
+            </Label>
+            <Input
+              id="currentPassword"
+              type="password"
+              value={emailCurrentPassword}
+              onChange={(e) => setEmailCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              placeholder="Required for email changes"
+              className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+            />
+            <p className="text-xs text-[#8A8FB5]">
+              For security, we require your password before changing the email on password-based accounts.
+            </p>
+          </div>
+        )}
+      </div>
+    )}
+  </div>
+
+  {/* Username Section */}
+  <div className="space-y-2">
+    <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="username">
+      <HiOutlineUser className="w-4 h-4 text-cyan-300" />
+      Username
+    </Label>
+    {!editingUsername ? (
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
+            {props.user.username}
+          </div>
+          <div className="text-xs text-[#8A8FB5]">Click edit to change your username</div>
+        </div>
+        <Button
+          type="button"
+          onClick={startUsernameEdit}
+          disabled={!canStartUsernameEdit}
+          variant="outline"
+          size="icon"
+          aria-label="Edit username"
+          className="rounded-full border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+      </div>
+    ) : (
+      <div className="flex flex-col gap-2 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-4 backdrop-blur-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            ref={usernameInputRef}
+            id="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="your_username"
+            autoComplete="username"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSaveUsername) void onSaveUsername();
+              if (e.key === "Escape") cancelUsernameEdit();
+            }}
+            className="flex-1 border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+          />
+          <div className="flex gap-2 sm:flex-none">
+            {/* Save button (page style with stronger border) */}
+            <Button
+              type="button"
+              onClick={onSaveUsername}
+              disabled={!canSaveUsername}
+              size="sm"
+              className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
+            >
+              {busy === "username" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              {busy === "username" ? "Saving…" : "Save"}
+            </Button>
+            {/* Cancel button (red) */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={cancelUsernameEdit}
+              disabled={busy !== null}
+              size="sm"
+              className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
+            >
+              <X className="h-4 w-4 mr-1" />
+              Cancel
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-[#8A8FB5]">
+          Letters, numbers, underscore. 3–20 chars. Press Enter to save, Esc to cancel.
+        </p>
+      </div>
+    )}
+  </div>
+
+  {/* Password Section */}
+  <div className="space-y-2">
+    <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="newPassword">
+      <KeyRound className="w-4 h-4 text-cyan-300" />
+      Password
+    </Label>
+
+    {!editingPassword ? (
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-4 py-3 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
+            {props.user.hasPassword ? "••••••••" : "No password set"}
+          </div>
+          <div className="text-xs text-[#8A8FB5]">
+            {props.user.hasPassword
+              ? "Change your password to keep your account secure"
+              : "Set a password to enable password-based sign-in"}
+          </div>
+        </div>
+        <Button
+          type="button"
+          onClick={startPasswordEdit}
+          disabled={busy !== null}
+          variant="outline"
+          size="icon"
+          aria-label={props.user.hasPassword ? "Change password" : "Set password"}
+          className="rounded-full border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
+        >
+          <KeyRound className="h-4 w-4" />
+        </Button>
+      </div>
+    ) : (
+      <div className="flex flex-col gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-4 backdrop-blur-sm">
+        {props.user.hasPassword && (
+          <div className="space-y-2">
+            <Label className="text-[#E0E7FF]" htmlFor="passwordCurrent">
+              Current password
+            </Label>
+            <div className="relative">
+              <Input
+                ref={passwordCurrentInputRef}
+                id="passwordCurrent"
+                type={showCurrentPassword ? "text" : "password"}
+                onChange={(e) => {
+                  passwordCurrentValueRef.current = e.target.value;
+                }}
+                autoComplete="current-password"
+                placeholder="Enter current password"
+                className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] pr-10 text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
+                aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+              >
+                {showCurrentPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label className="text-[#E0E7FF]" htmlFor="newPassword">
+            New password
+          </Label>
+          <div className="relative">
+            <Input
+              ref={newPasswordInputRef}
+              id="newPassword"
+              type={showNewPassword ? "text" : "password"}
+              onChange={(e) => {
+                newPasswordValueRef.current = e.target.value;
+              }}
+              autoComplete="new-password"
+              placeholder="••••••••"
+              className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] pr-10 text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+            />
+            <button
+              type="button"
+              onClick={() => setShowNewPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
+              aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+            >
+              {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-[#E0E7FF]" htmlFor="confirmNewPassword">
+            Confirm new password
+          </Label>
+          <div className="relative">
+            <Input
+              ref={confirmNewPasswordInputRef}
+              id="confirmNewPassword"
+              type={showConfirmNewPassword ? "text" : "password"}
+              onChange={(e) => {
+                confirmNewPasswordValueRef.current = e.target.value;
+              }}
+              autoComplete="new-password"
+              placeholder="••••••••"
+              className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] pr-10 text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmNewPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
+              aria-label={showConfirmNewPassword ? "Hide confirm password" : "Show confirm password"}
+            >
+              {showConfirmNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end pt-2">
+          {/* Save button (page style with stronger border) */}
+          <Button
+            type="button"
+            onClick={onSavePassword}
+            disabled={busy !== null}
+            size="sm"
+            className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
+          >
+            {busy === "password" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+            {busy === "password" ? "Saving…" : props.user.hasPassword ? "Update password" : "Set password"}
+          </Button>
+          {/* Cancel button (red) */}
           <Button
             type="button"
             variant="outline"
+            onClick={cancelPasswordEdit}
+            disabled={busy !== null}
             size="sm"
-            onClick={() => setForceHeatmapDemo((v) => !v)}
+            className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
           >
-            {forceHeatmapDemo ? "Heatmap: demo values" : "Heatmap: real values"}
+            <X className="h-4 w-4 mr-1" />
+            Cancel
           </Button>
         </div>
-      ) : null}
+      </div>
+    )}
+  </div>
+</CardContent>
+         </LayoutGroup>
+          </Card>
+        </motion.div>
 
-      <HeatmapCalendar
-        title="Activity"
-        data={heatmapData}
-        rangeDays={heatmapRange.rangeDays}
-        endDate={heatmapRange.endDate}
-        className="border-white/10 bg-white/5 backdrop-blur"
-        responsive
-        cellSize={20}
-        cellGap={4}
-        levelStrategy="fixedThresholds"
-        fixedThresholds={[10, 25, 45, 70]}
-        palette={[
-          "rgba(255, 255, 255, 0.06)",
-          "rgba(120, 200, 255, 0.22)",
-          "rgba(120, 200, 255, 0.42)",
-          "rgba(120, 200, 255, 0.68)",
-          "rgba(120, 200, 255, 0.96)",
-        ]}
-        axisLabels={{
-          show: true,
-          showWeekdays: true,
-          showMonths: true,
-          weekdayIndices: [0, 1, 2, 3, 4, 5, 6],
-          monthFormat: "short",
-          minWeekSpacing: 1,
-        }}
-        renderTooltip={renderHeatmapTooltip}
-        legend={{
-          showText: true,
-          showArrow: true,
-          lessText: "Low strength",
-          moreText: "High strength",
-          placement: "right",
-        }}
-      />
+        {/* AccountStatsChart */}
+        {accountStatsChartSection}
 
-      <Card className="border-white/10 bg-white/5 backdrop-blur">
-        <CardHeader>
-          <CardTitle className="text-slate-100">Statistics</CardTitle>
-          <CardDescription className="text-slate-300">Your typing performance analysis over time</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-2">
-            <StatTile
-              label="Time typed"
-              value={formatDurationSeconds(props.stats.totalTimeTyped)}
-              subValue={lastUpdatedAt ? `Updated ${formatLocalDateTime(lastUpdatedAt)}` : undefined}
-            />
-            <StatTile
-              label="Total sessions"
-              value={props.stats.totalSessions.toLocaleString()}
-              subValue={props.stats.totalSessions === 0 ? "No sessions recorded yet" : undefined}
-            />
-          </div>
+        {/* Heatmap Calendar */}
+        {heatmapSection}
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <StatTile
-              label="Best WPM"
-              value={`${Math.round(props.stats.bestWPM)} WPM`}
-              subValue={bestWpmAt ? formatLocalDateTime(bestWpmAt) : "—"}
-            />
-            <StatTile
-              label="Best accuracy"
-              value={`${Math.round(props.stats.bestAccuracy)}%`}
-              subValue={bestAccuracyAt ? formatLocalDateTime(bestAccuracyAt) : "—"}
-            />
-          </div>
+        {/* Statistics Card (Improved Layout) */}
+        <motion.div variants={fadeInUp}>
+          <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
+            <CardHeader>
+              <CardTitle className="text-[#E0E7FF]">Statistics</CardTitle>
+              <CardDescription className="text-[#8A8FB5]">
+                Your typing performance analysis over time
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {/* Performance Highlights */}
+              <div className="mb-6">
+                <h4 className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 mb-3">
+                  Performance Highlights
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                  <StatTile
+                    label="Best WPM"
+                    value={
+                      <span className="bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent">
+                        <NumberAnimation value={Math.round(props.stats.bestWPM)} unit=" WPM" delay={0.3} />
+                      </span>
+                    }
+                    subValue={bestWpmAt ? formatLocalDateTime(bestWpmAt) : "—"}
+                    icon={<TrendingUp className="h-4 w-4 text-cyan-300" />}
+                  />
+                  <StatTile
+                    label="Best accuracy"
+                    value={
+                      <span className="bg-gradient-to-r from-green-300 to-teal-400 bg-clip-text text-transparent">
+                        <NumberAnimation value={Math.round(props.stats.bestAccuracy)} unit="%" delay={0.4} />
+                      </span>
+                    }
+                    subValue={bestAccuracyAt ? formatLocalDateTime(bestAccuracyAt) : "—"}
+                    icon={<Target className="h-4 w-4 text-green-300" />}
+                  />
+                  <StatTile
+                    label="Avg WPM"
+                    value={<NumberAnimation value={Math.round(props.stats.averageWPM)} unit=" WPM" delay={0.5} />}
+                    icon={<TrendingUp className="h-4 w-4 text-cyan-300" />}
+                  />
+                  <StatTile
+                    label="Avg accuracy"
+                    value={<NumberAnimation value={Math.round(props.stats.averageAccuracy)} unit="%" delay={0.6} />}
+                    icon={<Target className="h-4 w-4 text-green-300" />}
+                  />
+                  <StatTile
+                    label="Avg consistency"
+                    value={
+                      Number.isFinite(props.stats.averageConsistency) ? (
+                        <NumberAnimation value={props.stats.averageConsistency} unit="%" delay={0.7} />
+                      ) : (
+                        "—"
+                      )
+                    }
+                    icon={<Activity className="h-4 w-4 text-purple-300" />}
+                  />
+                </div>
+              </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <StatTile label="Avg WPM" value={`${Math.round(props.stats.averageWPM)} WPM`} />
-            <StatTile label="Avg accuracy" value={`${Math.round(props.stats.averageAccuracy)}%`} />
-            <StatTile label="Avg consistency" value={
-              Number.isFinite(props.stats.averageConsistency)
-                ? `${props.stats.averageConsistency.toFixed(2)}%`
-                : "—"
-            }/>
-            <StatTile label="Words typed" value={props.stats.totalWordsTyped.toLocaleString()} />
-            <StatTile label="Characters typed" value={props.stats.totalCharactersTyped.toLocaleString()} />
-          </div>
+              {/* Activity Totals */}
+              <div>
+                <h4 className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400 mb-3">
+                  Activity Totals
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <StatTile
+                    label="Time typed"
+                    value={formatDurationSeconds(props.stats.totalTimeTyped)}
+                    subValue={lastUpdatedAt ? `Updated ${formatLocalDateTime(lastUpdatedAt)}` : undefined}
+                    icon={<Clock className="h-4 w-4 text-cyan-300" />}
+                  />
+                  <StatTile
+                    label="Total sessions"
+                    value={<NumberAnimation value={props.stats.totalSessions} delay={0.2} />}
+                    icon={<BarChart3 className="h-4 w-4 text-green-300" />}
+                  />
+                  <StatTile
+                    label="Words typed"
+                    value={<NumberAnimation value={props.stats.totalWordsTyped} delay={0.8} />}
+                    icon={<BarChart3 className="h-4 w-4 text-blue-300" />}
+                  />
+                  <StatTile
+                    label="Chars typed"
+                    value={<NumberAnimation value={props.stats.totalCharactersTyped} delay={0.9} />}
+                    icon={<BarChart3 className="h-4 w-4 text-purple-300" />}
+                  />
+                  <StatTile
+                    label="Total mistakes"
+                    value={<NumberAnimation value={props.stats.totalMistakes} delay={1.0} />}
+                    icon={<AlertTriangle className="h-4 w-4 text-red-300" />}
+                  />
+                  <StatTile
+                    label="Total corrections"
+                    value={<NumberAnimation value={props.stats.totalCorrections} delay={1.1} />}
+                    icon={<CheckCircle2 className="h-4 w-4 text-green-300" />}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <StatTile label="Total mistakes" value={props.stats.totalMistakes.toLocaleString()} />
-            <StatTile label="Total corrections" value={props.stats.totalCorrections.toLocaleString()} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-white/10 bg-white/5 backdrop-blur">
-        <CardHeader>
-          <CardTitle className="text-slate-100">Account</CardTitle>
-          <CardDescription className="text-slate-300">
-            Manage your account.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DeleteAccountButton />
-        </CardContent>
-      </Card>
-    </div>
+        {/* Account Actions Card */}
+        <motion.div variants={fadeInUp}>
+          <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
+            <CardHeader>
+              <CardTitle className="text-[#E0E7FF]">Account</CardTitle>
+              <CardDescription className="text-[#8A8FB5]">Manage your account.</CardDescription>
+            </CardHeader>
+            <CardContent>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <SignOut
+                label="Sign out"
+                redirectTo="/"
+                className="flex-1 font-medium rounded-lg py-5 border border-[#69d0ff] bg-transparent text-[#60a5fa] hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] transition-colors duration-300"
+              />
+              <DeleteAccountButton className="flex-1" />
+            </div>
+          </CardContent>
+          </Card>
+        </motion.div>
+      </motion.div>
+    </LayoutGroup>
   );
 }

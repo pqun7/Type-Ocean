@@ -1,3 +1,4 @@
+// auth/verification/verify-email-otp-form (improved)
 "use client";
 
 import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
@@ -14,7 +15,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-
 import { HiOutlineMail } from "react-icons/hi";
 import { Loader } from "@/assets";
 
@@ -102,7 +102,7 @@ export function VerifyEmailOtpForm(props: { destinationEmail: string; initialSen
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
       <div className="flex w-full max-w-sm flex-col gap-6">
-        <Card className="bg-[#0a0a1f]/50 backdrop-blur-lg border border-[#ffffff15] shadow-xl relative overflow-hidden">
+        <Card className="relative overflow-hidden border border-[#ffffff15] bg-[#0a0a1f]/50 text-[#E0E7FF] shadow-xl backdrop-blur-lg">
           <LayoutGroup>
             <CardHeader className="text-center">
               <motion.div
@@ -112,14 +112,14 @@ export function VerifyEmailOtpForm(props: { destinationEmail: string; initialSen
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.3 }}
               >
-                <div className="p-4 rounded-full bg-primary/10 backdrop-blur-sm scale-90">
+                <div className="scale-90 rounded-full bg-primary/10 p-4 backdrop-blur-sm">
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.2 }}
                   >
                     <HiOutlineMail
-                      className="text-primary w-12 h-12 drop-shadow-glow"
+                      className="h-12 w-12 text-primary drop-shadow-glow"
                       style={{
                         filter: "drop-shadow(0 0 8px rgba(105, 208, 255, 0.4))",
                       }}
@@ -129,7 +129,8 @@ export function VerifyEmailOtpForm(props: { destinationEmail: string; initialSen
 
                 <CardTitle className="text-xl text-[#E0E7FF]">Verify your email</CardTitle>
                 <CardDescription className="text-[#8A8FB5]">
-                  Enter the 6-digit code sent to {maskEmail(props.destinationEmail)}
+                  Enter the 6-digit code sent to{" "}
+                  <span className="font-medium text-[#69d0ff]">{maskEmail(props.destinationEmail)}</span>
                 </CardDescription>
               </motion.div>
             </CardHeader>
@@ -141,9 +142,18 @@ export function VerifyEmailOtpForm(props: { destinationEmail: string; initialSen
                   onClick={handleSend}
                   disabled={resendDisabled}
                   variant="outline"
-                  className="font-medium rounded-lg py-5 w-full border-[#fb923c] hover:bg-[#fb923c]/20 text-[#fb923c] hover:text-[#fed7aa] transition-colors duration-300"
+                  className="w-full rounded-lg border-[#fb923c] py-5 text-[#fb923c] transition-colors duration-300 hover:bg-[#fb923c]/20 hover:text-[#fed7aa] disabled:opacity-50"
                 >
-                  {isSending ? "Sending..." : cooldownRemaining > 0 ? `Resend in ${cooldownRemaining}s` : "Send / Resend Code"}
+                  {isSending ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Lottie animationData={Loader} loop className="h-5 w-5" />
+                      Sending...
+                    </span>
+                  ) : cooldownRemaining > 0 ? (
+                    `Resend in ${cooldownRemaining}s`
+                  ) : (
+                    "Send / Resend code"
+                  )}
                 </Button>
 
                 <form action={formAction}>
@@ -156,7 +166,7 @@ export function VerifyEmailOtpForm(props: { destinationEmail: string; initialSen
                       transition={{ duration: 0.2 }}
                     >
                       <Label htmlFor="code" className="text-[#E0E7FF]">
-                        Verification Code
+                        Verification code
                       </Label>
                       <Input
                         id="code"
@@ -165,7 +175,7 @@ export function VerifyEmailOtpForm(props: { destinationEmail: string; initialSen
                         autoComplete="one-time-code"
                         maxLength={6}
                         placeholder="123456"
-                        className="bg-[#1D2B3A]/30 border-[#3A3A5F] text-[#E0E7FF] focus:border-[#69d0ff] tracking-widest text-center"
+                        className="border-[#3A3A5F] bg-[#1D2B3A]/30 text-center tracking-widest text-[#E0E7FF] focus:border-[#69d0ff]"
                         onInput={(e) => {
                           const el = e.currentTarget;
                           el.value = el.value.replace(/\D/g, "").slice(0, 6);
@@ -188,8 +198,8 @@ export function VerifyEmailOtpForm(props: { destinationEmail: string; initialSen
 
 function SubmitButton({ isPending }: { isPending: boolean }) {
   return (
-    <Button type="submit" className="py-5 btn-main" disabled={isPending}>
-      {isPending ? <Lottie animationData={Loader} loop className="w-6 h-6" /> : "Verify"}
+    <Button type="submit" className="btn-main w-full py-5" disabled={isPending}>
+      {isPending ? <Lottie animationData={Loader} loop className="h-6 w-6" /> : "Verify"}
     </Button>
   );
 }

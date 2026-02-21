@@ -8,6 +8,7 @@ import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { authorizeRequest } from "@/app/api/shared.server";
 import prisma from "@/features/auth/lib/db";
+import { getRankInfo, updatePerformanceRating } from "@/features/ranking/rating";
 import {
   validateSessionData,
   sanitizeSessionData,
@@ -399,17 +400,47 @@ export async function POST(req: NextRequest) {
             };
           })();
 
+    let rankForResponse: ReturnType<typeof getRankInfo> | null = null;
+
     // Persist snapshot to DB for reliable Profile display.
     try {
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+
+      const existingProfile = await prisma.playerProfile.findUnique({
+        where: { userId },
+        select: {
+          rating: true,
+          ratingDeviation: true,
+        },
+      });
+
+      const ratingUpdate = updatePerformanceRating({
+        currentRating: existingProfile?.rating,
+        currentDeviation: existingProfile?.ratingDeviation,
+        wpm: sanitizedSession.wpm,
+        accuracy: sanitizedSession.accuracy,
+        consistency: sanitizedSession.consistency,
+        timeSpentSec: sanitizedSession.timeSpent,
+      });
+
+      rankForResponse = getRankInfo(ratingUpdate.nextRating);
+
       await prisma.playerProfile.upsert({
         where: { userId },
-        update: { longTermStats: effectiveLongTermStats as unknown as object },
+        update: {
+          longTermStats: effectiveLongTermStats as unknown as object,
+          rating: ratingUpdate.nextRating,
+          ratingDeviation: ratingUpdate.nextDeviation,
+          ratingUpdatedAt: new Date(),
+        },
         create: {
           userId,
           username: user?.username ?? "user",
           level: 1,
           xp: 0,
+          rating: ratingUpdate.nextRating,
+          ratingDeviation: ratingUpdate.nextDeviation,
+          ratingUpdatedAt: new Date(),
           achievements: [],
           avatar: null,
           longTermStats: effectiveLongTermStats as unknown as object,
@@ -458,6 +489,7 @@ export async function POST(req: NextRequest) {
       longTermStats: effectiveLongTermStats,
       sessionStored: sessionStored.status === "fulfilled",
       timestamp,
+      rank: rankForResponse,
     };
 
     // Log success asynchronously to avoid blocking response
