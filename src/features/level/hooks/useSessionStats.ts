@@ -22,6 +22,7 @@ export const useSessionStats = (userId?: string) => {
       mistakes?: number;
       corrections?: number;
       consistency?: number;
+      language?: string;
       localDate?: string;
       tzOffsetMinutes?: number;
     };
@@ -38,6 +39,7 @@ export const useSessionStats = (userId?: string) => {
       mistakes?: number;
       corrections?: number;
       consistency?: number;
+      language?: string;
       localDate?: string;
       tzOffsetMinutes?: number;
     }
@@ -70,6 +72,7 @@ export const useSessionStats = (userId?: string) => {
         mistakes?: number;
         corrections?: number;
         consistency?: number;
+        language?: string;
         localDate?: string;
         tzOffsetMinutes?: number;
       }

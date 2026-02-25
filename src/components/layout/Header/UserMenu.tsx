@@ -1,6 +1,7 @@
 "use client";
 
 // Core imports
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
@@ -9,14 +10,15 @@ import { cn } from "@/lib/utils";
 
 // Components
 import { SettingsDialog } from "@/components/settings-dialog";
+import { useSettings } from "@/features/settings/context";
 
 // Icons & Assets
 import { HiOutlineMenu, HiX } from "react-icons/hi";
-import { FaUserCircle } from "react-icons/fa";
 import { LevelIcon } from "@/assets";
 
 // hooks
 import { useLevel } from "@/features/level/hooks/useLevel";
+import { useUserAvatar } from "@/features/auth/hooks/useUserAvatar";
 import { usePathname, useRouter } from "next/navigation";
 
 import { DailyChallenge } from "./DailyChallenge";
@@ -119,6 +121,9 @@ const UserLevelDisplay = ({
 
 const XPMessages = () => {
   const { xpMessages } = useLevel();
+  const { settings } = useSettings();
+
+  if (settings.hideXpNotifications) return null;
 
   const getMessageStyle = (type: XPMessageType) => {
     const base =
@@ -160,29 +165,40 @@ const XPMessages = () => {
   return (
     <div className="absolute top-[calc(100%+10px)] left-[calc(50%+0.5rem)] md:left-[calc(50%+1rem)] -translate-x-1/2 w-[200px] z-50">
       <div className="flex flex-col items-center">
-        <AnimatePresence mode="popLayout">
-          {xpMessages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              layout
-              initial={{ opacity: 0, y: -18, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -18, scale: 0.98 }}
-              transition={{
-                y: { type: "spring", stiffness: 150, damping: 28, mass: 0.9 },
-                opacity: { duration: 0.2, ease: "easeOut" },
-                scale: { duration: 0.2, ease: "easeOut" },
-              }}
-              className={getMessageStyleByMessage(msg.type, msg.text)}
-            >
-              {msg.text}
-              <span className="font-mono text-sm">
-                {" "}
-                +{msg.value.toLocaleString()}
-              </span>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+        {settings.reduceMotion ? (
+          <>
+            {xpMessages.map((msg) => (
+              <div key={msg.id} className={getMessageStyleByMessage(msg.type, msg.text)}>
+                {msg.text}
+                <span className="font-mono text-sm"> +{msg.value.toLocaleString()}</span>
+              </div>
+            ))}
+          </>
+        ) : (
+          <AnimatePresence mode="popLayout">
+            {xpMessages.map((msg) => (
+              <motion.div
+                key={msg.id}
+                layout
+                initial={{ opacity: 0, y: -18, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -18, scale: 0.98 }}
+                transition={{
+                  y: { type: "spring", stiffness: 150, damping: 28, mass: 0.9 },
+                  opacity: { duration: 0.2, ease: "easeOut" },
+                  scale: { duration: 0.2, ease: "easeOut" },
+                }}
+                className={getMessageStyleByMessage(msg.type, msg.text)}
+              >
+                {msg.text}
+                <span className="font-mono text-sm">
+                  {" "}
+                  +{msg.value.toLocaleString()}
+                </span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        )}
       </div>
     </div>
   );
@@ -225,6 +241,20 @@ const UserMenu: React.FC<UserMenuProps> = ({
   const router = useRouter();
   const pathname = usePathname();
 
+  const { avatarUrl: profileAvatarUrl, username: profileUsername } = useUserAvatar(isLoggedIn);
+  const [avatarBroken, setAvatarBroken] = useState(false);
+
+  useEffect(() => {
+    // Reset broken state when avatar changes or auth toggles.
+    setAvatarBroken(false);
+  }, [profileAvatarUrl, isLoggedIn]);
+
+  const profileInitials = useMemo(() => {
+    const name = (profileUsername ?? "").trim();
+    if (!name) return "U";
+    return name.slice(0, 2).toUpperCase();
+  }, [profileUsername]);
+
   const handleAuthNavigation = (formType: "login" | "signup") => {
     const target = `/auth?form=${formType}`;
     // If we're already on the auth page, replace to switch forms without stacking history.
@@ -249,10 +279,34 @@ const UserMenu: React.FC<UserMenuProps> = ({
           {/* Profile Link */}
           <Link
             href="/profile"
-            className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-200 hover:text-white"
+            className="p-2"
             aria-label="Profile"
           >
-            <FaUserCircle className="w-5 h-5" />
+            <div
+              className={
+                "rounded-full ring-2 ring-offset-2 ring-offset-slate-950 transition-all duration-300 " +
+                "ring-[rgba(160,220,255,0.3)] hover:ring-[rgba(160,220,255,0.6)]"
+              }
+            >
+              {profileAvatarUrl && !avatarBroken ? (
+                // Use <img> to avoid next/image remote config requirements
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={profileAvatarUrl}
+                  alt="Profile avatar"
+                  className="h-8 w-8 rounded-full border border-white/10 bg-white/5 object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = "";
+                    setAvatarBroken(true);
+                  }}
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[10px] font-semibold text-slate-200">
+                  {profileInitials}
+                </div>
+              )}
+            </div>
           </Link>
 
           {/* Settings Dialog */}

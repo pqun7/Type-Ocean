@@ -115,6 +115,7 @@ export type LevelState = {
 
 export type LevelAction =
   | { type: "ADD_XP"; amount: number }
+  | { type: "RESET_PROGRESS" }
   | { type: "SET_PROGRESS"; level: number; userXP: number; achievements: AchievementState[] }
   | { type: "UNLOCK_ACHIEVEMENT"; achievement: AchievementState }
   | { type: "UPDATE_ACHIEVEMENT"; achievement: AchievementState };

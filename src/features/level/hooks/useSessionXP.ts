@@ -74,6 +74,8 @@ export const useSessionXP = (
 
   useEffect(() => {
     if (lastUserIdRef.current !== userId) {
+      // Important: avoid showing previous user's level while we re-hydrate.
+      dispatch({ type: "RESET_PROGRESS" });
       hydratedRef.current = false;
       lastUserIdRef.current = userId;
     }
@@ -109,10 +111,11 @@ export const useSessionXP = (
         const res = await fetch("/api/profile/progress", {
           method: "GET",
           credentials: "include",
+          cache: "no-store",
           signal: abortController.signal,
         });
 
-  if (!res.ok) return;
+        if (!res.ok) return;
         const data = await res.json();
         const progress = data?.progress;
         if (!progress) return;

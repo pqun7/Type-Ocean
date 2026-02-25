@@ -8,6 +8,9 @@ import { AlertProvider } from "@/contexts/alert-context";
 import { AlertState } from "@/components/ui/alert-state";
 import { HandleAuthSuccess } from "@/components/handle-auth-success";
 import { auth } from "@/features/auth/lib/auth";
+import { SettingsProvider } from "@/features/settings/context";
+import { MotionSettingsProvider } from "@/components/providers/MotionSettingsProvider";
+import { AudioProvider } from "@/features/audio/context";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -39,14 +42,20 @@ export default async function RootLayout({
         <Background className="fixed inset-0 pointer-events-none z-0" />
 
         <div className="relative z-10 min-h-screen flex flex-col">
-          <LevelProvider initialUserId={initialUserId}>
-            <AlertProvider>
-              <AlertState />
-              <HandleAuthSuccess />
-              <main className="flex-grow">{children}</main>
-              <Footer />
-            </AlertProvider>
-          </LevelProvider>
+          <SettingsProvider>
+            <MotionSettingsProvider>
+              <AudioProvider>
+                <LevelProvider initialUserId={initialUserId}>
+                  <AlertProvider>
+                    <AlertState />
+                    <HandleAuthSuccess />
+                    <main className="flex-grow">{children}</main>
+                    <Footer />
+                  </AlertProvider>
+                </LevelProvider>
+              </AudioProvider>
+            </MotionSettingsProvider>
+          </SettingsProvider>
         </div>
       </body>
     </html>

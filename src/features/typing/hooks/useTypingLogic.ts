@@ -7,6 +7,8 @@ import { useLevel } from "@/features/level/hooks/useLevel";
 import { SessionData } from "@/features/level/types/level";
 import { logger } from "@/log/clientLogger";
 import { computeConsistency } from "@/features/typing/utils/consistency";
+import { segmentGraphemes } from "@/features/typing/utils/graphemes";
+import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 
 
 /**
@@ -24,7 +26,8 @@ import { computeConsistency } from "@/features/typing/utils/consistency";
 export default function useTypingLogic(
   text: string,
   selectNewText: (level?: TextType) => void,
-  selectedLevel: TextType
+  selectedLevel: TextType,
+  typingLanguage: TypingLanguage = "en"
 ) {
   // State management
   const [state, setState] = useState<State>("start");
@@ -77,6 +80,8 @@ export default function useTypingLogic(
   const userInputRef = useRef(userInput);
   const sessionActive = state === "running" && !idleState.current.isIdle;
 
+  const textSegmentsRef = useRef<ReturnType<typeof segmentGraphemes>>([]);
+
   const mistakesRef = useRef(0);
   const correctionsRef = useRef(0);
 
@@ -91,8 +96,32 @@ export default function useTypingLogic(
   // Sync refs with current values
   useEffect(() => {
     textRef.current = text;
+    // Cache grapheme segments for the current target text.
+    textSegmentsRef.current = segmentGraphemes(text, typingLanguage);
+  }, [text, typingLanguage]);
+
+  useEffect(() => {
     userInputRef.current = userInput;
-  }, [text, userInput]);
+  }, [userInput]);
+
+  const computeGraphemeStats = useCallback(() => {
+    const inputNow = userInputRef.current;
+    const segments = textSegmentsRef.current;
+
+    // Segment user input too so comparisons are robust even when the same grapheme
+    // can be represented with different UTF-16 code unit sequences (IME/combining marks).
+    const inputSegments = segmentGraphemes(inputNow, typingLanguage);
+
+    const typed = Math.min(inputSegments.length, segments.length);
+    let correct = 0;
+    let mismatches = 0;
+    for (let i = 0; i < typed; i += 1) {
+      if (inputSegments[i]!.segment === segments[i]!.segment) correct += 1;
+      else mismatches += 1;
+    }
+
+    return { typed, correct, mismatches };
+  }, [typingLanguage]);
 
   /** Calculate active time accounting for pauses */
   const getActiveTime = useCallback(() => {
@@ -103,20 +132,12 @@ export default function useTypingLogic(
 
   /** Calculate current WPM and accuracy metrics */
   const calculateMetrics = useCallback(() => {
-    const input = userInputRef.current;
-    const target = textRef.current;
-    const correctChars = target
-      .slice(0, input.length)
-      .split("")
-      .filter((char, i) => char === input[i]).length;
+    const { typed, correct } = computeGraphemeStats();
 
-    const accuracy = +(
-      (correctChars / Math.max(input.length, 1)) *
-      100
-    ).toFixed(1);
+    const accuracy = +( (correct / Math.max(typed, 1)) * 100 ).toFixed(1);
     const activeTime = getActiveTime();
     const minutes = activeTime / 60000;
-    const baseWpm = (correctChars / 5) / Math.max(minutes, 0.016667);
+    const baseWpm = (correct / 5) / Math.max(minutes, 0.016667);
 
     const EARLY_SESSION_MS = 5000;
     const EARLY_WPM_CAP = 300;
@@ -131,7 +152,7 @@ export default function useTypingLogic(
     const wpm = Math.round(cappedWpm);
 
     return { accuracy: Math.max(0, accuracy), wpm };
-  }, [getActiveTime]);
+  }, [computeGraphemeStats, getActiveTime]);
 
   const roundTo2 = (value: number) => Math.round(value * 100) / 100;
 
@@ -154,21 +175,13 @@ export default function useTypingLogic(
       // Optimistic UI updates for all users
       const activeTime = getActiveTime();
 
-      const inputNow = userInputRef.current;
-      const targetNow = textRef.current;
-
-      const correctChars = targetNow
-        .slice(0, inputNow.length)
-        .split("")
-        .filter((char, i) => char === inputNow[i]).length;
-
+      const { typed: typedSegments, correct: correctSegments } = computeGraphemeStats();
       const accuracy = +(
-        (correctChars / Math.max(inputNow.length, 1)) *
-        100
+        (correctSegments / Math.max(typedSegments, 1)) * 100
       ).toFixed(1);
 
       const minutes = activeTime / 60000;
-      const baseWpm = (correctChars / 5) / Math.max(minutes, 0.016667);
+      const baseWpm = (correctSegments / 5) / Math.max(minutes, 0.016667);
 
       const EARLY_SESSION_MS = 5000;
       const EARLY_WPM_CAP = 300;
@@ -194,8 +207,9 @@ export default function useTypingLogic(
       // Persist last result for smarter text selection on the client.
       try {
         if (typeof window !== "undefined" && window.localStorage) {
+          const key = `typing:lastResult:${typingLanguage}:${selectedLevel}`;
           window.localStorage.setItem(
-            `typing:lastResult:${selectedLevel}`,
+            key,
             JSON.stringify({
               wpm: wpmForStorage,
               accuracy,
@@ -203,6 +217,19 @@ export default function useTypingLogic(
               textLength: text.length,
             })
           );
+
+          // Backward compatibility (English only).
+          if (typingLanguage === "en") {
+            window.localStorage.setItem(
+              `typing:lastResult:${selectedLevel}`,
+              JSON.stringify({
+                wpm: wpmForStorage,
+                accuracy,
+                ts: Date.now(),
+                textLength: text.length,
+              })
+            );
+          }
         }
       } catch {
         // Ignore storage failures (private mode, quota, etc.)
@@ -214,10 +241,7 @@ export default function useTypingLogic(
       if (userId) {
         const timeSpentSeconds = Math.floor(activeTime / 1000);
 
-        let computedErrors = 0;
-        for (let i = 0; i < inputNow.length; i += 1) {
-          if (targetNow[i] !== inputNow[i]) computedErrors += 1;
-        }
+        const { mismatches: computedErrors } = computeGraphemeStats();
 
         const finalErrors = Math.max(0, counts?.finalErrors ?? computedErrors);
         const sessionMistakes = Math.max(0, counts?.mistakes ?? mistakesRef.current);
@@ -253,7 +277,7 @@ export default function useTypingLogic(
 
         // Calculate per-session consistency (percentage 0-100)
         const currentSession = wpmHistory[wpmHistory.length - 1] ?? [];
-        const rawConsistency = computeConsistency([currentSession] as any);
+        const rawConsistency = computeConsistency([currentSession]);
         const consistency = rawConsistency ?? undefined;
         // Record stats in the background (non-blocking)
         void recordSessionStats?.(wpmForStorage, accuracy, {
@@ -262,6 +286,7 @@ export default function useTypingLogic(
           timeSpent: timeSpentSeconds,
           mistakes: sessionMistakes,
           corrections: sessionCorrections,
+          language: typingLanguage,
           localDate: (() => {
             const now = new Date();
             return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -324,7 +349,6 @@ export default function useTypingLogic(
   }, [
     // Dependencies
     getActiveTime,
-    calculateMetrics,
     commitSession,
     text.length,
     selectedLevel,
@@ -338,6 +362,8 @@ export default function useTypingLogic(
     state,
     metrics,
     rollback,
+    computeGraphemeStats,
+    typingLanguage,
   ]);
 
   // Idle state management
@@ -382,8 +408,20 @@ export default function useTypingLogic(
 
   // Input handling
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target.value;
+    const rawInput = e.target.value;
     const prevInput = userInputRef.current;
+
+    // Cap input to the target text length in *graphemes* (not UTF-16 code units).
+    // This prevents overshooting the target (common with IME / combining sequences),
+    // which previously blocked the exact `input.length === text.length` completion.
+    const targetSegments = textSegmentsRef.current;
+    const maxGraphemes = targetSegments.length;
+    const rawSegments = segmentGraphemes(rawInput, typingLanguage);
+    const typedGraphemes = Math.min(rawSegments.length, maxGraphemes);
+    const input =
+      maxGraphemes > 0 && rawSegments.length > maxGraphemes
+        ? rawInput.slice(0, rawSegments[maxGraphemes - 1]!.end)
+        : rawInput;
 
     if (state === "start") handleSessionStart();
 
@@ -391,15 +429,14 @@ export default function useTypingLogic(
     // Keep refs in sync immediately to avoid stale values on fast typing.
     userInputRef.current = input;
 
-    setIsError(text.slice(0, input.length) !== input);
-
-    // Uncorrected errors: count current mismatches (drops when user fixes).
+    // Uncorrected errors: count current mismatches by grapheme (drops when user fixes).
     let mismatches = 0;
-    const target = textRef.current;
-    for (let i = 0; i < input.length; i += 1) {
-      if (target[i] !== input[i]) mismatches += 1;
+    for (let i = 0; i < typedGraphemes; i += 1) {
+      if (rawSegments[i]!.segment !== targetSegments[i]!.segment) mismatches += 1;
     }
+    const target = textRef.current;
     setTotalErrors(mismatches);
+    setIsError(mismatches > 0);
 
     // Cumulative mistakes/corrections: robust to paste and mid-string edits.
     // We approximate the edit region by finding common prefix/suffix.
@@ -442,8 +479,9 @@ export default function useTypingLogic(
       }
     }
 
-    // if (input.length >= text.length && state !== "end") { ... }
-    if (input.length === text.length) {
+    // Complete when the user has typed all target graphemes.
+    // (Input is capped above, so this is stable and language-agnostic.)
+    if (state !== "end" && maxGraphemes > 0 && typedGraphemes === maxGraphemes) {
       // Handle async session end properly
       const finalErrors = mismatches;
       const finalMistakes = mistakesRef.current;

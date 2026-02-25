@@ -3,10 +3,16 @@ import useTextManager from "@/features/typing/hooks/useTextManager";
 import useTypingLogic from "@/features/typing/hooks/useTypingLogic";
 import useCaret from "./useCaret";
 
+import { getTypingDir, type TypingLanguage } from "@/features/typing/i18n/typingLanguages";
+
 type Level = "SHORT" | "MEDIUM" | "LONG";
 
-export default function useTypingGame(selectedLevel: Level, enabled: boolean = true) {
-  const { text, resetText } = useTextManager(selectedLevel);
+export default function useTypingGame(
+  selectedLevel: Level,
+  enabled: boolean = true,
+  typingLanguage: TypingLanguage = "en"
+) {
+  const { text, resetText } = useTextManager(selectedLevel, "smart", typingLanguage);
   const {
     userInput,
     isError,
@@ -19,8 +25,9 @@ export default function useTypingGame(selectedLevel: Level, enabled: boolean = t
     resetGame,
     isIdle,
     elapsedTime,
-  } = useTypingLogic(text, resetText, selectedLevel);
-  const { caretPosition, textRefs } = useCaret(userInput, text);
+  } = useTypingLogic(text, resetText, selectedLevel, typingLanguage);
+  const dir = getTypingDir(typingLanguage);
+  const { caretPosition, textRefs } = useCaret(userInput, text, dir);
 
   const inputRef = useRef<HTMLInputElement>(null);
 

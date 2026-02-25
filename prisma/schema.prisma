@@ -56,6 +56,7 @@ model PlayerProfile {
   achievements Json    @default("[]")
   longTermStats Json?
   avatar       String?
+  hideFromLeaderboard Boolean @default(false)
   user         User    @relation(name: "UserProfile", fields: [userId], references: [id])
   
   createdAt DateTime @default(now())
@@ -85,6 +86,12 @@ model User {
   dailyTypingActivity DailyTypingActivity[]
   profile PlayerProfile? @relation(name: "UserProfile")
 
+  pvpRoomsCreated PvpRoom[] @relation("PvpRoomCreated")
+  pvpRoomMemberships PvpRoomMember[]
+  pvpMatchParticipants PvpParticipant[]
+  pvpRating PvpRating?
+  pvpRatingChanges PvpRatingChange[]
+
   // Optional for WebAuthn support
   Authenticator Authenticator[]
 
@@ -103,6 +110,137 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PvpRoom {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  status          String   @default("OPEN")
+  createdByUserId String
+  minPlayers      Int      @default(2)
+  maxPlayers      Int      @default(6)
+  /// Optional pre-selected text snapshot for the next match in this room.
+  textSnapshot    String?
+  expiresAt       DateTime?
+
+  createdBy User @relation("PvpRoomCreated", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  members   PvpRoomMember[]
+  matches   PvpMatch[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("pvp_room")
+}
+
+model PvpRoomMember {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  colorSlot Int
+  readyAt   DateTime?
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+
+  room PvpRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@map("pvp_room_member")
+}
+
+model PvpMatch {
+  id              String   @id @default(uuid())
+  status          String   @default("PENDING")
+  roomId          String?
+  /// The canonical text used by all participants in the match.
+  textSnapshot    String
+  serverStartAt   DateTime?
+  startedAt       DateTime?
+  endedAt         DateTime?
+
+  room         PvpRoom?          @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  participants PvpParticipant[]
+  events       PvpEvent[]
+  ratingChanges PvpRatingChange[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("pvp_match")
+}
+
+model PvpParticipant {
+  id              String   @id @default(uuid())
+  matchId         String
+  userId          String
+  slot            Int
+  finalWpm        Int?
+  finalAccuracy   Float?
+  finalErrors     Int?
+  timeSpentSec    Int?
+  completedAt     DateTime?
+  disconnectCount Int      @default(0)
+
+  match PvpMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, userId])
+  @@index([matchId])
+  @@map("pvp_participant")
+}
+
+model PvpEvent {
+  id      String   @id @default(uuid())
+  matchId String
+  seq     Int
+  type    String
+  payload Json
+
+  match PvpMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([matchId, seq])
+  @@index([matchId, createdAt])
+  @@map("pvp_event")
+}
+
+model PvpRating {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  rating      Int      @default(1500)
+  deviation   Int      @default(350)
+  gamesPlayed Int      @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([rating])
+  @@map("pvp_rating")
+}
+
+model PvpRatingChange {
+  id           String   @id @default(uuid())
+  matchId      String
+  userId       String
+  beforeRating Int
+  afterRating  Int
+  delta        Int
+
+  match PvpMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([matchId, userId])
+  @@index([userId, createdAt])
+  @@map("pvp_rating_change")
 }
 
 model PendingSignup {

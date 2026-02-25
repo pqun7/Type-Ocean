@@ -11,7 +11,14 @@ type SignOutProps = {
 
 export function SignOut({ label = "Sign Out", redirectTo = "/auth", className }: SignOutProps) {
   return (
-    <form action={signOutAction}>
+    <form
+      action={signOutAction}
+      onSubmit={() => {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("auth:changed"));
+        }
+      }}
+    >
       <input type="hidden" name="redirectTo" value={redirectTo} />
       <Button type="submit" variant="destructive" className={cn("w-full", className)}>
         {label}

@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
   const offset = Number.isFinite(offsetRaw) ? Math.max(Math.floor(offsetRaw), 0) : 0;
 
   const profiles = await prisma.playerProfile.findMany({
+    where: { hideFromLeaderboard: false },
     orderBy: [{ rating: "desc" }, { updatedAt: "desc" }],
     take: limit,
     skip: offset,

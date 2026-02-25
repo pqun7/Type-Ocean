@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# pvp gateway (compiled output)
+/services/pvp-gateway/dist/
+
 # production
 /build
 

@@ -1,5 +1,8 @@
 import { ChangeEvent, RefObject } from "react";
 
+import { cn } from "@/lib/utils";
+import { useAudio } from "@/features/audio/context";
+
 
 interface TypingInputProps {
 
@@ -9,10 +12,43 @@ interface TypingInputProps {
 
   handleInputChange: (e: ChangeEvent<HTMLInputElement>) => void;
 
+  fontSizeClassName?: string;
+  lineHeightClassName?: string;
+
+  dir?: "ltr" | "rtl";
+  lang?: string;
+
 }
 
-export default function TypingInput({ inputRef, userInput, handleInputChange }: TypingInputProps) {
+export default function TypingInput({
+  inputRef,
+  userInput,
+  handleInputChange,
+  fontSizeClassName = "text-xl",
+  lineHeightClassName,
+  dir,
+  lang,
+}: TypingInputProps) {
+  const audio = useAudio();
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const isComposing = (e.nativeEvent as unknown as { isComposing?: boolean } | null)?.isComposing === true;
+    if (!isComposing) {
+      audio.playKeyForEvent({
+        code: e.code,
+        key: e.key,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+      });
+
+      if (e.key === "Tab") {
+        // Let higher-level handlers use Tab for next/reset.
+        e.preventDefault();
+      }
+    }
+
     if (e.key === "Enter") {
       e.preventDefault();
       handleInputChange({
@@ -30,8 +66,13 @@ export default function TypingInput({ inputRef, userInput, handleInputChange }: 
       onBlur={() => inputRef.current?.focus()} // إعادة التركيز عند فقدانه
 
 
-      className="text-xl w-full p-4 border-none outline-none bg-transparent absolute top-0 left-0 opacity-0"
-      dir="ltr"
+      className={cn(
+        "w-full p-4 border-none outline-none bg-transparent absolute top-0 left-0 opacity-0",
+        fontSizeClassName,
+        lineHeightClassName
+      )}
+      dir={dir}
+      lang={lang}
     />
   );
 }

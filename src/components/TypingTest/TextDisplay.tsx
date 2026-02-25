@@ -2,6 +2,8 @@ import { RefObject, memo } from "react";
 import { motion } from "framer-motion";
 import { cn } from "../../lib/utils";
 
+import { segmentGraphemes } from "@/features/typing/utils/graphemes";
+
 interface TextDisplayProps {
   text: string;
   userInput: string;
@@ -10,70 +12,10 @@ interface TextDisplayProps {
   fontSize: string;
   lineHeight: string;
   font: string;
-
+  optimizePerformance?: boolean;
+  dir?: "ltr" | "rtl";
+  lang?: string;
 }
-
-const CharSpan = memo(
-  ({
-    char,
-    index,
-    isTyped,
-    isCorrect,
-    textRefs,
-  }: {
-    char: string;
-    index: number;
-    isTyped: boolean;
-    isCorrect: boolean;
-    textRefs: RefObject<(HTMLSpanElement | null)[]>;
-    
-  }) => {
-    const getColorClass = () => {
-      if (!isTyped) return "text-slate-400";
-      return isCorrect ? "text-slate-100" : "text-red-500";
-    };
-
-    const isSpace = char === " ";
-
-    return (
-      <motion.span
-        key={`${char}-${index}`}
-        ref={(el) => {
-          textRefs.current![index] = el;
-        }}
-        className={cn(getColorClass(), {
-          "bg-red-500/60": !isCorrect && isTyped && isSpace,
-        })}
-        initial={{ opacity: 1, y: 0 }}
-        animate={
-          isTyped
-            ? {
-                opacity: 1,
-                y: 0,
-                scale: isCorrect ? [1, 1.1, 1] : 1,
-              }
-            : undefined
-        }
-        transition={
-          isTyped
-            ? {
-                duration: 0.2,
-                scale: isCorrect ? { duration: 0.3, repeat: 1 } : undefined,
-                opacity: { duration: 0.2, ease: "easeOut" },
-                y: { duration: 0.2, ease: "easeOut" },
-              }
-            : undefined
-        }
-        whileHover={{ scale: 1.05 }}
-        custom={index}
-      >
-        {isSpace ? "\u00A0" : char}
-      </motion.span>
-    );
-  }
-);
-
-CharSpan.displayName = "CharSpan";
 
 const TextDisplay = memo(
   ({
@@ -84,59 +26,84 @@ const TextDisplay = memo(
     fontSize,
     lineHeight,
     font,
+    optimizePerformance = false,
+    dir,
+    lang,
   }: TextDisplayProps) => {
-    // تقسيم النص إلى كلمات مع المسافات التي تليها
-    const wordsWithSpaces = text.match(/(\S+)(\s*)/g) || [];
+    const segments = segmentGraphemes(text, lang);
 
-    let charIndex = 0; // مؤشر لتتبع الحروف والمسافات في النص
+    const setRefRange = (el: HTMLSpanElement | null, start: number, end: number) => {
+      if (!textRefs.current) return;
+      for (let i = start; i < end; i += 1) {
+        textRefs.current[i] = el;
+      }
+    };
+
+    const getColorClass = (isTyped: boolean, isCorrect: boolean) => {
+      if (!isTyped) return "text-slate-400";
+      return isCorrect ? "text-slate-100" : "text-red-500";
+    };
 
     return (
       <div
         className={`${fontSize} ${lineHeight} transition-all duration-300 tracking-tight 
           ${isError ? "text-red-500" : "text-gray-800"} ${font} 
           break-words overflow-hidden w-full  whitespace-pre-wrap pointer-events-none`}
+        dir={dir}
+        lang={lang}
       >
-        {wordsWithSpaces.map((wordWithSpace, wordIndex) => {
-          const word = wordWithSpace.trimEnd(); // الكلمة بدون مسافات زائدة في النهاية
-          const trailingSpaces = wordWithSpace.slice(word.length); // المسافات التي تلي الكلمة
+        {segments.map((seg) => {
+          const isTyped = userInput.length >= seg.end;
+          const isCorrect = isTyped && userInput.slice(seg.start, seg.end) === text.slice(seg.start, seg.end);
+          const isSpace = seg.segment === " ";
+
+          const className = cn(getColorClass(isTyped, isCorrect), {
+            "bg-red-500/60": !isCorrect && isTyped && isSpace,
+          });
+
+          const content = isSpace ? "\u00A0" : seg.segment;
+
+          if (optimizePerformance) {
+            return (
+              <span
+                key={`${seg.start}-${seg.end}`}
+                ref={(el) => setRefRange(el, seg.start, seg.end)}
+                className={className}
+              >
+                {content}
+              </span>
+            );
+          }
 
           return (
-            <span key={wordIndex} className="whitespace-nowrap">
-              {word.split("").map((char, index) => {
-                const currentCharIndex = charIndex;
-                charIndex++;
-                const isTyped = currentCharIndex < userInput.length;
-                const isCorrect = userInput[currentCharIndex] === text[currentCharIndex];
-
-                return (
-                  <CharSpan
-                    key={`${wordIndex}-${index}-word`}
-                    char={char}
-                    index={currentCharIndex}
-                    isTyped={isTyped}
-                    isCorrect={isCorrect}
-                    textRefs={textRefs}
-                  />
-                );
-              })}
-              {trailingSpaces.split("").map((space, spaceIndex) => {
-                const currentCharIndex = charIndex;
-                charIndex++;
-                const isTyped = currentCharIndex < userInput.length;
-                const isCorrect = userInput[currentCharIndex] === text[currentCharIndex];
-
-                return (
-                  <CharSpan
-                    key={`${wordIndex}-${spaceIndex}-space`}
-                    char={space}
-                    index={currentCharIndex}
-                    isTyped={isTyped}
-                    isCorrect={isCorrect}
-                    textRefs={textRefs}
-                  />
-                );
-              })}
-            </span>
+            <motion.span
+              key={`${seg.start}-${seg.end}`}
+              ref={(el) => setRefRange(el, seg.start, seg.end)}
+              className={className}
+              initial={{ opacity: 1, y: 0 }}
+              animate={
+                isTyped
+                  ? {
+                      opacity: 1,
+                      y: 0,
+                      scale: isCorrect ? [1, 1.1, 1] : 1,
+                    }
+                  : undefined
+              }
+              transition={
+                isTyped
+                  ? {
+                      duration: 0.2,
+                      scale: isCorrect ? { duration: 0.3, repeat: 1 } : undefined,
+                      opacity: { duration: 0.2, ease: "easeOut" },
+                      y: { duration: 0.2, ease: "easeOut" },
+                    }
+                  : undefined
+              }
+              whileHover={{ scale: 1.05 }}
+            >
+              {content}
+            </motion.span>
           );
         })}
       </div>

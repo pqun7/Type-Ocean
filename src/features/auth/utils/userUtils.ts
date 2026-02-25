@@ -14,6 +14,7 @@ export function generateEmergencyProfile(userId: string): PlayerProfile & { user
     achievements: [],
     longTermStats: null,
     avatar: null,
+    hideFromLeaderboard: false,
     createdAt: new Date(),
     updatedAt: new Date(),
     user: {

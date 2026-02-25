@@ -10,6 +10,14 @@ import { calculateNextLevelXP } from "@/features/level/utils/xpMath";
  */
 export const levelReducer = (state: LevelState, action: LevelAction): LevelState => {
   switch (action.type) {
+    case "RESET_PROGRESS": {
+      return {
+        level: 1,
+        userXP: 0,
+        achievements: [],
+        nextLevelXP: calculateNextLevelXP(1),
+      };
+    }
     case "SET_PROGRESS": {
       const nextLevel = Math.max(1, action.level);
       const nextXP = Math.max(0, action.userXP);

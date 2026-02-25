@@ -48,6 +48,7 @@ const UpdateUserSchema = z.object({
           z.null(),
         ])
         .optional(),
+      hideFromLeaderboard: z.boolean().optional(),
     })
     .optional(),
 });
@@ -127,6 +128,7 @@ export async function GET(req: NextRequest) {
         username: true,
         email: true,
         emailVerified: true,
+        image: true,
         createdAt: true,
         updatedAt: true,
         profile: {
@@ -137,6 +139,7 @@ export async function GET(req: NextRequest) {
             xp: true,
             achievements: true,
             avatar: true,
+            hideFromLeaderboard: true,
           },
         },
       },
@@ -178,6 +181,7 @@ export async function GET(req: NextRequest) {
           xp: true,
           achievements: true,
           avatar: true,
+          hideFromLeaderboard: true,
         },
       });
     }
@@ -263,6 +267,11 @@ export async function PATCH(req: NextRequest) {
     const normalizedAvatar =
       profileData && "avatar" in profileData
         ? profileData.avatar === "" ? null : profileData.avatar
+        : undefined;
+
+    const hideFromLeaderboardPatch =
+      profileData && typeof profileData.hideFromLeaderboard === "boolean"
+        ? profileData.hideFromLeaderboard
         : undefined;
 
     // Safe debug logging for update attempt
@@ -494,6 +503,9 @@ export async function PATCH(req: NextRequest) {
         update: {
           ...(nextProfileUsername && { username: nextProfileUsername }),
           ...(normalizedAvatar !== undefined && { avatar: normalizedAvatar }),
+          ...(hideFromLeaderboardPatch !== undefined && {
+            hideFromLeaderboard: hideFromLeaderboardPatch,
+          }),
         },
         create: {
           userId: session.user.id,
@@ -502,6 +514,9 @@ export async function PATCH(req: NextRequest) {
           xp: 0,
           achievements: [],
           avatar: normalizedAvatar ?? null,
+          ...(hideFromLeaderboardPatch !== undefined && {
+            hideFromLeaderboard: hideFromLeaderboardPatch,
+          }),
         },
       });
     }

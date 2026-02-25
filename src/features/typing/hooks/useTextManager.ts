@@ -2,9 +2,23 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import short from "@/features/typing/data/short.json";
-import medium from "@/features/typing/data/medium.json";
-import long from "@/features/typing/data/long.json";
+import shortEn from "@/features/typing/data/short.json";
+import mediumEn from "@/features/typing/data/medium.json";
+import longEn from "@/features/typing/data/long.json";
+
+import shortAr from "@/features/typing/data/ar/short.json";
+import mediumAr from "@/features/typing/data/ar/medium.json";
+import longAr from "@/features/typing/data/ar/long.json";
+
+import shortEs from "@/features/typing/data/es/short.json";
+import mediumEs from "@/features/typing/data/es/medium.json";
+import longEs from "@/features/typing/data/es/long.json";
+
+import shortFr from "@/features/typing/data/fr/short.json";
+import mediumFr from "@/features/typing/data/fr/medium.json";
+import longFr from "@/features/typing/data/fr/long.json";
+
+import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 
 type Level = "SHORT" | "MEDIUM" | "LONG";
 
@@ -54,37 +68,60 @@ function getLastResultKey(level: Level): string {
   return `typing:lastResult:${level}`;
 }
 
+function getHistoryKeyV2(language: TypingLanguage, level: Level): string {
+  return `typing:textHistory:${language}:${level}`;
+}
+
+function getLastResultKeyV2(language: TypingLanguage, level: Level): string {
+  return `typing:lastResult:${language}:${level}`;
+}
+
 function pickRandom<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
 export default function useTextManager(
   selectedLevel: Level,
-  mode: TextSelectionMode = "smart"
+  mode: TextSelectionMode = "smart",
+  typingLanguage: TypingLanguage = "en"
 ) {
   const [text, setText] = useState<string>("");
 
-  const getTextsByLevel = (level: Level) => {
-    switch (level) {
-      case "SHORT":
-        return short as TextItem[];
-      case "MEDIUM":
-        return medium as TextItem[];
-      case "LONG":
-        return long as TextItem[];
-      default:
-        return medium as TextItem[];
-    }
+  const getTextsByLevel = (language: TypingLanguage, level: Level): TextItem[] => {
+    const banks: Record<TypingLanguage, Record<Level, TextItem[]>> = {
+      en: {
+        SHORT: shortEn as TextItem[],
+        MEDIUM: mediumEn as TextItem[],
+        LONG: longEn as TextItem[],
+      },
+      ar: {
+        SHORT: shortAr as TextItem[],
+        MEDIUM: mediumAr as TextItem[],
+        LONG: longAr as TextItem[],
+      },
+      es: {
+        SHORT: shortEs as TextItem[],
+        MEDIUM: mediumEs as TextItem[],
+        LONG: longEs as TextItem[],
+      },
+      fr: {
+        SHORT: shortFr as TextItem[],
+        MEDIUM: mediumFr as TextItem[],
+        LONG: longFr as TextItem[],
+      },
+    };
+
+    return banks[language]?.[level] ?? (banks.en[level] as TextItem[]);
   };
 
   const getTextForLevel = (level: Level) => {
-    const texts = getTextsByLevel(level);
+    const texts = getTextsByLevel(typingLanguage, level);
     if (!texts.length) return "";
 
     // Daily selection: deterministic per-day, per-level.
     if (mode === "daily") {
       const dayKey = getDayKey();
-      const seed = `${dayKey}:${level}`;
+      const seed = `${dayKey}:${typingLanguage}:${level}`;
       const idx = hashStringToInt(seed) % texts.length;
       return texts[idx]?.content ?? texts[0]!.content;
     }
@@ -98,13 +135,22 @@ export default function useTextManager(
     // - avoid repeating recent texts
     // - pick easier/harder texts based on last session performance
     const storageAvailable = typeof window !== "undefined" && !!window.localStorage;
+    const historyKey = getHistoryKeyV2(typingLanguage, level);
+    const lastResultKey = getLastResultKeyV2(typingLanguage, level);
+
+    // Backward compatibility: read old keys for English only.
+    const legacyHistoryKey = typingLanguage === "en" ? getHistoryKey(level) : null;
+    const legacyLastResultKey = typingLanguage === "en" ? getLastResultKey(level) : null;
+
     const historyIds = storageAvailable
-      ? safeParseJson<number[]>(localStorage.getItem(getHistoryKey(level))) ?? []
+      ? safeParseJson<number[]>(
+          localStorage.getItem(historyKey) ?? (legacyHistoryKey ? localStorage.getItem(legacyHistoryKey) : null)
+        ) ?? []
       : [];
 
     const lastResult = storageAvailable
       ? safeParseJson<{ wpm: number; accuracy: number; ts: number; textLength: number }>(
-          localStorage.getItem(getLastResultKey(level))
+          localStorage.getItem(lastResultKey) ?? (legacyLastResultKey ? localStorage.getItem(legacyLastResultKey) : null)
         )
       : null;
 
@@ -144,7 +190,12 @@ export default function useTextManager(
         0,
         HISTORY_SIZE
       );
-      localStorage.setItem(getHistoryKey(level), JSON.stringify(nextHistory));
+      localStorage.setItem(historyKey, JSON.stringify(nextHistory));
+
+      // Opportunistic migration for English: write legacy key too so old code paths (if any) keep working.
+      if (typingLanguage === "en") {
+        localStorage.setItem(getHistoryKey(level), JSON.stringify(nextHistory));
+      }
     }
 
     return chosen.content;
@@ -158,7 +209,7 @@ export default function useTextManager(
 
   useEffect(() => {
     resetText();
-  }, [selectedLevel, mode]);
+  }, [selectedLevel, mode, typingLanguage]);
 
   return { text, resetText };
 }

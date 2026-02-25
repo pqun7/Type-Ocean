@@ -41,19 +41,29 @@ export async function GET(req: NextRequest) {
 
   const rl = await rateLimiter.applyRateLimit(req, `${endpoint}:GET`);
   if (!rl.allowed) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: rl.headers });
+    const headers = new Headers(rl.headers);
+    headers.set("Cache-Control", "private, no-store");
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers });
   }
 
   try {
     const userId = await getUserIdFromRequest(req);
     if (!userId) {
-      return NextResponse.json({ valid: false, reason: "not_authenticated" }, { status: 200 });
+      return NextResponse.json(
+        { valid: false, reason: "not_authenticated" },
+        { status: 200, headers: { "Cache-Control": "private, no-store" } }
+      );
     }
 
     const progress = await getUserProgress(userId);
-    return NextResponse.json({ valid: true, progress }, {
-      headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=30" },
-    });
+    return NextResponse.json(
+      { valid: true, progress },
+      {
+        // Progress is user-specific and must not be reused across account switches.
+        // Browsers can cache private responses by URL, which can lead to showing a previous user's data.
+        headers: { "Cache-Control": "private, no-store" },
+      }
+    );
   } catch (error) {
     logging.error("Profile progress fetch failed", error, {
       requestId,

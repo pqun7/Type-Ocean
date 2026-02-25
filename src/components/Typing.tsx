@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import ResultsChart from "@/components/TypingTest/ResultsChart";
 import TypingTest from "@/components/TypingTest/TypingTest";
 import { TextType } from "@/features/typing/types/typing";
+import { useSettings } from "@/features/settings/context";
+import { getTypingTypography } from "@/features/settings/typingTypography";
 
 export type Mode = "course" | "game" | "practice" | "online";
 
@@ -20,6 +22,8 @@ const HeaderGame = ({
   className?: string;
   fontSize?: string;
 }) => {
+  const { settings } = useSettings();
+
   const [selectedLevel, setSelectedLevel] = useState<TextType>("SHORT");
   const [gameState, setGameState] = useState<"start" | "running" | "end">(
     "start"
@@ -60,6 +64,12 @@ const HeaderGame = ({
     setTextKey((prev) => prev + 1);
   }, []);
 
+  const typography = HomePage
+    ? { fontSize, lineHeight: "leading-8", caretHeight: "h-4 md:h-5" }
+    : getTypingTypography(settings.fontScale);
+
+  const optimizePerformance = !settings.showSessionChart;
+
   return (
     <>
       {gameState === "end" && (
@@ -70,11 +80,7 @@ const HeaderGame = ({
           currentTime={currentTime}
           wpmHistory={wpmHistory}
           currentErrors={currentErrors}
-/* The `optimizePerformance = {true}` prop in the `<ResultsChart>` component is setting the value of
-the `optimizePerformance` prop to `true`. This prop is being passed to the `<ResultsChart>`
-component to optimize its performance. The specific implementation and usage of this prop would be
-defined within the `<ResultsChart>` component itself. */
-          // optimizePerformance = {true}
+          optimizePerformance={optimizePerformance}
         />
       )}
 
@@ -109,12 +115,14 @@ defined within the `<ResultsChart>` component itself. */
           <div className="flex justify-center items-center py-5">
             <TypingTest
               className="w-[1200px] mt-4 overflow-hidden"
-              caretHeight="h-4 md:h-5"
+              caretHeight={typography.caretHeight}
               font="font-jetbrains"
               key={textKey}
               texts={texts ? texts : [text || "Loading..."]}
               onStateChange={setGameState}
-              fontSize={fontSize}
+              fontSize={typography.fontSize}
+              lineHeight={typography.lineHeight}
+              typingLanguage={settings.typingLanguage}
               onWpmChange={setCurrentWpm}
               onAccuracyChange={setCurrentAccuracy}
               onIdleChange={setIsIdle}

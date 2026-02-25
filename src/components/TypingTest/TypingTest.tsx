@@ -6,6 +6,7 @@ import Caret from "./Caret";
 import useTypingGame from "../../features/typing/hooks/useTypingGame";
 import { useLevel } from "@/features/level/hooks/useLevel";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getTypingDir, getTypingLocale, type TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 
 interface TypingTestProps {
   texts: string[];
@@ -15,6 +16,7 @@ interface TypingTestProps {
   caretHeight?: string;
   className?: string;
   selectedLevel: "SHORT" | "MEDIUM" | "LONG";
+  typingLanguage?: TypingLanguage;
   onStateChange: (state: "start" | "running" | "end") => void;
   onWpmChange?: (wpm: number) => void;
   onAccuracyChange?: (accuracy: number) => void;
@@ -38,9 +40,13 @@ export default function TypingTest({
   onWpmHistoryChange,
   onErrorsChange,
   selectedLevel,
+  typingLanguage = "en",
 }: TypingTestProps) {
   const level = useLevel();
   const isBootstrapping = !!level.isLoadingSession;
+
+  const dir = getTypingDir(typingLanguage);
+  const locale = getTypingLocale(typingLanguage);
 
   const {
     text,
@@ -57,7 +63,7 @@ export default function TypingTest({
     isIdle,
     elapsedTime,
     wpmHistory,
-  } = useTypingGame(selectedLevel, !isBootstrapping);
+  } = useTypingGame(selectedLevel, !isBootstrapping, typingLanguage);
 
   useEffect(() => {
     if (isBootstrapping) return;
@@ -127,12 +133,18 @@ export default function TypingTest({
         fontSize={fontSize}
         lineHeight={lineHeight}
         font={font}
+        dir={dir}
+        lang={locale}
       />
       <Caret caretPosition={caretPosition} caretHeight={caretHeight} />
       <TypingInput
         inputRef={inputRef}
         userInput={userInput}
         handleInputChange={handleInputChange}
+        fontSizeClassName={fontSize}
+        lineHeightClassName={lineHeight}
+        dir={dir}
+        lang={locale}
       />
     </div>
   );
