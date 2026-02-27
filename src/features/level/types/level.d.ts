@@ -7,7 +7,9 @@ export type XPMessageType =
   | "bonus"
   | "level-up"
   | "error"
-  | "participation";
+  | "participation"
+  | "mythic"
+  | "personal-best";
 
 export type XPMessage = {
   id: string;
@@ -66,6 +68,10 @@ export type SessionData = {
   dailyAvgWpm: number;
   dailyAvgAcc: number;
   sessionsCount: number;
+  // Enhanced XP fields — optional for backwards compatibility
+  corrections?: number;   // total backspaces/fixes in session
+  consistency?: number;   // 0–100 typing rhythm consistency
+  prevBestWpm?: number;   // personal best WPM before this session
 };
 
 export type DailyStats = {
@@ -106,6 +112,14 @@ export type AchievementCheckResult = {
   current?: number;
 };
 
+/** Metadata about mythic/PB claims passed to the optional server-validation callback */
+export type MythicClaimMeta = {
+  isMythicClaim: boolean;
+  isPBClaim: boolean;
+  claimedWpm: number;
+  mythicBonusXp: number;
+};
+
 export type LevelState = {
   level: number;
   userXP: number;
@@ -128,13 +142,18 @@ export type LevelAction =
     dailyChallenge: DailyChallenge | null;
     dailyChallengeStreak?: number;
     achievements: AchievementState[];
-    addXP: (amount: number) => Promise<void>;
-    calculateSessionXP: (session: SessionData) => number;
+    addXP: (amount: number, bonusMeta?: MythicClaimMeta) => Promise<void>;
+    calculateSessionXP: (
+      session: SessionData,
+      onMythicClaim?: (meta: MythicClaimMeta) => void
+    ) => number;
     handleDailyChallenge: (session: SessionData) => Promise<{ completed: boolean; xp: number }>;
     xpMessages: XPMessage[];
     addXPMessage: (text: string, value: number, type: XPMessageType) => void;
     clearXPMessages?: () => void;
     recordSessionStats?: (...args: any[]) => any;
+    /** Returns cached personal-best WPM — call at session end, not during render */
+    getBestWpm?: () => number;
     // Auth/session hydration flags
     isAuthLoading?: boolean;
     isLoadingSession?: boolean;
@@ -153,4 +172,12 @@ export interface Bonus {
   description: string;
   xpReward: number;
   condition: (session: Session) => boolean;
+}
+
+/** Mythic bonuses receive the full SessionData (including corrections/consistency/prevBestWpm) */
+export interface MythicBonus {
+  id: string;
+  name: string;
+  description: string;
+  condition: (session: SessionData, targetWpm: number) => boolean;
 }

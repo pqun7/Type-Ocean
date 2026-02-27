@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LevelContext } from "./LevelContext";
-import type { DailyChallenge, SessionData } from "@/features/level/types/level";
+import type { DailyChallenge, MythicClaimMeta, SessionData } from "@/features/level/types/level";
 
 // Module-level no-op fallbacks (stable references to satisfy hook deps)
-const noopAddXP = (async () => {}) as (amount: number) => Promise<void>;
+const noopAddXP = (async () => {}) as (amount: number, bonusMeta?: MythicClaimMeta) => Promise<void>;
 const noopCalculate = (() => 0) as (session: SessionData) => number;
 const noopHandle = (async () => ({ completed: false, xp: 0 })) as (
   session: SessionData
@@ -158,7 +158,7 @@ export const LevelProvider = ({
   const { dailyChallenge } = useDailyChallengeLoader(userId, bootstrapChallenge, isLoadingSession);
   const { state, calculateSessionXP, addXP } = useSessionXP(userId, addXPMessage, bootstrapProgress);
   const { handleDailyChallenge, optimisticChallenge } = useChallengeHandler(userId, dailyChallenge);
-  const { recordSessionStats } = useSessionStats(userId);
+  const { recordSessionStats, getBestWpm } = useSessionStats(userId);
 
   const effectiveDailyChallenge = optimisticChallenge ?? dailyChallenge ?? null;
 
@@ -187,6 +187,7 @@ export const LevelProvider = ({
 
       // stats
       recordSessionStats,
+      getBestWpm,
 
       // loading
       isAuthLoading,
@@ -204,6 +205,7 @@ export const LevelProvider = ({
     calculateSessionXP,
     handleDailyChallenge,
     recordSessionStats,
+    getBestWpm,
     isAuthLoading,
     isLoadingSession,
   ]);

@@ -11,8 +11,16 @@ import { addUserXP, getUserProgress } from "@/features/level/server-utils/userCa
 
 const SERVICE_TYPE = "PROFILE-PROGRESS";
 
+const BonusMetaSchema = z.object({
+  isMythicClaim:  z.boolean().optional(),
+  isPBClaim:      z.boolean().optional(),
+  claimedWpm:     z.number().min(0).max(500).optional(),
+  mythicBonusXp:  z.number().int().min(0).max(600).optional(),
+}).optional();
+
 const BodySchema = z.object({
-  xpDelta: z.number().int().positive().max(5000),
+  xpDelta:   z.number().int().positive().max(5000),
+  bonusMeta: BonusMetaSchema,
 });
 
 function validateCSRF(req: NextRequest): string | null {
@@ -116,7 +124,45 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { xpDelta } = parsed.data;
+    const { xpDelta: rawXpDelta, bonusMeta } = parsed.data;
+    let xpDelta = rawXpDelta;
+
+    // Conditional server-side validation for mythic/PB claims.
+    // Only triggers when the client asserts a PB or mythic bonus — normal sessions bypass this
+    // entirely (no extra Redis round-trip for the 99% case).
+    if (bonusMeta && (bonusMeta.isMythicClaim || bonusMeta.isPBClaim)) {
+      try {
+        const progress = await getUserProgress(userId);
+        const serverBestWPM: number = typeof (progress as any)?.bestWPM === "number"
+          ? (progress as any).bestWPM
+          : 0;
+
+        const claimedWpm = bonusMeta.claimedWpm ?? 0;
+        const mythicXp   = bonusMeta.mythicBonusXp ?? 0;
+
+        // If the claimed WPM doesn’t actually beat the server record, strip the bonus XP
+        if (bonusMeta.isPBClaim && claimedWpm <= serverBestWPM && mythicXp > 0) {
+          xpDelta = Math.max(1, xpDelta - mythicXp);
+          logging.warn("PB claim rejected — claimedWpm does not exceed serverBestWPM", {
+            requestId,
+            service: SERVICE_TYPE,
+            endpoint,
+            userId,
+            claimedWpm,
+            serverBestWPM,
+            strippedXp: mythicXp,
+          });
+        }
+      } catch (validationError) {
+        // Non-fatal: if validation fetch fails, allow the XP through rather than blocking the user
+        logging.warn("Bonus validation fetch failed — allowing XP", {
+          requestId,
+          service: SERVICE_TYPE,
+          userId,
+          error: validationError instanceof Error ? validationError.message : String(validationError),
+        });
+      }
+    }
 
     const updated = await addUserXP(userId, xpDelta);
 

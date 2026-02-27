@@ -26,6 +26,9 @@ import { DailyChallenge } from "./DailyChallenge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Skeleton } from "@/components/ui/skeleton";
 
+      
+
+
 // Type definition for component props
 interface UserMenuProps {
   isLoggedIn: boolean;
@@ -37,11 +40,6 @@ interface UserMenuProps {
   nextLevelXP: number;
 }
 import { XPMessageType } from "@/features/level/types/level";
-
-/**
- * UserLevelDisplay Component
- * Shows user's level with animated progress bar and tooltip
- */
 /**
  * UserLevelDisplay Component
  * Shows user's level with animated progress bar, tooltip, and XP messages
@@ -62,7 +60,7 @@ const UserLevelDisplay = ({
         <DailyChallenge className="relative items-center gap-2" />
       </div>
 
-      <div className="hidden md:flex items-center gap-2 xl:bg-gradient-to-br xl:border xl:shadow-lg xl:px-3 xl:py-1.5 from-slate-900 to-slate-800 border-slate-700 rounded-full transition-all duration-300">
+    <div className="hidden md:flex items-center gap-2 rounded-full transition-all duration-300 xl:bg-gradient-to-br xl:from-slate-900/30 xl:to-slate-800/30 xl:backdrop-blur-sm xl:border xl:border-[rgba(160,220,255,0.15)] xl:shadow-xl xl:px-3 xl:py-1.5 hover:border-[rgba(160,220,255,0.3)]" >
         <div className="hidden lg:block relative w-7 h-7">
           <Image
             src={LevelIcon}
@@ -72,15 +70,15 @@ const UserLevelDisplay = ({
           />
 
           {isBootstrapping ? (
-            <Skeleton className="absolute top-1/2 left-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-sm border-slate-600/40" />
+            <Skeleton className="absolute top-1/2 left-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-white/10" />
           ) : (
             <span
               className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
               ${String(userLevel).length === 3 ? "text-sm" : "text-base"}
               font-extrabold
-              bg-gradient-to-b from-blue-300 to-blue-200 bg-clip-text text-transparent`}
+              bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent`}
               style={{
-                textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6), 0 0 35px rgba(34,211,238,0.4)`,
+                textShadow: `0 0 10px rgba(34,211,238,0.8), 0 0 25px rgba(34,211,238,0.6)`,
               }}
             >
               {userLevel}
@@ -90,27 +88,30 @@ const UserLevelDisplay = ({
 
         {/* XP Progress */}
         <div className="hidden xl:flex flex-col ml-1.5">
-            {isBootstrapping ? (
-              <>
-                <div className="flex justify-between text-xs mb-1 gap-2">
-                  <Skeleton className="h-3 w-12 rounded-full" />
-                  <Skeleton className="h-3 w-16 rounded-full" />
-                </div>
-                <Skeleton className="h-1.5 w-28 rounded-full bg-slate-700/40 border-slate-600/30" />
-              </>
-            ) : (
-              <>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-blue-300">{userXP.toLocaleString()}</span>
-                  <span className="text-slate-400 pl-1">
-                    / {nextLevelXP.toLocaleString()} XP
-                  </span>
-                </div>
-                <div className="relative w-28 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                  <ProgressBar progress={progressPercentage} />
-                </div>
-              </>
-            )}
+          {isBootstrapping ? (
+            <>
+              <div className="flex justify-between text-xs mb-1 gap-2">
+                <Skeleton className="h-3 w-12 rounded-full bg-white/10" />
+                <Skeleton className="h-3 w-16 rounded-full bg-white/10" />
+              </div>
+              <Skeleton className="h-1.5 w-28 rounded-full bg-white/10" />
+            </>
+          ) : (
+            <>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-cyan-300">{userXP.toLocaleString()}</span>
+                <span className="text-[#8A8FB5] pl-1">
+                  / {nextLevelXP.toLocaleString()} XP
+                </span>
+              </div>
+              <div className="relative w-28 h-1.5 bg-slate-700/30 rounded-full overflow-hidden group">
+                <div
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full transition-all duration-500 ease-out group-hover:shadow-[0_0_8px_#60a5fa]"
+                  style={{ width: `${progressPercentage}%` }}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -123,52 +124,68 @@ const XPMessages = () => {
   const { xpMessages } = useLevel();
   const { settings } = useSettings();
 
-  if (settings.hideXpNotifications) return null;
+  // Resolve base style class per message type – متوافقة مع تصميم المرجع
+  const getBaseStyle = (type: XPMessageType): string => {
+    const pill = "mb-1 px-3 py-2 rounded-full border text-xs text-center w-full backdrop-blur shadow-sm";
 
-  const getMessageStyle = (type: XPMessageType) => {
-    const base =
-      "mb-1 px-3 py-2 rounded-full border border-white/10 bg-white/5 text-xs shadow-sm text-center w-full backdrop-blur";
-
-    const styles: Record<XPMessageType, string> = {
-      base: `${base} text-slate-200`,
-      "daily-challenge": `${base} text-emerald-200`,
-      achievement: `${base} text-purple-200`,
-      bonus: `${base} text-emerald-200`,
-      "level-up": `${base} text-emerald-200`,
-      participation: `${base} text-slate-200`,
-      error: `${base} bg-red-950/40 text-red-200 border-red-500/25`,
-      
+    const map: Record<XPMessageType, string> = {
+      base:              `${pill} border-white/10 bg-white/5 text-[#E0E7FF]`,
+      participation:     `${pill} border-white/10 bg-white/5 text-[#E0E7FF]`,
+      "daily-challenge": `${pill} border-emerald-400/20 bg-emerald-500/5 text-emerald-200`,
+      bonus:             `${pill} border-emerald-400/20 bg-emerald-500/5 text-emerald-200`,
+      "level-up":        `${pill} border-emerald-400/20 bg-emerald-500/5 text-emerald-200`,
+      achievement:       `${pill} border-purple-400/25 bg-purple-500/8 text-purple-200`,
+      error:             `${pill} bg-red-950/40 text-red-200 border-red-500/25`,
+      "personal-best":   `${pill} border-cyan-400/30 bg-gradient-to-r from-cyan-500/10 via-sky-400/5 to-blue-500/10 text-cyan-100`,
+      mythic:            `${pill} border-violet-400/45 bg-gradient-to-r from-violet-600/20 via-purple-500/15 to-fuchsia-600/15 text-violet-100`,
     };
 
-    return styles[type] || `${base} text-slate-200`;
+    return map[type] ?? `${pill} border-white/10 bg-white/5 text-[#E0E7FF]`;
   };
 
-  const getMessageStyleByMessage = (type: XPMessageType, text: string) => {
-    if (type !== "bonus") return getMessageStyle(type);
+  const resolveStyle = (type: XPMessageType, text: string, value: number): string => {
+    if (type === "bonus") {
+      const lowered = text.toLowerCase();
+      const isEndurance =
+        lowered.includes("endurance") ||
+        lowered.includes("character") ||
+        lowered.includes("marathon") ||
+        lowered.includes("long");
+      if (isEndurance) {
+        return (
+          "mb-1 px-3 py-2 rounded-lg text-xs text-center w-full backdrop-blur shadow-sm " +
+          "bg-gradient-to-r from-amber-500/10 via-emerald-500/5 to-cyan-500/10 " +
+          "border border-white/10 text-amber-100"
+        );
+      }
+    }
 
-    const lowered = text.toLowerCase();
-    const isEndurance =
-      lowered.includes("endurance") ||
-      lowered.includes("character") ||
-      lowered.includes("marathon") ||
-      lowered.includes("long");
+    let cls = getBaseStyle(type);
 
-    if (!isEndurance) return getMessageStyle(type);
+    if ((type === "mythic" || type === "personal-best") && value >= 150) {
+      cls += " text-sm font-semibold";
+    }
+    if (type === "mythic" && value >= 300) {
+      cls += " shadow-[0_0_20px_rgba(139,92,246,0.35)]";
+    }
 
-    return (
-      "mb-1 px-3 py-2 rounded-lg text-xs text-center w-full backdrop-blur shadow-sm " +
-      "bg-gradient-to-r from-amber-500/10 via-emerald-500/5 to-cyan-500/10 " +
-      "border border-white/10 text-amber-100"
-    );
+    return cls;
   };
+
+  const styledMessages = useMemo(
+    () => xpMessages.map((msg) => ({ ...msg, cls: resolveStyle(msg.type, msg.text, msg.value) })),
+    [xpMessages]
+  );
+
+  const useFancyAnimation = xpMessages.length <= 2;
 
   return (
     <div className="absolute top-[calc(100%+10px)] left-[calc(50%+0.5rem)] md:left-[calc(50%+1rem)] -translate-x-1/2 w-[200px] z-50">
       <div className="flex flex-col items-center">
         {settings.reduceMotion ? (
           <>
-            {xpMessages.map((msg) => (
-              <div key={msg.id} className={getMessageStyleByMessage(msg.type, msg.text)}>
+            {styledMessages.map((msg) => (
+              <div key={msg.id} className={msg.cls}>
                 {msg.text}
                 <span className="font-mono text-sm"> +{msg.value.toLocaleString()}</span>
               </div>
@@ -176,27 +193,42 @@ const XPMessages = () => {
           </>
         ) : (
           <AnimatePresence mode="popLayout">
-            {xpMessages.map((msg) => (
-              <motion.div
-                key={msg.id}
-                layout
-                initial={{ opacity: 0, y: -18, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -18, scale: 0.98 }}
-                transition={{
-                  y: { type: "spring", stiffness: 150, damping: 28, mass: 0.9 },
-                  opacity: { duration: 0.2, ease: "easeOut" },
-                  scale: { duration: 0.2, ease: "easeOut" },
-                }}
-                className={getMessageStyleByMessage(msg.type, msg.text)}
-              >
-                {msg.text}
-                <span className="font-mono text-sm">
-                  {" "}
-                  +{msg.value.toLocaleString()}
-                </span>
-              </motion.div>
-            ))}
+            {styledMessages.map((msg) => {
+              const isMythic = msg.type === "mythic";
+              const isPB     = msg.type === "personal-best";
+              const initScale = (isMythic && useFancyAnimation) ? 0.90 : 0.98;
+              const fancy = (isMythic || isPB) && useFancyAnimation;
+
+              return (
+                <motion.div
+                  key={msg.id}
+                  layout
+                  initial={{ opacity: 0, y: -18, scale: initScale }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -18, scale: initScale }}
+                  transition={
+                    fancy
+                      ? {
+                          y:       { type: "spring", stiffness: 240, damping: 20, mass: 0.8 },
+                          opacity: { duration: 0.18, ease: "easeOut" },
+                          scale:   { duration: 0.18, ease: "easeOut" },
+                        }
+                      : {
+                          y:       { type: "spring", stiffness: 150, damping: 28, mass: 0.9 },
+                          opacity: { duration: 0.2,  ease: "easeOut" },
+                          scale:   { duration: 0.2,  ease: "easeOut" },
+                        }
+                  }
+                  className={msg.cls}
+                >
+                  {msg.text}
+                  <span className="font-mono text-sm">
+                    {" "}
+                    +{msg.value.toLocaleString()}
+                  </span>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         )}
       </div>

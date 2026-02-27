@@ -1,10 +1,10 @@
 // hooks/useTextManager.ts
 "use client";
 
-import { useState, useEffect } from "react";
-import shortEn from "@/features/typing/data/short.json";
-import mediumEn from "@/features/typing/data/medium.json";
-import longEn from "@/features/typing/data/long.json";
+import { useState, useEffect, useCallback } from "react";
+import shortEn from "@/features/typing/data/en/short.json";
+import mediumEn from "@/features/typing/data/en/medium.json";
+import longEn from "@/features/typing/data/en/long.json";
 
 import shortAr from "@/features/typing/data/ar/short.json";
 import mediumAr from "@/features/typing/data/ar/medium.json";
@@ -27,6 +27,29 @@ type TextSelectionMode = "smart" | "random" | "daily";
 
 const HISTORY_SIZE = 20;
 
+const TEXT_BANKS: Record<TypingLanguage, Record<Level, TextItem[]>> = {
+  en: {
+    SHORT: shortEn as TextItem[],
+    MEDIUM: mediumEn as TextItem[],
+    LONG: longEn as TextItem[],
+  },
+  ar: {
+    SHORT: shortAr as TextItem[],
+    MEDIUM: mediumAr as TextItem[],
+    LONG: longAr as TextItem[],
+  },
+  es: {
+    SHORT: shortEs as TextItem[],
+    MEDIUM: mediumEs as TextItem[],
+    LONG: longEs as TextItem[],
+  },
+  fr: {
+    SHORT: shortFr as TextItem[],
+    MEDIUM: mediumFr as TextItem[],
+    LONG: longFr as TextItem[],
+  },
+};
+
 function safeParseJson<T>(raw: string | null): T | null {
   if (!raw) return null;
   try {
@@ -46,7 +69,15 @@ function getDayKey(date = new Date()): string {
 function difficultyScore(text: string): number {
   const len = text.length;
   const punctuation = (text.match(/[.,;:!?"'()\-]/g) ?? []).length;
-  const longWords = (text.match(/\b\w{9,}\b/g) ?? []).length;
+  const longWords = (() => {
+    // Unicode-aware long-word heuristic (handles Arabic/Devanagari/etc.).
+    // Fallback keeps older/limited-regex environments working.
+    try {
+      return (text.match(/[\p{L}\p{N}]{9,}/gu) ?? []).length;
+    } catch {
+      return (text.match(/\b\w{9,}\b/g) ?? []).length;
+    }
+  })();
   return len + punctuation * 6 + longWords * 10;
 }
 
@@ -87,34 +118,11 @@ export default function useTextManager(
 ) {
   const [text, setText] = useState<string>("");
 
-  const getTextsByLevel = (language: TypingLanguage, level: Level): TextItem[] => {
-    const banks: Record<TypingLanguage, Record<Level, TextItem[]>> = {
-      en: {
-        SHORT: shortEn as TextItem[],
-        MEDIUM: mediumEn as TextItem[],
-        LONG: longEn as TextItem[],
-      },
-      ar: {
-        SHORT: shortAr as TextItem[],
-        MEDIUM: mediumAr as TextItem[],
-        LONG: longAr as TextItem[],
-      },
-      es: {
-        SHORT: shortEs as TextItem[],
-        MEDIUM: mediumEs as TextItem[],
-        LONG: longEs as TextItem[],
-      },
-      fr: {
-        SHORT: shortFr as TextItem[],
-        MEDIUM: mediumFr as TextItem[],
-        LONG: longFr as TextItem[],
-      },
-    };
+  const getTextsByLevel = useCallback((language: TypingLanguage, level: Level): TextItem[] => {
+    return TEXT_BANKS[language]?.[level] ?? TEXT_BANKS.en[level];
+  }, []);
 
-    return banks[language]?.[level] ?? (banks.en[level] as TextItem[]);
-  };
-
-  const getTextForLevel = (level: Level) => {
+  const getTextForLevel = useCallback((level: Level) => {
     const texts = getTextsByLevel(typingLanguage, level);
     if (!texts.length) return "";
 
@@ -199,17 +207,20 @@ export default function useTextManager(
     }
 
     return chosen.content;
-  };
+  }, [getTextsByLevel, mode, typingLanguage]);
 
-  const resetText = (levelOverride?: Level) => {
-    const targetLevel = levelOverride ?? selectedLevel;
-    const newText = getTextForLevel(targetLevel);
-    setText(newText);
-  };
+  const resetText = useCallback(
+    (levelOverride?: Level) => {
+      const targetLevel = levelOverride ?? selectedLevel;
+      const newText = getTextForLevel(targetLevel);
+      setText(newText);
+    },
+    [getTextForLevel, selectedLevel]
+  );
 
   useEffect(() => {
     resetText();
-  }, [selectedLevel, mode, typingLanguage]);
+  }, [resetText]);
 
   return { text, resetText };
 }

@@ -17,8 +17,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { DeleteAccountButton } from "@/app/profile/delete-account-button";
-
 import { useSettings } from "@/features/settings/context";
 import type { FontScale } from "@/features/settings/types";
 import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
@@ -47,12 +45,18 @@ function SettingRow(props: {
 }) {
   const { title, description, children, disabled } = props;
   return (
-    <div className={cn("flex items-start justify-between gap-4", disabled && "opacity-60")}
+    <div
+      className={cn(
+        "flex items-start justify-between gap-4",
+        disabled && "opacity-60"
+      )}
       aria-disabled={disabled ? true : undefined}
     >
       <div className="space-y-1">
-        <div className="text-sm font-medium text-slate-100">{title}</div>
-        {description ? <div className="text-xs text-slate-400">{description}</div> : null}
+        <div className="text-sm font-medium text-[#E0E7FF]">{title}</div>
+        {description ? (
+          <div className="text-xs text-[#8A8FB5]">{description}</div>
+        ) : null}
       </div>
       <div className="pt-0.5">{children}</div>
     </div>
@@ -112,19 +116,19 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
     <div className={cn("space-y-4", className)}>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">Settings</h2>
-          <p className="text-sm text-slate-400">Control the experience, performance, and privacy.</p>
+          <h2 className="text-lg font-semibold text-[#E0E7FF]">Settings</h2>
+          <p className="text-sm text-[#8A8FB5]">
+            Control the experience, performance, and privacy.
+          </p>
         </div>
-        {onRequestClose ? (
-          <Button variant="secondary" onClick={onRequestClose}>
-            Close
-          </Button>
-        ) : null}
       </div>
 
-      <Card className="border-white/10 bg-white/5">
+      {/* Performance Card */}
+      <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
         <CardHeader className="pb-2">
-          <div className="text-sm font-semibold text-slate-100">Performance and Results Interface</div>
+          <div className="text-sm font-semibold text-[#E0E7FF]">
+            Performance and Results Interface
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <SettingRow
@@ -137,7 +141,7 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
             />
           </SettingRow>
 
-          <Separator className="bg-white/10" />
+          <Separator className="bg-[rgba(160,220,255,0.15)]" />
 
           <SettingRow
             title="Reduce motion"
@@ -151,9 +155,12 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
         </CardContent>
       </Card>
 
-      <Card className="border-white/10 bg-white/5">
+      {/* Sound Card */}
+      <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
         <CardHeader className="pb-2">
-          <div className="text-sm font-semibold text-slate-100">Sound and Notifications</div>
+          <div className="text-sm font-semibold text-[#E0E7FF]">
+            Sound and Notifications
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <SettingRow
@@ -166,35 +173,48 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
             />
           </SettingRow>
 
-          <div className={cn("flex items-start justify-between gap-4", settings.soundEffectsMuted && "opacity-60")} aria-disabled={settings.soundEffectsMuted ? true : undefined}>
+          <div
+            className={cn(
+              "flex items-start justify-between gap-4",
+              settings.soundEffectsMuted && "opacity-60"
+            )}
+            aria-disabled={settings.soundEffectsMuted ? true : undefined}
+          >
             <div className="space-y-1">
-              <div className="text-sm font-medium text-slate-100">Volume + Sound effects (Key click)</div>
-              <div className="text-xs text-slate-400">Comfortable, quiet key-click sound.</div>
+              <div className="text-sm font-medium text-[#E0E7FF]">
+                Volume + Sound effects (Key click)
+              </div>
+              <div className="text-xs text-[#8A8FB5]">
+                Comfortable, quiet key-click sound.
+              </div>
             </div>
             <div className="pt-0.5 w-[220px]">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3">
                 <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={settings.soundEffectsVolume}
-                  disabled={settings.soundEffectsMuted}
-                  onChange={(e) => updateSettings({ soundEffectsVolume: Number(e.target.value) })}
-                  className={cn(
-                    "w-full",
-                    "accent-white",
-                    "disabled:cursor-not-allowed"
-                  )}
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={settings.soundEffectsVolume}
+                disabled={settings.soundEffectsMuted}
+                onChange={(e) =>
+                    updateSettings({ soundEffectsVolume: Number(e.target.value) })
+                }
+                className="volume-slider w-full disabled:cursor-not-allowed"
                 />
-                <div className="text-xs tabular-nums text-slate-400 w-[44px] text-right">{settings.soundEffectsVolume}%</div>
-              </div>
+                <div className="text-xs tabular-nums text-[#8A8FB5] w-[44px] text-right">
+                {settings.soundEffectsVolume}%
+                </div>
+            </div>
             </div>
           </div>
 
-          <Separator className="bg-white/10" />
+          <Separator className="bg-[rgba(160,220,255,0.15)]" />
 
-          <SettingRow title="XP Notifications" description="Hide XP notifications" >
+          <SettingRow
+            title="XP Notifications"
+            description="Hide XP notifications"
+          >
             <Switch
               checked={settings.hideXpNotifications}
               onCheckedChange={(v) => updateSettings({ hideXpNotifications: v })}
@@ -206,63 +226,71 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
             description="Future feature"
             disabled
           >
-            <Switch checked={false} disabled />
+            <Switch
+              checked={false}
+              disabled
+            />
           </SettingRow>
         </CardContent>
       </Card>
 
-      <Card className="border-white/10 bg-white/5">
+      {/* Accessibility Card */}
+      <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
         <CardHeader className="pb-2">
-          <div className="text-sm font-semibold text-slate-100">Accessibility</div>
+          <div className="text-sm font-semibold text-[#E0E7FF]">Accessibility</div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label className="text-sm text-slate-100">Font size</Label>
+            <Label className="text-sm text-[#E0E7FF]">Font size</Label>
             <Select
               value={settings.fontScale}
               onValueChange={(v) => updateSettings({ fontScale: v as FontScale })}
             >
-              <SelectTrigger className="w-[220px] border-white/10 bg-white/5 text-slate-100">
+              <SelectTrigger className="w-[220px] border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm">
                 <SelectValue placeholder="Select" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Default</SelectItem>
-                <SelectItem value="large">Large</SelectItem>
-                <SelectItem value="xlarge">XL</SelectItem>
+              <SelectContent className="bg-[rgba(20,50,80,0.9)] backdrop-blur-sm border-[rgba(160,220,255,0.15)] text-[#E0E7FF]">
+                <SelectItem value="default" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">Default</SelectItem>
+                <SelectItem value="large" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">Large</SelectItem>
+                <SelectItem value="xlarge" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">XL</SelectItem>
               </SelectContent>
             </Select>
-            <div className="text-xs text-slate-400">The caret will scale with the font.</div>
+            <div className="text-xs text-[#8A8FB5]">The caret will scale with the font.</div>
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm text-slate-100">Typing language</Label>
+            <Label className="text-sm text-[#E0E7FF]">Typing language</Label>
             <Select
               value={settings.typingLanguage}
               onValueChange={(v) => updateSettings({ typingLanguage: v as TypingLanguage })}
             >
-              <SelectTrigger className="w-[220px] border-white/10 bg-white/5 text-slate-100">
+              <SelectTrigger className="w-[220px] border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm">
                 <SelectValue placeholder="Select" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="ar">Arabic (RTL)</SelectItem>
-                <SelectItem value="es">Spanish</SelectItem>
-                <SelectItem value="fr">French</SelectItem>
+              <SelectContent className="bg-[rgba(20,50,80,0.9)] backdrop-blur-sm border-[rgba(160,220,255,0.15)] text-[#E0E7FF]">
+                <SelectItem value="en" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">English</SelectItem>
+                <SelectItem value="ar" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">Arabic (RTL)</SelectItem>
+                <SelectItem value="es" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">Spanish</SelectItem>
+                <SelectItem value="fr" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">French</SelectItem>
               </SelectContent>
             </Select>
-            <div className="text-xs text-slate-400">Arabic uses right-to-left layout and caret.</div>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="border-white/10 bg-white/5">
+      {/* Privacy Card */}
+      <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
         <CardHeader className="pb-2">
-          <div className="text-sm font-semibold text-slate-100">Privacy and Visibility</div>
+          <div className="text-sm font-semibold text-[#E0E7FF]">
+            Privacy and Visibility
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <SettingRow
             title="Hide from leaderboard"
-            description={isLoading ? "Loading…" : "When enabled, your account will not appear on the leaderboard."}
+            description={
+              isLoading ? "Loading…" : "When enabled, your account will not appear on the leaderboard."
+            }
           >
             <Switch
               checked={hideFromLeaderboard}
@@ -276,26 +304,26 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
             description="Future feature"
             disabled
           >
-            <Switch checked={false} disabled />
+            <Switch
+              checked={false}
+              disabled
+            />
           </SettingRow>
         </CardContent>
       </Card>
 
-      <Card className="border-white/10 bg-white/5">
+      {/* Advanced Card */}
+      <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
         <CardHeader className="pb-2">
-          <div className="text-sm font-semibold text-slate-100">Advanced</div>
+          <div className="text-sm font-semibold text-[#E0E7FF]">Advanced</div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-slate-100">Delete account/data</div>
-            <div className="text-xs text-slate-400">The account and all associated data will be permanently deleted.</div>
-            <DeleteAccountButton className="max-w-sm" />
-          </div>
-
-          <Separator className="bg-white/10" />
-
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => setResetOpen(true)} className="border-white/10 bg-white/5 text-slate-100">
+            <Button
+              variant="outline"
+              onClick={() => setResetOpen(true)}
+              className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
+            >
               Reset settings to default
             </Button>
           </div>
@@ -303,18 +331,27 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
       </Card>
 
       <Dialog open={resetOpen} onOpenChange={setResetOpen}>
-        <DialogContent className="border-white/10 bg-[#0a0a1f]/90 text-[#E0E7FF] backdrop-blur-lg">
+        <DialogContent className="border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm text-[#E0E7FF]">
           <DialogHeader>
-            <DialogTitle>Reset settings</DialogTitle>
+            <DialogTitle className="text-[#E0E7FF]">Reset settings</DialogTitle>
             <DialogDescription className="text-[#8A8FB5]">
               This resets local settings and restores leaderboard visibility.
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setResetOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setResetOpen(false)}
+              className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
+            >
               Cancel
             </Button>
-            <Button onClick={resetAll}>Reset</Button>
+            <Button
+              onClick={resetAll}
+              className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
+            >
+              Reset
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

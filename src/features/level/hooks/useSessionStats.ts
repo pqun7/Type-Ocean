@@ -11,6 +11,8 @@ import { logger } from "@/log/clientLogger";
 export const useSessionStats = (userId?: string) => {
 
   const inFlightRef = useRef<Promise<LongTermStats> | null>(null);
+  /** Cached personal-best WPM — updated after every successful stat recording, read at next session end */
+  const cachedBestWpmRef = useRef<number>(0);
   const pendingRef = useRef<{
     wpm: number;
     accuracy: number;
@@ -236,6 +238,11 @@ export const useSessionStats = (userId?: string) => {
           }
         );
 
+        // Keep personal-best WPM fresh for the next session
+        if (typeof result.bestWPM === "number" && result.bestWPM > cachedBestWpmRef.current) {
+          cachedBestWpmRef.current = result.bestWPM;
+        }
+
         return result;
         
       } catch (error) {
@@ -308,6 +315,8 @@ export const useSessionStats = (userId?: string) => {
   return { 
     recordSessionStats, 
     getServiceHealth, 
-    isServiceHealthy 
+    isServiceHealthy,
+    /** Returns the cached personal-best WPM (updated after each successful session recording) */
+    getBestWpm: () => cachedBestWpmRef.current,
   };
 };

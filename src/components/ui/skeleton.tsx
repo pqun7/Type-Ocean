@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
  * Modern, accessible skeleton loader.
  *
  * Design goal:
- * - Match the header auth-loading placeholders (subtle slate background + border).
+ * - Match the profile page aesthetic (dark blue‑transparent backgrounds, subtle cyan borders).
  * - Use **opacity pulse** only (no left/right shimmer movement).
  */
 function Skeleton({
@@ -27,8 +27,8 @@ function Skeleton({
         // ----- LAYOUT (unchanged) -----
         "relative overflow-hidden rounded-md",
 
-        // ----- EYE‑FRIENDLY NEUTRAL GRAYS (light + dark) -----
-        "bg-slate-800/40 border border-slate-700/40",
+        // ----- PROFILE‑STYLE BACKGROUND & BORDER (dark transparent + cyan‑tinted border) -----
+        "bg-[rgba(20,50,80,0.3)] border border-[rgba(160,220,255,0.15)]",
 
         // ----- PULSE ONLY (no shimmer movement) -----
         "animate-pulse motion-reduce:animate-none",

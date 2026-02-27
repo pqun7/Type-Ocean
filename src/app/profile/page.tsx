@@ -264,6 +264,9 @@ export default async function ProfilePage() {
             achievementsCount: Array.isArray(profile.achievements)
               ? profile.achievements.length
               : 0,
+            achievements: Array.isArray(profile.achievements)
+              ? (profile.achievements as Array<{ id: string; unlocked: boolean; progress?: { current: number; target: number } }>)
+              : [],
             avatar: profile.avatar,
             rank: getRankInfo(profile.rating),
           }}

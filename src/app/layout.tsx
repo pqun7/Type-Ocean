@@ -7,6 +7,7 @@ import { LevelProvider } from "@/features/level/context/LevelProvider";
 import { AlertProvider } from "@/contexts/alert-context";
 import { AlertState } from "@/components/ui/alert-state";
 import { HandleAuthSuccess } from "@/components/handle-auth-success";
+import { DevPanelsWrapper } from "@/components/dev/DevPanelsWrapper";
 import { auth } from "@/features/auth/lib/auth";
 import { SettingsProvider } from "@/features/settings/context";
 import { MotionSettingsProvider } from "@/components/providers/MotionSettingsProvider";
@@ -49,6 +50,7 @@ export default async function RootLayout({
                   <AlertProvider>
                     <AlertState />
                     <HandleAuthSuccess />
+                    {process.env.NODE_ENV !== "production" && <DevPanelsWrapper />}
                     <main className="flex-grow">{children}</main>
                     <Footer />
                   </AlertProvider>

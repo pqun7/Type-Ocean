@@ -34,18 +34,16 @@ export default function TypingInput({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const isComposing = (e.nativeEvent as unknown as { isComposing?: boolean } | null)?.isComposing === true;
     if (!isComposing) {
-      audio.playKeyForEvent({
-        code: e.code,
-        key: e.key,
-        ctrlKey: e.ctrlKey,
-        metaKey: e.metaKey,
-        altKey: e.altKey,
-        shiftKey: e.shiftKey,
-      });
-
       if (e.key === "Tab") {
+        audio.playKeySfx("tab");
         // Let higher-level handlers use Tab for next/reset.
         e.preventDefault();
+      } else if (e.key === "Enter") {
+        audio.playKeySfx("enter");
+      } else if (e.key === " " || e.code === "Space") {
+        audio.playKeySfx("space");
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        audio.playKeySfx("key");
       }
     }
 

@@ -1,5 +1,4 @@
 export type FontScale = "default" | "large" | "xlarge";
-
 import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 
 export type AppSettings = {
@@ -17,7 +16,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   reduceMotion: false,
   hideXpNotifications: false,
   fontScale: "default",
-  soundEffectsMuted: false,
+  soundEffectsMuted: true,
   soundEffectsVolume: 35,
   typingLanguage: "en",
 };

@@ -20,7 +20,16 @@ import {
   BarChart3,
   TrendingUpIcon,
   Activity,
+  Lock,
+  Zap,
+  Flame,
+  Shield,
+  Star,
+  Trophy,
+  Swords,
+  Cpu,
 } from "lucide-react";
+import { ACHIEVEMENTS } from "@/features/level/constants/level";
 import { HiOutlineMail, HiOutlineUser } from "react-icons/hi";
 import { motion, LayoutGroup } from "framer-motion";
 
@@ -45,11 +54,18 @@ import { NumberAnimation } from "@/components/core/number-animation-view";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { StatTile } from "@/components/ui/stat-tile";
 
+type AchievementStateSlim = {
+  id: string;
+  unlocked: boolean;
+  progress?: { current: number; target: number };
+};
+
 type ProfileData = {
   level: number;
   xp: number;
   rating: number;
   achievementsCount: number;
+  achievements: AchievementStateSlim[];
   avatar: string | null;
   rank: {
     rating: number;
@@ -183,6 +199,173 @@ const fadeInUp = {
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.4 },
 };
+
+// ── Achievement icon + colour map ────────────────────────────────────────────
+type AchTier = "common" | "rare" | "epic" | "legendary" | "mythic";
+
+const ACHIEVEMENT_META: Record<string, { icon: React.ReactNode; tier: AchTier }> = {
+  velocity:        { icon: <Zap     className="w-4 h-4" />, tier: "common"    },
+  consistent_edge: { icon: <Activity className="w-4 h-4" />, tier: "common"    },
+  century:         { icon: <Trophy  className="w-4 h-4" />, tier: "common"    },
+  speed_demon:     { icon: <Flame   className="w-4 h-4" />, tier: "rare"      },
+  perfectionist:   { icon: <Shield  className="w-4 h-4" />, tier: "rare"      },
+  velocity_god:    { icon: <Star    className="w-4 h-4" />, tier: "epic"      },
+  the_surgeon:     { icon: <Target  className="w-4 h-4" />, tier: "epic"      },
+  iron_fingers:    { icon: <Cpu     className="w-4 h-4" />, tier: "legendary" },
+  ghost_protocol:  { icon: <Swords  className="w-4 h-4" />, tier: "mythic"    },
+};
+
+const TIER_STYLES: Record<AchTier, { border: string; glow: string; icon: string; bg: string; label: string; badge: string }> = {
+  common:    { border: "border-cyan-400/25",    glow: "hover:border-cyan-400/55",    icon: "text-cyan-300",    bg: "bg-cyan-400/10",    label: "text-cyan-200",   badge: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300"         },
+  rare:      { border: "border-violet-400/25",  glow: "hover:border-violet-400/55",  icon: "text-violet-300",  bg: "bg-violet-400/10",  label: "text-violet-200", badge: "border-violet-400/30 bg-violet-400/10 text-violet-300"   },
+  epic:      { border: "border-amber-400/25",   glow: "hover:border-amber-400/55",   icon: "text-amber-300",   bg: "bg-amber-400/10",   label: "text-amber-200",  badge: "border-amber-400/30 bg-amber-400/10 text-amber-300"       },
+  legendary: { border: "border-rose-400/30",    glow: "hover:border-rose-400/60",    icon: "text-rose-300",    bg: "bg-rose-400/10",    label: "text-rose-200",   badge: "border-rose-400/30 bg-rose-400/10 text-rose-300"           },
+  mythic:    { border: "border-fuchsia-500/40", glow: "hover:border-fuchsia-500/70", icon: "text-fuchsia-300", bg: "bg-fuchsia-500/10", label: "text-fuchsia-200", badge: "border-fuchsia-500/35 bg-fuchsia-500/15 text-fuchsia-200" },
+};
+
+const ACH_HINT: Record<string, string> = {
+  velocity:        "Type at 80 WPM — your fingers are waking up.",
+  consistent_edge: "10 sessions holding steady rhythm. Control is power.",
+  century:         "100 sessions. You're not playing — you're training.",
+  speed_demon:     "100 WPM. You've crossed into real speed territory.",
+  perfectionist:   "5 perfect sessions. No excuses, no mistakes.",
+  velocity_god:    "120 WPM. Fewer than 1% of typists ever get here.",
+  the_surgeon:     "20 sessions at ≥99% accuracy. Ruthlessly precise.",
+  iron_fingers:    "100,000 characters typed. Your keyboard felt every one.",
+  ghost_protocol:  "5 flawless runs. Perfect. Silent. Unstoppable.",
+};
+
+/** Compact 3×3 card for the achievements grid. */
+function AchCard({
+  ach, state,
+}: {
+  ach: (typeof ACHIEVEMENTS)[number];
+  state: AchievementStateSlim | undefined;
+}) {
+  const unlocked = state?.unlocked ?? false;
+  const meta     = ACHIEVEMENT_META[ach.id];
+  const tier     = (meta?.tier ?? "common") as AchTier;
+  const styles   = TIER_STYLES[tier];
+
+  const progDef   = ach.progress;
+  const hasProg   = !!(progDef && progDef.target > 1);
+  const current   = state?.progress?.current ?? progDef?.current ?? 0;
+  const target    = progDef?.target ?? 1;
+  const pct       = Math.min((current / target) * 100, 100);
+
+  // XP colour by tier
+  const xpColor =
+    tier === "mythic"    ? "text-fuchsia-300"
+    : tier === "legendary" ? "text-rose-300"
+    : tier === "epic"      ? "text-amber-300"
+    : tier === "rare"      ? "text-violet-300"
+    :                         "text-cyan-300";
+
+  // Progress gradient by tier
+  const progGrad =
+    tier === "mythic"    ? "bg-gradient-to-r from-fuchsia-500 to-purple-400"
+    : tier === "legendary" ? "bg-gradient-to-r from-rose-500 to-pink-400"
+    : tier === "epic"      ? "bg-gradient-to-r from-amber-500 to-yellow-400"
+    : tier === "rare"      ? "bg-gradient-to-r from-violet-500 to-purple-400"
+    :                         "bg-gradient-to-r from-cyan-500 to-blue-400";
+
+  const hint = ACH_HINT[ach.id] ?? ach.description;
+
+  return (
+    <div
+      title={`${ach.name}\n${ach.description}\n+${ach.xpReward.toLocaleString()} XP${hasProg ? `\n${Math.min(current, target).toLocaleString()}/${target.toLocaleString()}` : ""}`}
+      className={[
+        "relative flex flex-col gap-2 rounded-xl border p-3 transition-all duration-200 cursor-default select-none",
+        unlocked
+          ? `${styles.border} ${styles.glow} bg-[rgba(10,15,35,0.65)] backdrop-blur-sm`
+          : "border-white/6 bg-[rgba(10,15,35,0.3)] opacity-50 grayscale-[35%]",
+      ].join(" ")}
+    >
+      {/* Row 1: Icon + XP */}
+      <div className="flex items-center justify-between">
+        <div
+          className={[
+            "flex items-center justify-center w-8 h-8 rounded-lg shrink-0",
+            unlocked ? `${styles.bg} ${styles.icon}` : "bg-white/5 text-white/25",
+          ].join(" ")}
+        >
+          {unlocked ? (meta?.icon ?? <Award className="w-4 h-4" />) : <Lock className="w-3.5 h-3.5" />}
+        </div>
+        <span className={["text-[11px] font-bold font-mono", unlocked ? xpColor : "text-white/18"].join(" ")}>
+          +{ach.xpReward.toLocaleString()}
+        </span>
+      </div>
+
+      {/* Row 2: Name + tier badge */}
+      <div className="flex flex-col gap-0.5">
+        <p className={[
+          "text-[11px] font-bold leading-tight truncate",
+          unlocked ? styles.label : "text-white/30",
+        ].join(" ")}>
+          {ach.name}
+        </p>
+        {unlocked && (
+          <span
+            className={[
+              "self-start text-[8px] font-bold uppercase tracking-widest rounded-full px-1.5 py-0.5 border",
+              styles.badge,
+            ].join(" ")}
+          >
+            {tier}
+          </span>
+        )}
+      </div>
+
+      {/* Row 3: Hint */}
+      <p className="text-[9px] text-white/50 leading-snug line-clamp-2">
+        {hint}
+      </p>
+
+      {/* Row 4: Progress bar */}
+      {hasProg && (
+        <div>
+          <div className="flex justify-between text-[8px] mb-0.5">
+            <span className={unlocked ? "text-white/45" : "text-white/18"}>
+              {Math.min(current, target).toLocaleString()}/{target.toLocaleString()}
+            </span>
+            {unlocked && <span className="text-white/35">{Math.round(pct)}%</span>}
+          </div>
+          <div className="h-0.5 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className={["h-full rounded-full transition-all duration-700", unlocked ? progGrad : "bg-white/15"].join(" ")}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AchievementsPanel({ achievements }: { achievements: AchievementStateSlim[] }) {
+  const stateMap     = new Map(achievements.map((a) => [a.id, a]));
+  const unlockedCount = achievements.filter((a) => a.unlocked).length;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-0.5">
+        <Trophy className="w-4 h-4 text-amber-300 shrink-0" />
+        <span className="text-sm font-semibold text-[#E0E7FF] uppercase tracking-wider">Achievements</span>
+        <span className="ml-auto text-xs text-[#8A8FB5]">
+          {unlockedCount} / {ACHIEVEMENTS.length}
+        </span>
+      </div>
+
+      {/* 3×3 grid */}
+      <div className="grid grid-cols-3 gap-1.5">
+        {ACHIEVEMENTS.map((ach) => (
+          <AchCard key={ach.id} ach={ach} state={stateMap.get(ach.id)} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const staggerContainer = {
   animate: {
@@ -899,7 +1082,7 @@ async function cancelEmailChangeRequest() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.3 }}
-                      className="text-center p-3 bg-[rgba(20,50,80,0.3)] rounded-xl border border-[rgba(160,220,255,0.15)] backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all min-w-[80px]"
+                      className="text-center p-3 min-w-[80px]"
                     >
                       <div className="flex items-center justify-center gap-1 mb-1">
                         <TrendingUpIcon className="w-4 h-4 text-cyan-300" />
@@ -914,7 +1097,7 @@ async function cancelEmailChangeRequest() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.4 }}
-                      className="text-center p-3 bg-[rgba(20,50,80,0.3)] rounded-xl border border-[rgba(80,210,150,0.15)] backdrop-blur-sm hover:border-[rgba(80,210,150,0.3)] transition-all min-w-[80px]"
+                      className="text-center p-3 min-w-[80px]"
                     >
                       <div className="flex items-center justify-center gap-1 mb-1">
                         <Award className="w-4 h-4 text-green-300" />
@@ -929,7 +1112,7 @@ async function cancelEmailChangeRequest() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.5 }}
-                      className="text-center p-3 bg-[rgba(20,50,80,0.3)] rounded-xl border border-[rgba(160,220,255,0.15)] backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all min-w-[140px]"
+                      className="text-center p-3 min-w-[140px]"
                     >
                       <div className="flex items-center justify-center gap-1 mb-1">
                         <Target className="w-4 h-4 text-cyan-300" />
@@ -938,18 +1121,21 @@ async function cancelEmailChangeRequest() {
                       <p className="text-sm font-semibold text-[#E0E7FF] leading-tight">
                         {props.profile.rank.tier} {props.profile.rank.division}
                       </p>
-                      <p className="mt-1 text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+                      {/* <p className="mt-1 text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
                         <NumberAnimation value={props.profile.rank.rating} delay={0.6} />
-                      </p>
-                      <div className="mt-2">
+                      </p> */}
+                      {/* <div className="mt-2">
                         <ProgressBar progress={props.profile.rank.progressPct} />
-                      </div>
+                      </div> */}
                     </motion.div>
                   </div>
                 </div>
               </CardHeader>
 
-              <CardContent className="space-y-6 pt-4">
+              <CardContent className="pt-4">
+              <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6">
+              {/* Left: Account settings */}
+              <div className="space-y-6">
   {/* Email Section */}
   <div className="space-y-2">
     <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="email">
@@ -1306,7 +1492,13 @@ async function cancelEmailChangeRequest() {
         </div>
       </div>
     )}
-  </div>
+  </div>{/* end password section */}
+</div>{/* end left column: space-y-6 */}
+
+  {/* ── Right column: Achievements ─────────────────────────────── */}
+  <AchievementsPanel achievements={props.profile.achievements} />
+
+</div>{/* end grid */}
 </CardContent>
          </LayoutGroup>
           </Card>

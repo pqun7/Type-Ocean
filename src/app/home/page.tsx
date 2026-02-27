@@ -5,7 +5,6 @@ import VerifiedMessage from "@/components/auth/verification/VerifiedMessage";
 import HomePvpTiles from "@/components/pvp/HomePvpTiles";
 import { NextPage } from "next";
 
-// NOTE: sholde add Alert for verification
 const Home: NextPage = ({}) => {
   return (
     <>

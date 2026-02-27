@@ -302,3 +302,90 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Volume Slider - Modern & Calm */
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: transparent;
+  border-radius: 9999px;
+  cursor: pointer;
+}
+
+/* Track */
+.volume-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: rgba(30, 41, 59, 0.6); /* slate-700 with opacity */
+  border: 1px solid rgba(148, 163, 184, 0.15); /* slate-400 very subtle */
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+}
+
+.volume-slider::-moz-range-track {
+  height: 6px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+}
+
+/* Thumb */
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #e2e8f0; /* slate-200 */
+  border-radius: 50%;
+  margin-top: -7px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: #e2e8f0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.volume-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.1);
+  background: #f1f5f9; /* slate-100 */
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
+  border-color: rgba(160, 220, 255, 0.3); /* very subtle cyan hint on hover */
+}
+
+.volume-slider:hover::-moz-range-thumb {
+  transform: scale(1.1);
+  background: #f1f5f9;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
+  border-color: rgba(160, 220, 255, 0.3);
+}
+
+.volume-slider:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid rgba(160, 220, 255, 0.5);
+  outline-offset: 2px;
+}
+
+.volume-slider:focus-visible::-moz-range-thumb {
+  outline: 2px solid rgba(160, 220, 255, 0.5);
+  outline-offset: 2px;
+}
+
+.volume-slider:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.volume-slider:disabled::-webkit-slider-thumb,
+.volume-slider:disabled::-moz-range-thumb {
+  background: #94a3b8; /* slate-400 */
+  box-shadow: none;
+  border-color: transparent;
+}

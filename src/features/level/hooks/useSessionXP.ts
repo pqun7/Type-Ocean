@@ -6,7 +6,7 @@ import { levelReducer } from "../reducers/levelReducer";
 import { calculateSessionXP } from "../utils/xpCalculations";
 import { calculateNextLevelXP } from "../utils/xpMath";
 import { logger } from "@/log/clientLogger";
-import type { AchievementState, XPMessageType } from "../types/level";
+import type { AchievementState, MythicClaimMeta, XPMessageType } from "../types/level";
 
 function isAchievementState(value: unknown): value is AchievementState {
   if (typeof value !== "object" || value === null) return false;
@@ -146,7 +146,7 @@ export const useSessionXP = (
   }, [userId, bootstrapProgress, applyBootstrapProgress]);
 
   const addXP = useCallback(
-    async (amount: number) => {
+    async (amount: number, bonusMeta?: MythicClaimMeta) => {
       if (amount <= 0 || !userId) return;
 
       // Optimistic UI update
@@ -158,7 +158,10 @@ export const useSessionXP = (
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ xpDelta: amount }),
+          body: JSON.stringify({
+            xpDelta: amount,
+            ...(bonusMeta ? { bonusMeta } : {}),
+          }),
         });
 
         if (!res.ok) {
@@ -183,9 +186,12 @@ export const useSessionXP = (
     [userId, state.achievements]
   );
 
-  // Memoized XP calculation with side effects
+  // Memoized XP calculation with side effects — forwards optional onMythicClaim callback
   const enhancedCalculateXP = useCallback(
-    (session: Parameters<typeof calculateSessionXP>[0]) => calculateSessionXP(session, state, userId, addXPMessage, dispatch),
+    (
+      session: Parameters<typeof calculateSessionXP>[0],
+      onMythicClaim?: (meta: MythicClaimMeta) => void
+    ) => calculateSessionXP(session, state, userId, addXPMessage, dispatch, onMythicClaim),
     [state, userId, addXPMessage]
   );
 

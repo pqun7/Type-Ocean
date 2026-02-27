@@ -4,7 +4,7 @@ import { TextType, State } from "@/features/typing/types/typing";
 import { useInterval } from "./useInterval";
 import { getPreviousWpm } from "../utils/getPreviousWpm";
 import { useLevel } from "@/features/level/hooks/useLevel";
-import { SessionData } from "@/features/level/types/level";
+import { MythicClaimMeta, SessionData } from "@/features/level/types/level";
 import { logger } from "@/log/clientLogger";
 import { computeConsistency } from "@/features/typing/utils/consistency";
 import { segmentGraphemes } from "@/features/typing/utils/graphemes";
@@ -91,6 +91,7 @@ export default function useTypingLogic(
     addXPMessage,
     recordSessionStats,
     handleDailyChallenge,
+    getBestWpm,
   } = levelContext;
 
   // Sync refs with current values
@@ -247,6 +248,11 @@ export default function useTypingLogic(
         const sessionMistakes = Math.max(0, counts?.mistakes ?? mistakesRef.current);
         const sessionCorrections = Math.max(0, counts?.corrections ?? correctionsRef.current);
 
+        // Compute consistency before sessionData so it can feed into XP calculation
+        const currentSession = wpmHistory[wpmHistory.length - 1] ?? [];
+        const rawConsistency = computeConsistency([currentSession]);
+        const consistency = rawConsistency ?? undefined;
+
         // Build the minimal session payload synchronously so XP can be awarded immediately.
         const sessionData: SessionData = {
           wpm,
@@ -259,10 +265,18 @@ export default function useTypingLogic(
           dailyAvgWpm: wpm,
           dailyAvgAcc: accuracy,
           sessionsCount: 1,
+          // Enhanced XP fields
+          corrections: sessionCorrections,
+          ...(typeof consistency === "number" ? { consistency } : {}),
+          prevBestWpm: getBestWpm?.() ?? 0,
         };
 
         // Award session XP immediately (do not wait for network).
-        const sessionXP = calculateSessionXP(sessionData);
+        // Capture mythic/PB claim meta for optional server-side validation.
+        let capturedMythicMeta: MythicClaimMeta | undefined;
+        const sessionXP = calculateSessionXP(sessionData, (meta) => {
+          capturedMythicMeta = meta;
+        });
 
         // Participation XP ramps with time spent to prevent micro-session farming.
         // (Keeps changes minimal; focus is on earned XP fairness.)
@@ -273,12 +287,9 @@ export default function useTypingLogic(
         }
 
         const immediateXP = sessionXP + topUpXP;
-        void addXP(immediateXP);
+        void addXP(immediateXP, capturedMythicMeta);
 
-        // Calculate per-session consistency (percentage 0-100)
-        const currentSession = wpmHistory[wpmHistory.length - 1] ?? [];
-        const rawConsistency = computeConsistency([currentSession]);
-        const consistency = rawConsistency ?? undefined;
+        // Calculate per-session consistency (percentage 0-100) — already computed above
         // Record stats in the background (non-blocking)
         void recordSessionStats?.(wpmForStorage, accuracy, {
           textType: selectedLevel,
