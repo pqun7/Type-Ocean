@@ -1083,7 +1083,7 @@ async function cancelEmailChangeRequest() {
                           <Target className="w-4 h-4 text-cyan-300" />
                           <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Rank</p>
                         </div>
-                        <p className="text-sm font-semibold text-[#E0E7FF] leading-tight font-mono">
+                        <p className="text-sm font-semibold text-[#E0E7FF] leading-tight">
                           {props.profile.rank.tier} {props.profile.rank.division}
                         </p>
                       </motion.div>
