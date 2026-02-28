@@ -557,21 +557,21 @@ export default function AccountStatsChart({
           <div>
             <div className="mb-4 flex items-center gap-2">
               <ActivityIcon className="w-4 h-4 text-cyan-300" />
-              <div className="text-sm text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Trend</div>
-              <div className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+              <div className="text-sm text-[rgba(200,240,255,0.8)] uppercase tracking-wider ">Trend</div>
+              <div className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 ">
                 {trendHeadline}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-lg border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all">
-                <div className="text-xs text-[rgba(200,240,255,0.6)]">Player level</div>
-                <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+                <div className="text-xs text-[rgba(200,240,255,0.6)] ">Player level</div>
+                <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 ">
                   {playerLevel.label}
                 </div>
-                <div className="mt-1 text-xs text-[#8A8FB5]">{playerLevel.note}</div>
+                <div className="mt-1 text-xs text-[#8A8FB5] ">{playerLevel.note}</div>
               </div>
               <div className="rounded-lg border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(160,220,255,0.3)] transition-all">
-                <div className="text-xs text-[rgba(200,240,255,0.6)]">Stability</div>
+                <div className="text-xs text-[rgba(200,240,255,0.6)] ">Stability</div>
                 <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
                   <NumberAnimation value={intelligence.scores.stabilityScore} delay={0.35} />
                   <span className="ml-1 text-sm text-slate-400">/100</span>
@@ -681,13 +681,13 @@ export default function AccountStatsChart({
         <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-5">
           <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
             <div className="text-xs text-[rgba(200,240,255,0.6)]">Recent avg WPM</div>
-            <div className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
+            <div className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 font-mono">
               <NumberAnimation value={recentVsPrevious14.recentAvgWpm} delay={0.7} decimals={1} />
             </div>
           </div>
           <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
             <div className="text-xs text-[rgba(200,240,255,0.6)]">Previous avg WPM</div>
-            <div className="text-lg font-semibold text-[#E0E7FF]">
+            <div className="text-lg font-semibold text-[#E0E7FF] font-mono">
               {recentVsPrevious14.hasPreviousWindow ? (
                 <NumberAnimation value={recentVsPrevious14.previousAvgWpm} delay={0.8} />
               ) : (
@@ -697,7 +697,7 @@ export default function AccountStatsChart({
           </div>
           <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
             <div className="text-xs text-[rgba(200,240,255,0.6)]">Δ WPM</div>
-            <div className={`text-lg font-semibold ${recentVsPrevious14.deltaWpm >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <div className={`text-lg font-semibold font-mono ${recentVsPrevious14.deltaWpm >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {recentVsPrevious14.hasPreviousWindow ? (
                 <>
                   {recentVsPrevious14.deltaWpm >= 0 ? '+' : ''}
@@ -708,13 +708,13 @@ export default function AccountStatsChart({
           </div>
           <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
             <div className="text-xs text-[rgba(200,240,255,0.6)]">Recent sessions</div>
-            <div className="text-lg font-semibold text-[#E0E7FF]">
+            <div className="text-lg font-semibold text-[#E0E7FF] font-mono">
               <NumberAnimation value={recentVsPrevious14.recentSessions} delay={1.0} />
             </div>
           </div>
           <div className="text-center p-3 bg-[rgba(20,50,80,0.2)] rounded-lg border border-[rgba(160,220,255,0.1)] backdrop-blur-sm">
             <div className="text-xs text-[rgba(200,240,255,0.6)]">Recent minutes</div>
-            <div className="text-lg font-semibold text-[#E0E7FF]">
+            <div className="text-lg font-semibold text-[#E0E7FF] font-mono">
               <NumberAnimation value={recentVsPrevious14.recentMinutes} delay={1.1} />
             </div>
           </div>
@@ -740,37 +740,37 @@ export default function AccountStatsChart({
               <SparklesIcon className="w-3 h-3 text-purple-300" />
               <div className="text-xs text-[rgba(200,240,255,0.6)]">Trend confidence</div>
             </div>
-            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-300 to-pink-400">
+            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-300 to-pink-400 font-mono">
               <NumberAnimation value={advanced.confidencePct} unit="%" delay={1.2} />
             </div>
-            <div className="mt-1 text-xs text-slate-500">Based on R² (higher = clearer trend)</div>
+            <div className="mt-1 text-xs text-slate-500 font-mono">Based on R² (higher = clearer trend)</div>
           </div>
           <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
             <div className="flex items-center gap-1 mb-1">
               <ActivityIcon className="w-3 h-3 text-purple-300" />
               <div className="text-xs text-[rgba(200,240,255,0.6)]">Volatility</div>
             </div>
-            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400">
+            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400 font-mono">
               <NumberAnimation value={advanced.volatilityCvPct} unit="%" delay={1.3} />
             </div>
-            <div className="mt-1 text-xs text-slate-500">Lower = steadier performance</div>
+            <div className="mt-1 text-xs text-slate-500 font-mono">Lower = steadier performance</div>
           </div>
           <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
             <div className="flex items-center gap-1 mb-1">
               <FlameIcon className="w-3 h-3 text-purple-300" />
               <div className="text-xs text-[rgba(200,240,255,0.6)]">Streaks</div>
             </div>
-            <div className="text-xl font-semibold text-[#E0E7FF]">
+            <div className="text-xl font-semibold text-[#E0E7FF] font-mono">
               <NumberAnimation value={advanced.streaks.current} delay={1.4} /> / <NumberAnimation value={advanced.streaks.longest} delay={1.45} />
             </div>
-            <div className="mt-1 text-xs text-slate-500">Current / longest active-day streak</div>
+            <div className="mt-1 text-xs text-slate-500 font-mono">Current / longest active-day streak</div>
           </div>
           <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
             <div className="flex items-center gap-1 mb-1">
               <TrendingUpIcon className="w-3 h-3 text-purple-300" />
               <div className="text-xs text-[rgba(200,240,255,0.6)]">7-day shift</div>
             </div>
-            <div className={`text-xl font-semibold text-slate-500`}>
+            <div className={`text-xl font-semibold text-[rgba(160,220,255,1)] font-mono`}>
               {advanced.wpmDelta7 >= 0 ? '+' : ''}
               <NumberAnimation value={advanced.wpmDelta7} delay={1.5} /> WPM
             </div>
@@ -783,10 +783,10 @@ export default function AccountStatsChart({
               <CpuIcon className="w-3 h-3 text-purple-300" />
               <div className="text-xs text-[rgba(200,240,255,0.6)]">Effective WPM</div>
             </div>
-            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-300 to-pink-400">
+            <div className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-purple-300 to-pink-400 font-mono">
               <NumberAnimation value={sessionInsights.effectiveWpm} delay={1.55} decimals={1} />
             </div>
-            <div className="mt-1 text-xs text-slate-500">Time-weighted: WPM × (accuracy)</div>
+            <div className="mt-1 text-xs text-slate-500 font-mono">Time-weighted: WPM × (accuracy)</div>
           </div>
 
           <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
@@ -794,14 +794,14 @@ export default function AccountStatsChart({
               <TrendingUpIcon className="w-3 h-3 text-purple-300" />
               <div className="text-xs text-[rgba(200,240,255,0.6)]">P90 WPM</div>
             </div>
-            <div className="text-xl font-semibold text-[#E0E7FF]">
+            <div className="text-xl font-semibold text-[#E0E7FF] font-mono">
               {sessionInsights.enoughForPercentiles ? (
                 <NumberAnimation value={sessionInsights.p90Wpm} delay={1.6} decimals={1} />
               ) : (
                 "—"
               )}
             </div>
-            <div className="mt-1 text-xs text-slate-500">Top 10% speed (needs 10+ sessions)</div>
+            <div className="mt-1 text-xs text-slate-500 font-mono">Top 10% speed (needs 10+ sessions)</div>
           </div>
 
           <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
@@ -809,11 +809,11 @@ export default function AccountStatsChart({
               <ActivityIcon className="w-3 h-3 text-purple-300" />
               <div className="text-xs text-[rgba(200,240,255,0.6)]">Error rate</div>
             </div>
-            <div className="text-xl font-semibold text-[#E0E7FF]">
+            <div className="text-xl font-semibold text-[#E0E7FF] font-mono">
               <NumberAnimation value={sessionInsights.mistakesPer100Chars} delay={1.65} decimals={2} />
               <span className="ml-1 text-sm text-slate-400">/100c</span>
             </div>
-            <div className="mt-1 text-xs text-slate-500">Mistakes per 100 typed chars</div>
+            <div className="mt-1 text-xs text-slate-500 font-mono">Mistakes per 100 typed chars</div>
           </div>
 
           <div className="rounded-lg border border-[rgba(220,180,255,0.15)] bg-[rgba(20,50,80,0.2)] p-3 backdrop-blur-sm hover:border-[rgba(220,180,255,0.3)] transition-all">
@@ -821,10 +821,10 @@ export default function AccountStatsChart({
               <FlameIcon className="w-3 h-3 text-purple-300" />
               <div className="text-xs text-[rgba(200,240,255,0.6)]">Deep focus</div>
             </div>
-            <div className="text-xl font-semibold text-[#E0E7FF]">
+            <div className="text-xl font-semibold text-[#E0E7FF] font-mono">
               <NumberAnimation value={sessionInsights.deepFocusSharePct} unit="%" delay={1.7} decimals={0} />
             </div>
-            <div className="mt-1 text-xs text-slate-500">Sessions lasting 2+ minutes</div>
+            <div className="mt-1 text-xs text-slate-500 font-mono">Sessions lasting 2+ minutes</div>
           </div>
         </div>
         {advanced.bestDay && (
@@ -837,7 +837,7 @@ export default function AccountStatsChart({
             <AwardIcon className="w-5 h-5 text-yellow-300" />
             <div>
               <div className="text-xs text-[rgba(200,240,255,0.6)]">Best day</div>
-              <div className="text-sm text-[#E0E7FF]">
+              <div className="text-sm text-[#E0E7FF] font-mono">
                 {formatShortDate(advanced.bestDay.localDate)} ·{" "}
                 <NumberAnimation value={advanced.bestDay.avgWpm} decimals={1} delay={1.7} /> WPM ·{" "}
                 <NumberAnimation value={advanced.bestDay.avgAccuracy} decimals={1} delay={1.8} />% ·{" "}

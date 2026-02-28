@@ -6,11 +6,13 @@ export const NumberAnimation = ({
   unit,
   color = "rgba(160,220,255,1)",
   delay = 0,
+  className,
 }: {
   value: number;
   unit?: string;
   color?: string;
   delay?: number;
+  className?: string;
 }) => {
   const motionValue = useMotionValue(0);
   const animatedValue = useTransform(motionValue, Math.round);
@@ -27,7 +29,7 @@ export const NumberAnimation = ({
 
   return (
     <motion.span
-      className="font-medium"
+      className={className ?? "font-medium"}
       style={{ color: color }}
     >
       <motion.span>{animatedValue}</motion.span>

@@ -234,7 +234,7 @@ const ACH_HINT: Record<string, string> = {
   iron_fingers:    "100K keys pressed.",
   ghost_protocol:  "5 perfect games. No trace.",
 };
-/** Compact 3×3 card for the achievements grid. */
+/** Compact square card for the achievements grid. */
 function AchCard({
   ach, state,
 }: {
@@ -246,12 +246,6 @@ function AchCard({
   const tier     = (meta?.tier ?? "common") as AchTier;
   const styles   = TIER_STYLES[tier];
 
-  const progDef   = ach.progress;
-  const hasProg   = !!(progDef && progDef.target > 1);
-  const current   = state?.progress?.current ?? progDef?.current ?? 0;
-  const target    = progDef?.target ?? 1;
-  const pct       = Math.min((current / target) * 100, 100);
-
   // XP colour by tier
   const xpColor =
     tier === "mythic"    ? "text-fuchsia-300"
@@ -260,83 +254,65 @@ function AchCard({
     : tier === "rare"      ? "text-violet-300"
     :                         "text-cyan-300";
 
-  // Progress gradient by tier
-  const progGrad =
-    tier === "mythic"    ? "bg-gradient-to-r from-fuchsia-500 to-purple-400"
-    : tier === "legendary" ? "bg-gradient-to-r from-rose-500 to-pink-400"
-    : tier === "epic"      ? "bg-gradient-to-r from-amber-500 to-yellow-400"
-    : tier === "rare"      ? "bg-gradient-to-r from-violet-500 to-purple-400"
-    :                         "bg-gradient-to-r from-cyan-500 to-blue-400";
-
   const hint = ACH_HINT[ach.id] ?? ach.description;
 
   return (
     <div
-      title={`${ach.name}\n${ach.description}\n+${ach.xpReward.toLocaleString()} XP${hasProg ? `\n${Math.min(current, target).toLocaleString()}/${target.toLocaleString()}` : ""}`}
+      title={`${ach.name}\n${ach.description}\n+${ach.xpReward.toLocaleString()} XP`}
       className={[
-        "relative flex flex-col gap-2 rounded-xl border p-2.5 transition-all duration-200 cursor-default select-none", // p-3 → p-2.5 for tighter feel
+        "relative aspect-square flex flex-col justify-between rounded-xl border p-3 transition-all duration-200 cursor-default select-none",
         unlocked
           ? `${styles.border} ${styles.glow} bg-[rgba(10,15,35,0.65)] backdrop-blur-sm`
           : "border-white/6 bg-[rgba(10,15,35,0.3)] opacity-50 grayscale-[35%]",
       ].join(" ")}
     >
-      {/* Row 1: Icon + XP */}
-      <div className="flex items-center justify-between">
-        <div
-          className={[
-            "flex items-center justify-center w-8 h-8 rounded-lg shrink-0",
-            unlocked ? `${styles.bg} ${styles.icon}` : "bg-white/5 text-white/25",
-          ].join(" ")}
-        >
-          {unlocked ? (meta?.icon ?? <Award className="w-4 h-4" />) : <Lock className="w-3.5 h-3.5" />}
+      {/* Top section */}
+      <div className="flex flex-col gap-2">
+        {/* Icon + XP row */}
+        <div className="flex items-center justify-between">
+          <div
+            className={[
+              "flex items-center justify-center w-9 h-9 rounded-lg shrink-0",
+              unlocked ? `${styles.bg} ${styles.icon}` : "bg-white/5 text-white/25",
+            ].join(" ")}
+          >
+            {unlocked ? (meta?.icon ?? <Award className="w-4 h-4" />) : <Lock className="w-3.5 h-3.5" />}
+          </div>
+          <span className={["text-[11px] font-bold font-mono", unlocked ? xpColor : "text-white/18"].join(" ")}>
+            +{ach.xpReward.toLocaleString()}
+          </span>
         </div>
-        <span className={["text-[11px] font-bold font-mono", unlocked ? xpColor : "text-white/18"].join(" ")}>
-          +{ach.xpReward.toLocaleString()}
-        </span>
-      </div>
 
-      {/* Row 2: Name + tier badge */}
-      <div className="flex flex-col gap-0.5">
+        {/* Name */}
         <p className={[
-          "text-[11px] font-bold leading-tight truncate",
+          "text-[11px] font-bold leading-tight truncate font-mono",
           unlocked ? styles.label : "text-white/30",
         ].join(" ")}>
           {ach.name}
         </p>
-        {unlocked && (
-          <span
-            className={[
-              "self-start text-[8px] font-bold uppercase tracking-widest rounded-full px-1.5 py-0.5 border",
-              styles.badge,
-            ].join(" ")}
-          >
-            {tier}
-          </span>
-        )}
       </div>
 
-      {/* Row 3: Hint */}
-      <p className="text-[9px] text-white/50 leading-snug line-clamp-2">
-        {hint}
-      </p>
-
-      {/* Row 4: Progress bar */}
-      {hasProg && (
-        <div>
-          <div className="flex justify-between text-[8px] mb-0.5">
-            <span className={unlocked ? "text-white/45" : "text-white/18"}>
-              {Math.min(current, target).toLocaleString()}/{target.toLocaleString()}
+      {/* Bottom section */}
+      <div className="flex flex-col gap-1.5">
+        {/* Tier badge */}
+        <div className="h-4">
+          {unlocked && (
+            <span
+              className={[
+                "inline-block text-[8px] font-bold uppercase tracking-widest rounded-full px-1.5 py-0.5 border font-mono",
+                styles.badge,
+              ].join(" ")}
+            >
+              {tier}
             </span>
-            {unlocked && <span className="text-white/35">{Math.round(pct)}%</span>}
-          </div>
-          <div className="h-0.5 rounded-full bg-white/10 overflow-hidden">
-            <div
-              className={["h-full rounded-full transition-all duration-700", unlocked ? progGrad : "bg-white/15"].join(" ")}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          )}
         </div>
-      )}
+
+        {/* Hint */}
+        <p className="text-[9px] text-white/50 leading-snug line-clamp-2 font-mono">
+          {hint}
+        </p>
+      </div>
     </div>
   );
 }
@@ -351,13 +327,13 @@ function AchievementsPanel({ achievements }: { achievements: AchievementStateSli
       <div className="flex items-center gap-2 px-0.5">
         <Trophy className="w-4 h-4 text-amber-300 shrink-0" />
         <span className="text-sm font-semibold text-[#E0E7FF] uppercase tracking-wider">Achievements</span>
-        <span className="ml-auto text-xs text-[#8A8FB5]">
+        <span className="ml-auto text-xs text-[#8A8FB5] font-mono">
           {unlockedCount} / {ACHIEVEMENTS.length}
         </span>
       </div>
 
-      {/* Responsive grid: 2 columns on mobile, 3 on sm+ */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {/* Responsive grid: 3 columns - equal square cards */}
+      <div className="grid grid-cols-3 gap-3">
         {ACHIEVEMENTS.map((ach) => (
           <AchCard key={ach.id} ach={ach} state={stateMap.get(ach.id)} />
         ))}
@@ -577,7 +553,7 @@ async function cancelEmailChangeRequest() {
     const strengthRounded = Math.round(typeof meta.strength100 === "number" ? meta.strength100 : cell.value);
 
     return (
-      <div className="text-sm">
+      <div className="text-sm font-mono">
         <div className="font-medium">Strength {strengthRounded}/100</div>
         <div className="text-muted-foreground">
           {meta.sessionsCount} {sessionsLabel} · {minutesRounded}m · Avg {Math.round(meta.avgWpm)} WPM · {Math.round(meta.avgAccuracy)}%
@@ -1014,9 +990,13 @@ async function cancelEmailChangeRequest() {
         <motion.div variants={fadeInUp}>
           <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl overflow-hidden hover:border-[rgba(160,220,255,0.3)] transition-all">
             <LayoutGroup>
-              <CardHeader className="pb-4"> {/* pb-2 -> pb-4 */}
+              {/* Two-column grid: Left (header + fields) | Right (achievements) on xl */}
+              <div className="grid grid-cols-1 xl:grid-cols-[1fr_480px]">
+                {/* Left column */}
+                <div>
+                  <CardHeader className="pb-4"> {/* pb-2 -> pb-4 */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6"> {/* sm:flex-row -> lg:flex-row, gap-4 -> gap-6 */}
-                  <div className="flex items-center gap-5"> {/* gap-4 -> gap-5 */}
+                  <div className="flex flex-wrap items-center gap-5"> {/* gap-4 -> gap-5 */}
                     {/* Avatar */}
                     <motion.div
                       initial={{ opacity: 0, scale: 0.8 }}
@@ -1065,6 +1045,7 @@ async function cancelEmailChangeRequest() {
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.2 }}
+                      className="min-w-0"
                     >
                       <CardTitle className="text-xl text-[#E0E7FF]">
                         {props.user.username}
@@ -1074,61 +1055,45 @@ async function cancelEmailChangeRequest() {
                         <span className="truncate max-w-[200px]">{props.user.email}</span>
                       </CardDescription>
                     </motion.div>
-                  </div>
 
-                  {/* Level & Achievements & Rank */}
-                  <div className="flex flex-wrap gap-4"> {/* flex gap-3 -> flex-wrap gap-4 */}
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.3 }}
-                      className="text-center px-4 py-2 rounded-xl bg-[rgba(20,50,80,0.4)] backdrop-blur-sm min-w-[90px]"
-                    >
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <TrendingUpIcon className="w-4 h-4 text-cyan-300" />
-                        <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Level</p>
-                      </div>
-                      <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400">
-                        <NumberAnimation value={props.profile.level} delay={0.4} />
-                      </p>
-                    </motion.div>
+                    {/* Level & Rank */}
+                    <div className="flex flex-wrap gap-4"> {/* flex gap-3 -> flex-wrap gap-4 */}
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3 }}
+                        className="text-center px-4 py-2"
+                      >
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <TrendingUpIcon className="w-4 h-4 text-cyan-300" />
+                          <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Level</p>
+                        </div>
+                        <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 font-mono">
+                          <NumberAnimation value={props.profile.level} delay={0.4} />
+                        </p>
+                      </motion.div>
 
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.4 }}
-                      className="text-center px-4 py-2 rounded-xl bg-[rgba(20,50,80,0.4)] backdrop-blur-sm min-w-[90px]"
-                    >
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Award className="w-4 h-4 text-green-300" />
-                        <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Achievements</p>
-                      </div>
-                      <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-300 to-teal-400">
-                        <NumberAnimation value={props.profile.achievementsCount} delay={0.5} />
-                      </p>
-                    </motion.div>
-
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.5 }}
-                      className="text-center px-4 py-2 rounded-xl bg-[rgba(20,50,80,0.4)] backdrop-blur-sm min-w-[130px]"
-                    >
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Target className="w-4 h-4 text-cyan-300" />
-                        <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Rank</p>
-                      </div>
-                      <p className="text-sm font-semibold text-[#E0E7FF] leading-tight">
-                        {props.profile.rank.tier} {props.profile.rank.division}
-                      </p>
-                    </motion.div>
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.5 }}
+                        className="text-center px-4 py-2"
+                      >
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <Target className="w-4 h-4 text-cyan-300" />
+                          <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Rank</p>
+                        </div>
+                        <p className="text-sm font-semibold text-[#E0E7FF] leading-tight font-mono">
+                          {props.profile.rank.tier} {props.profile.rank.division}
+                        </p>
+                      </motion.div>
+                    </div>
                   </div>
                 </div>
               </CardHeader>
 
               <CardContent className="pt-6"> {/* pt-4 -> pt-6 */}
-                <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-8"> {/* gap-6 -> gap-8, 380px -> 400px */}
-                  {/* Left: Account settings */}
+                  {/* Account settings */}
                   <div className="space-y-8"> {/* space-y-6 -> space-y-8 */}
 
                     {/* Email Section */}
@@ -1279,7 +1244,7 @@ async function cancelEmailChangeRequest() {
                             <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
                               {props.user.username}
                             </div>
-                            <div className="text-xs text-[#8A8FB5] mt-1">Click edit to change your username</div> {/* added mt-1 */}
+                            <div className="text-xs text-[#8A8FB5] mt-1">Click edit to change your username</div>
                           </div>
                           <Button
                             type="button"
@@ -1482,12 +1447,20 @@ async function cancelEmailChangeRequest() {
                         </div>
                       )}
                     </div>{/* end password section */}
-                  </div>{/* end left column */}
-
-                  {/* ── Right column: Achievements ─────────────────────────────── */}
-                  <AchievementsPanel achievements={props.profile.achievements} />
-                </div>{/* end grid */}
+                  </div>{/* end account settings */}
               </CardContent>
+                </div>{/* end left column */}
+
+                {/* ── Right column: Achievements (at card level on xl) ──────────── */}
+                <div className="hidden xl:block p-6 pt-20">
+                  <AchievementsPanel achievements={props.profile.achievements} />
+                </div>
+              </div>{/* end outer grid */}
+
+              {/* Achievements for smaller screens - below fields */}
+              <div className="xl:hidden px-6 pb-6">
+                <AchievementsPanel achievements={props.profile.achievements} />
+              </div>
             </LayoutGroup>
           </Card>
         </motion.div>
@@ -1517,7 +1490,7 @@ async function cancelEmailChangeRequest() {
                   <StatTile
                     label="Best WPM"
                     value={
-                      <span className="bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent">
+                      <span className="bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent font-meno">
                         <NumberAnimation value={Math.round(props.stats.bestWPM)} unit=" WPM" delay={0.3} />
                       </span>
                     }
@@ -1527,7 +1500,7 @@ async function cancelEmailChangeRequest() {
                   <StatTile
                     label="Best accuracy"
                     value={
-                      <span className="bg-gradient-to-r from-green-300 to-teal-400 bg-clip-text text-transparent">
+                      <span className="bg-gradient-to-r from-green-300 to-teal-400 bg-clip-text text-transparent font-mono">
                         <NumberAnimation value={Math.round(props.stats.bestAccuracy)} unit="%" delay={0.4} />
                       </span>
                     }
