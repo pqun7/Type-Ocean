@@ -19,7 +19,7 @@ import {
 
 import { useSettings } from "@/features/settings/context";
 import type { FontScale } from "@/features/settings/types";
-import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
+import { TYPING_LANGUAGES, type TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 import { cn } from "@/lib/utils";
 
 type UserApiResponse = {
@@ -250,9 +250,9 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
                 <SelectValue placeholder="Select" />
               </SelectTrigger>
               <SelectContent className="bg-[rgba(20,50,80,0.9)] backdrop-blur-sm border-[rgba(160,220,255,0.15)] text-[#E0E7FF]">
-                <SelectItem value="default" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">Default</SelectItem>
-                <SelectItem value="large" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">Large</SelectItem>
-                <SelectItem value="xlarge" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">XL</SelectItem>
+                <SelectItem value="default" className="hover:bg-[rgba(160,220,255,0.1)] focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF] transition-colors cursor-pointer">Default</SelectItem>
+                <SelectItem value="large" className="hover:bg-[rgba(160,220,255,0.1)] focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF] transition-colors cursor-pointer">Large</SelectItem>
+                <SelectItem value="xlarge" className="hover:bg-[rgba(160,220,255,0.1)] focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF] transition-colors cursor-pointer">XL</SelectItem>
               </SelectContent>
             </Select>
             <div className="text-xs text-[#8A8FB5]">The caret will scale with the font.</div>
@@ -268,10 +268,17 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
                 <SelectValue placeholder="Select" />
               </SelectTrigger>
               <SelectContent className="bg-[rgba(20,50,80,0.9)] backdrop-blur-sm border-[rgba(160,220,255,0.15)] text-[#E0E7FF]">
-                <SelectItem value="en" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">English</SelectItem>
-                <SelectItem value="ar" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">Arabic (RTL)</SelectItem>
-                <SelectItem value="es" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">Spanish</SelectItem>
-                <SelectItem value="fr" className="focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF]">French</SelectItem>
+                {(Object.entries(TYPING_LANGUAGES) as Array<
+                  [TypingLanguage, { label: string; dir: "ltr" | "rtl"; locale: string }]
+                >).map(([value, meta]) => (
+                  <SelectItem
+                    key={value}
+                    value={value}
+                    className="hover:bg-[rgba(160,220,255,0.1)] focus:bg-[rgba(160,220,255,0.15)] focus:text-[#E0E7FF] transition-colors cursor-pointer"
+                  >
+                    {meta.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
