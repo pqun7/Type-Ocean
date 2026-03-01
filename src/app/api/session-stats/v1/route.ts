@@ -8,7 +8,13 @@ import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { authorizeRequest } from "@/app/api/shared.server";
 import prisma from "@/features/auth/lib/db";
-import { getRankInfo, updatePerformanceRating } from "@/features/ranking/rating";
+import {
+  DEFAULT_RATING,
+  DEFAULT_RATING_DEVIATION,
+  getRankInfo,
+  isRatedSession,
+  updatePerformanceRating,
+} from "@/features/ranking/rating";
 import {
   validateSessionData,
   sanitizeSessionData,
@@ -414,37 +420,59 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      const ratingUpdate = updatePerformanceRating({
-        currentRating: existingProfile?.rating,
-        currentDeviation: existingProfile?.ratingDeviation,
-        wpm: sanitizedSession.wpm,
-        accuracy: sanitizedSession.accuracy,
-        consistency: sanitizedSession.consistency,
+      const rated = isRatedSession({
         timeSpentSec: sanitizedSession.timeSpent,
+        textLength: sanitizedSession.textLength,
       });
 
-      rankForResponse = getRankInfo(ratingUpdate.nextRating);
+      const ratingUpdate = rated
+        ? updatePerformanceRating({
+            currentRating: existingProfile?.rating,
+            currentDeviation: existingProfile?.ratingDeviation,
+            wpm: sanitizedSession.wpm,
+            accuracy: sanitizedSession.accuracy,
+            consistency: sanitizedSession.consistency,
+            timeSpentSec: sanitizedSession.timeSpent,
+            textLength: sanitizedSession.textLength,
+            mistakes: sanitizedSession.mistakes,
+            corrections: sanitizedSession.corrections,
+          })
+        : null;
+
+      rankForResponse = getRankInfo(
+        ratingUpdate?.nextRating ?? existingProfile?.rating ?? DEFAULT_RATING
+      );
+
+      const now = new Date();
+
+      const updateData = {
+        longTermStats: effectiveLongTermStats as unknown as object,
+        ...(ratingUpdate
+          ? {
+              rating: ratingUpdate.nextRating,
+              ratingDeviation: ratingUpdate.nextDeviation,
+              ratingUpdatedAt: now,
+            }
+          : {}),
+      };
+
+      const createData = {
+        userId,
+        username: user?.username ?? "user",
+        level: 1,
+        xp: 0,
+        achievements: [],
+        avatar: null,
+        longTermStats: effectiveLongTermStats as unknown as object,
+        rating: ratingUpdate?.nextRating ?? DEFAULT_RATING,
+        ratingDeviation: ratingUpdate?.nextDeviation ?? DEFAULT_RATING_DEVIATION,
+        ...(ratingUpdate ? { ratingUpdatedAt: now } : {}),
+      };
 
       await prisma.playerProfile.upsert({
         where: { userId },
-        update: {
-          longTermStats: effectiveLongTermStats as unknown as object,
-          rating: ratingUpdate.nextRating,
-          ratingDeviation: ratingUpdate.nextDeviation,
-          ratingUpdatedAt: new Date(),
-        },
-        create: {
-          userId,
-          username: user?.username ?? "user",
-          level: 1,
-          xp: 0,
-          rating: ratingUpdate.nextRating,
-          ratingDeviation: ratingUpdate.nextDeviation,
-          ratingUpdatedAt: new Date(),
-          achievements: [],
-          avatar: null,
-          longTermStats: effectiveLongTermStats as unknown as object,
-        },
+        update: updateData,
+        create: createData,
       });
     } catch {
       // best-effort

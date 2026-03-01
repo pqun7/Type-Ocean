@@ -1,19 +1,18 @@
 export type PvpRankTier =
-  | "Bronze"
-  | "Silver"
   | "Gold"
+  | "Shield"
+  | "Silver"
   | "Platinum"
   | "Diamond"
-  | "Master"
-  | "Grandmaster";
-
-export type PvpRankDivision = "III" | "II" | "I";
+  | "Apex"
+  | "Supreme"
+  | "Legendary";
 
 export type PvpRankInfo = {
   rating: number;
   tier: PvpRankTier;
-  division: PvpRankDivision;
   progressPct: number;
+  nextAtRating: number | null;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -21,13 +20,18 @@ function clamp(value: number, min: number, max: number) {
 }
 
 const TIERS: Array<{ tier: PvpRankTier; min: number; max: number | null }> = [
-  { tier: "Bronze", min: 0, max: 1200 },
-  { tier: "Silver", min: 1200, max: 1400 },
-  { tier: "Gold", min: 1400, max: 1600 },
-  { tier: "Platinum", min: 1600, max: 1800 },
-  { tier: "Diamond", min: 1800, max: 2000 },
-  { tier: "Master", min: 2000, max: 2200 },
-  { tier: "Grandmaster", min: 2200, max: null },
+  // Easy (first 3)
+  { tier: "Shield", min: 0, max: 850 },
+  { tier: "Silver", min: 850, max: 1150 },
+  { tier: "Gold", min: 1150, max: 1400 },
+  // Medium (next 2)
+  { tier: "Platinum", min: 1400, max: 1750 },
+  { tier: "Diamond", min: 1750, max: 2100 },
+  // Hard (next 2)
+  { tier: "Apex", min: 2100, max: 2400 },
+  { tier: "Supreme", min: 2400, max: 2650 },
+  // Hardest (last)
+  { tier: "Legendary", min: 2650, max: null },
 ];
 
 export function getPvpRankInfo(ratingInput: number): PvpRankInfo {
@@ -35,19 +39,11 @@ export function getPvpRankInfo(ratingInput: number): PvpRankInfo {
 
   const row = TIERS.find((t) => rating >= t.min && (t.max === null || rating < t.max)) ?? TIERS[0];
   if (row.max === null) {
-    return { rating, tier: row.tier, division: "I", progressPct: 100 };
+    return { rating, tier: row.tier, progressPct: 100, nextAtRating: null };
   }
 
   const tierRange = Math.max(1, row.max - row.min);
-  const divisionSize = Math.max(1, Math.floor(tierRange / 3));
+  const progressPct = clamp(((rating - row.min) / tierRange) * 100, 0, 100);
 
-  const offset = clamp(rating - row.min, 0, tierRange - 1);
-  const idx = clamp(Math.floor(offset / divisionSize), 0, 2);
-  const division: PvpRankDivision = idx === 0 ? "III" : idx === 1 ? "II" : "I";
-
-  const divMin = row.min + idx * divisionSize;
-  const divMax = idx === 2 ? row.max : row.min + (idx + 1) * divisionSize;
-  const progressPct = clamp(((rating - divMin) / Math.max(1, divMax - divMin)) * 100, 0, 100);
-
-  return { rating, tier: row.tier, division, progressPct };
+  return { rating, tier: row.tier, progressPct, nextAtRating: row.max };
 }

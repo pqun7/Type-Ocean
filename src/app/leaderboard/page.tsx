@@ -1,6 +1,7 @@
 import prisma from "@/features/auth/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getRankInfo } from "@/features/ranking/rating";
+import { getRankIconForTier } from "@/features/ranking/rank-visuals";
 
 export const revalidate = 30;
 
@@ -53,7 +54,15 @@ export default async function LeaderboardPage() {
                             {p.username}
                           </div>
                           <div className="text-xs text-[#8A8FB5]">
-                            {rank.tier} {rank.division}
+                            {(() => {
+                              const RankIcon = getRankIconForTier(rank.tier);
+                              return (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <RankIcon className="h-3.5 w-3.5 text-cyan-300" />
+                                  <span>{rank.tier}</span>
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>

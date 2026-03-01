@@ -25,17 +25,20 @@ describe("ranking/rating", () => {
       accuracy: 98,
       consistency: 90,
       timeSpentSec: 120,
+      textLength: 500,
+      mistakes: 0,
+      corrections: 0,
     });
 
     expect(update.nextRating).toBeGreaterThan(update.previousRating);
     expect(update.nextDeviation).toBeLessThanOrEqual(update.previousDeviation);
   });
 
-  test("getRankInfo returns consistent division progress", () => {
+  test("getRankInfo returns consistent tier progress", () => {
     const r = getRankInfo(1000);
     expect(r.progressPct).toBeGreaterThanOrEqual(0);
     expect(r.progressPct).toBeLessThanOrEqual(100);
     expect(typeof r.tier).toBe("string");
-    expect(typeof r.division).toBe("string");
+    expect(typeof r.nextAtRating === "number" || r.nextAtRating === null).toBe(true);
   });
 });

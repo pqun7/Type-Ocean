@@ -345,9 +345,9 @@ describe("new achievements", () => {
   });
 
   it("velocity fires at exactly 80 WPM", () => {
-    const names: string[] = [];
-    calculateSessionXP(make({ wpm: 80 }), baseState, undefined, (t) => names.push(t));
-    expect(names).toContain("Velocity");
+     const names: string[] = [];
+     calculateSessionXP(make({ wpm: 80 }), baseState, undefined, (t) => names.push(t));
+     expect(names).toContain("Blitz");
   });
 
   it("velocity does NOT fire at 79 WPM", () => {
@@ -369,7 +369,7 @@ describe("new achievements", () => {
     };
     const names: string[] = [];
     calculateSessionXP(make({ consistency: 90 }), progressState, undefined, (t) => names.push(t));
-    expect(names).toContain("Consistent Edge");
+    expect(names).toContain("Tempo");
   });
 
   it("consistent_edge does NOT fire when consistency < 85", () => {
@@ -389,7 +389,7 @@ describe("new achievements", () => {
     };
     const names: string[] = [];
     calculateSessionXP(make(), progressState, undefined, (t) => names.push(t));
-    expect(names).toContain("Century");
+    expect(names).toContain("Centurion");
   });
 
   it("ghost_protocol fires on the 5th flawless session (100% acc, 0 errors, ≥95% consistency, ≥90 WPM)", () => {

@@ -32,6 +32,7 @@ import {
 import { ACHIEVEMENTS } from "@/features/level/constants/level";
 import { HiOutlineMail, HiOutlineUser } from "react-icons/hi";
 import { motion, LayoutGroup } from "framer-motion";
+import { getRankIconForTier } from "@/features/ranking/rank-visuals";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,10 +71,10 @@ type ProfileData = {
   rank: {
     rating: number;
     tier: string;
-    division: string;
     progressPct: number;
     nextAtRating: number | null;
   };
+  isTopOnePercent?: boolean;
 };
 
 type UserData = {
@@ -224,13 +225,13 @@ const TIER_STYLES: Record<AchTier, { border: string; glow: string; icon: string;
 };
 
 const ACH_HINT: Record<string, string> = {
-  velocity:        "Break 80. Speed awaits.",
-  consistent_edge: "10 steady sessions. No chaos.",
-  century:         "100 sessions. Dedication speaks.",
+  velocity:        "Blitz past 80 WPM.",
+  consistent_edge: "Hold tempo for 10 sessions.",
+  century:         "100 sessions. Prove discipline.",
   speed_demon:     "Triple digits. 100 WPM.",
-  perfectionist:   "5 flawless runs. Zero errors.",
+  perfectionist:   "Flawless: 5 perfect sessions.",
   velocity_god:    "120 WPM. Elite tier.",
-  the_surgeon:     "20 sessions, each ≥99%.",
+  the_surgeon:     "Precision across 20 sessions.",
   iron_fingers:    "100K keys pressed.",
   ghost_protocol:  "5 perfect games. No trace.",
 };
@@ -1083,8 +1084,17 @@ async function cancelEmailChangeRequest() {
                           <Target className="w-4 h-4 text-cyan-300" />
                           <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Rank</p>
                         </div>
-                        <p className="text-sm font-semibold text-[#E0E7FF] leading-tight">
-                          {props.profile.rank.tier} {props.profile.rank.division}
+                        <p className="text-sm font-semibold text-[#E0E7FF] leading-tight inline-flex items-center justify-center gap-1.5">
+                          {(() => {
+                            const RankIcon = getRankIconForTier(props.profile.rank.tier as any);
+                            return <RankIcon className="h-4 w-4 text-cyan-300" />;
+                          })()}
+                          <span>{props.profile.rank.tier}</span>
+                          {props.profile.isTopOnePercent ? (
+                            <span className="ml-1 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-200">
+                              Top 1%
+                            </span>
+                          ) : null}
                         </p>
                       </motion.div>
                     </div>

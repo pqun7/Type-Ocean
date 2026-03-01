@@ -21,11 +21,42 @@ export async function GET(req: NextRequest) {
 
   const rank = getPvpRankInfo(rating.rating);
 
+  let classified = false;
+  if (rating.gamesPlayed > 0) {
+    try {
+      const totalRanked = await prisma.pvpRating.count({
+        where: { gamesPlayed: { gt: 0 } },
+      });
+
+      const cutoff = Math.max(1, Math.ceil(totalRanked * 0.01));
+
+      const betterCount = await prisma.pvpRating.count({
+        where: {
+          gamesPlayed: { gt: 0 },
+          OR: [
+            { rating: { gt: rating.rating } },
+            {
+              AND: [
+                { rating: { equals: rating.rating } },
+                { updatedAt: { gt: rating.updatedAt } },
+              ],
+            },
+          ],
+        },
+      });
+
+      classified = betterCount + 1 <= cutoff;
+    } catch {
+      classified = false;
+    }
+  }
+
   return NextResponse.json({
     rating: rating.rating,
     deviation: rating.deviation,
     gamesPlayed: rating.gamesPlayed,
     updatedAt: rating.updatedAt.toISOString(),
     rank,
+    classified,
   });
 }

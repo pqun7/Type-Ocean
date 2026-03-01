@@ -45,13 +45,13 @@ const TIER_STYLES: Record<AchTier, { border: string; glow: string; icon: string;
 
 // ── Short enticing hints shown on cards ─────────────────────────────────────
 const ACH_HINT: Record<string, string> = {
-  velocity:        "Type at 80 WPM — your fingers are waking up.",
-  consistent_edge: "10 sessions holding steady rhythm. Control is power.",
-  century:         "100 sessions. You're not playing — you're training.",
+  velocity:        "Blitz past 80 WPM — speed wakes up.",
+  consistent_edge: "Tempo for 10 sessions. Control is power.",
+  century:         "100 sessions. Discipline on record.",
   speed_demon:     "100 WPM. You've crossed into real speed territory.",
-  perfectionist:   "5 perfect sessions. No excuses, no mistakes.",
+  perfectionist:   "Flawless: 5 perfect sessions. No excuses.",
   velocity_god:    "120 WPM. Fewer than 1% of typists ever get here.",
-  the_surgeon:     "20 sessions at ≥99% accuracy. Ruthlessly precise.",
+  the_surgeon:     "Precision: 20 sessions at ≥99%. Ruthlessly exact.",
   iron_fingers:    "100,000 characters typed. Your keyboard felt every one.",
   ghost_protocol:  "5 flawless runs. Perfect. Silent. Unstoppable.",
 };

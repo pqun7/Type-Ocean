@@ -49,6 +49,8 @@ export default async function ProfilePage() {
           level: true;
           xp: true;
           rating: true;
+          updatedAt: true;
+          hideFromLeaderboard: true;
           achievements: true;
           avatar: true;
         };
@@ -82,6 +84,8 @@ export default async function ProfilePage() {
             level: true,
             xp: true,
             rating: true,
+            updatedAt: true,
+            hideFromLeaderboard: true,
             achievements: true,
             avatar: true,
           },
@@ -154,6 +158,8 @@ export default async function ProfilePage() {
           level: true,
           xp: true,
           rating: true,
+          updatedAt: true,
+          hideFromLeaderboard: true,
           achievements: true,
           avatar: true,
         },
@@ -161,7 +167,47 @@ export default async function ProfilePage() {
     } catch (err) {
       const code = getPrismaErrorCode(err);
       console.error("/profile prisma.playerProfile.upsert failed", { code, err });
-      profile = { level: 1, xp: 0, rating: 1000, achievements: [], avatar: null };
+      profile = {
+        level: 1,
+        xp: 0,
+        rating: 1000,
+        updatedAt: new Date(),
+        hideFromLeaderboard: false,
+        achievements: [],
+        avatar: null,
+      };
+    }
+  }
+
+  let isTopOnePercent = false;
+  if (!profile.hideFromLeaderboard) {
+    try {
+      const totalRanked = await prisma.playerProfile.count({
+        where: { hideFromLeaderboard: false },
+      });
+
+      const cutoff = Math.max(1, Math.ceil(totalRanked * 0.01));
+
+      const betterCount = await prisma.playerProfile.count({
+        where: {
+          hideFromLeaderboard: false,
+          OR: [
+            { rating: { gt: profile.rating } },
+            {
+              AND: [
+                { rating: { equals: profile.rating } },
+                { updatedAt: { gt: profile.updatedAt } },
+              ],
+            },
+          ],
+        },
+      });
+
+      const position = betterCount + 1;
+      isTopOnePercent = position <= cutoff;
+    } catch {
+      // best-effort; do not block profile
+      isTopOnePercent = false;
     }
   }
 
@@ -269,6 +315,7 @@ export default async function ProfilePage() {
               : [],
             avatar: profile.avatar,
             rank: getRankInfo(profile.rating),
+            isTopOnePercent,
           }}
           stats={stats}
           dailyActivity={dailyActivity}

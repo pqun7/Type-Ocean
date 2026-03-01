@@ -4,6 +4,7 @@ import Link from "next/link";
 import useSWR from "swr";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getRankIconForTier } from "@/features/ranking/rank-visuals";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -26,7 +27,26 @@ export default function PvpCards() {
               </div>
               <div className="flex items-center justify-between mt-1">
                 <span>Rank</span>
-                <span>{data?.rank?.tier ? `${data.rank.tier} ${data.rank.division}` : "—"}</span>
+                <span>
+                  {data?.rank?.tier ? (
+                    (() => {
+                      const RankIcon = getRankIconForTier(data.rank.tier);
+                      return (
+                        <span className="inline-flex items-center gap-1.5">
+                          <RankIcon className="h-4 w-4 text-cyan-300" />
+                          <span>{data.rank.tier}</span>
+                          {data?.classified ? (
+                            <span className="ml-1 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-200">
+                              Top 1%
+                            </span>
+                          ) : null}
+                        </span>
+                      );
+                    })()
+                  ) : (
+                    "—"
+                  )}
+                </span>
               </div>
             </CardContent>
           </Card>

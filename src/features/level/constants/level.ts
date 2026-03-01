@@ -14,7 +14,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   // ── Tier 1: Common ─────────────────────────────────────────────────────────
   {
     id: "velocity",
-    name: "Velocity",
+    name: "Blitz",
     description: "Reach 80 WPM in a single session",
     xpReward: 400,
     condition: (session) => ({ achieved: session.wpm >= 80, current: session.wpm }),
@@ -64,7 +64,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: "century",
-    name: "Century",
+    name: "Centurion",
     description: "Complete 100 typing sessions",
     xpReward: 2000,
     progress: { current: 0, target: 100 },
@@ -84,7 +84,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: "the_surgeon",
-    name: "The Surgeon",
+    name: "Precision",
     description: "Complete 20 sessions with ≥ 99% accuracy",
     xpReward: 1500,
     progress: { current: 0, target: 20 },
