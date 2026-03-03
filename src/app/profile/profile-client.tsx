@@ -32,7 +32,9 @@ import {
 import { ACHIEVEMENTS } from "@/features/level/constants/level";
 import { HiOutlineMail, HiOutlineUser } from "react-icons/hi";
 import { motion, LayoutGroup } from "framer-motion";
-import { getRankIconForTier } from "@/features/ranking/rank-visuals";
+import { getRankImageSrc } from "@/features/ranking/rank-visuals";
+import type { RankTier } from "@/features/ranking/rating";
+import NextImage from "next/image";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +55,6 @@ import { SignOut } from "@/components/auth/sign-out";
 import { computeDailyActivityStrength } from "@/features/typing/utils/activity-strength";
 import { NumberAnimation } from "@/components/core/number-animation-view";
 import { StatTile } from "@/components/ui/stat-tile";
-import { cn } from "@/lib/utils"; // أو أي دالة لدمج الكلاسات
 
 type AchievementStateSlim = {
   id: string;
@@ -1086,8 +1087,8 @@ async function cancelEmailChangeRequest() {
                         </div>
                         <p className="text-sm font-semibold text-[#E0E7FF] leading-tight inline-flex items-center justify-center gap-1.5">
                           {(() => {
-                            const RankIcon = getRankIconForTier(props.profile.rank.tier as any);
-                            return <RankIcon className="h-4 w-4 text-cyan-300" />;
+                            const rankSrc = getRankImageSrc(props.profile.rank.tier as RankTier);
+                            return <NextImage src={rankSrc} alt={props.profile.rank.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_16px_rgba(100,200,255,0.5)]" />;
                           })()}
                           <span>{props.profile.rank.tier}</span>
                           {props.profile.isTopOnePercent ? (

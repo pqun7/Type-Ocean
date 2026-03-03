@@ -1,7 +1,8 @@
+import Image from "next/image";
 import prisma from "@/features/auth/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getRankInfo } from "@/features/ranking/rating";
-import { getRankIconForTier } from "@/features/ranking/rank-visuals";
+import { getRankImageSrc } from "@/features/ranking/rank-visuals";
 
 export const revalidate = 30;
 
@@ -53,14 +54,14 @@ export default async function LeaderboardPage() {
                           <div className="truncate text-sm font-semibold text-[#E0E7FF]">
                             {p.username}
                           </div>
-                          <div className="text-xs text-[#8A8FB5]">
+                          <div className="flex items-center gap-1.5 mt-0.5">
                             {(() => {
-                              const RankIcon = getRankIconForTier(rank.tier);
+                              const rankSrc = getRankImageSrc(rank.tier);
                               return (
-                                <span className="inline-flex items-center gap-1.5">
-                                  <RankIcon className="h-3.5 w-3.5 text-cyan-300" />
-                                  <span>{rank.tier}</span>
-                                </span>
+                                <>
+                                  <Image src={rankSrc} alt={rank.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_10px_rgba(100,200,255,0.5)]" />
+                                  <span className="text-xs text-[#8A8FB5]">{rank.tier}</span>
+                                </>
                               );
                             })()}
                           </div>

@@ -1,11 +1,9 @@
 export type RankTier =
-  | "Shield"
+  | "Prime"
   | "Silver"
   | "Gold"
   | "Platinum"
   | "Diamond"
-  | "Apex"
-  | "Supreme"
   | "Legendary";
 
 export type RankInfo = {
@@ -196,18 +194,12 @@ export function updatePerformanceRating(input: {
 }
 
 const TIERS: Array<{ tier: RankTier; min: number; max: number | null }> = [
-  // Easy (first 3)
-  { tier: "Shield", min: 0, max: 850 },
-  { tier: "Silver", min: 850, max: 1150 },
-  { tier: "Gold", min: 1150, max: 1400 },
-  // Medium (next 2)
-  { tier: "Platinum", min: 1400, max: 1750 },
-  { tier: "Diamond", min: 1750, max: 2100 },
-  // Hard (next 2)
-  { tier: "Apex", min: 2100, max: 2400 },
-  { tier: "Supreme", min: 2400, max: 2650 },
-  // Hardest (last)
-  { tier: "Legendary", min: 2650, max: null },
+  { tier: "Prime",     min: 0,    max: 850  },
+  { tier: "Silver",    min: 850,  max: 1150 },
+  { tier: "Gold",      min: 1150, max: 1500 },
+  { tier: "Platinum",  min: 1500, max: 1850 },
+  { tier: "Diamond",   min: 1850, max: 2200 },
+  { tier: "Legendary", min: 2200, max: null },
 ];
 
 export function getRankInfo(ratingInput: number): RankInfo {

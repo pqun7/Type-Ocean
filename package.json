@@ -41,7 +41,7 @@
     "@radix-ui/themes": "^3.2.1",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
-    "@sentry/nextjs": "^10.38.0",
+    "@sentry/nextjs": "^10.40.0",
     "@t3-oss/env-nextjs": "^0.12.0",
     "@tabler/icons-react": "^3.31.0",
     "@tsparticles/engine": "^3.8.1",
@@ -126,6 +126,23 @@
     "typescript": "^5",
     "vercel": "^50.17.0",
     "whatwg-fetch": "^3.6.20"
+  },
+  "overrides": {
+    "basic-ftp@5.1.0": "5.2.0",
+    "minimatch@3.1.2": "3.1.4",
+    "minimatch@7.4.6": "7.4.8",
+    "minimatch@9.0.5": "9.0.7",
+    "minimatch@10.1.1": "10.2.3",
+    "rollup": "4.59.0",
+    "serialize-javascript": "7.0.3",
+    "ajv@6.12.6": "6.14.0",
+    "tar@6.2.1": "7.5.8",
+    "@vercel/fun@1.3.0": {
+      "tar": "7.5.8"
+    },
+    "vercel": {
+      "undici": "6.23.0"
+    }
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [

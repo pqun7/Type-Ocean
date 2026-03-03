@@ -11,6 +11,7 @@ const Home: NextPage = ({}) => {
       <VerifiedMessage />
       <Header />
 
+
       <div className="pt-[6.5rem] pb-10">
         <div className="mt-10 flex justify-center px-4">
           <HeaderGame />

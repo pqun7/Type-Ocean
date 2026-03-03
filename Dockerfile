@@ -21,12 +21,17 @@ RUN npm run build
 FROM node:18-alpine AS runner
 WORKDIR /app
 
+# Run as non-root
+RUN addgroup -S app && adduser -S app -G app
+
 # 7. نسخ الملفات من مرحلة البناء
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./
+COPY --from=builder --chown=app:app /app/node_modules ./node_modules
+COPY --from=builder --chown=app:app /app/.next ./.next
+COPY --from=builder --chown=app:app /app/prisma ./prisma
+COPY --from=builder --chown=app:app /app/public ./public
+COPY --from=builder --chown=app:app /app/package.json ./
+
+USER app
 
 # 8. تشغيل التطبيق
 CMD ["npm", "run", "start"]
