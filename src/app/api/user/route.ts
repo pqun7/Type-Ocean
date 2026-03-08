@@ -11,6 +11,7 @@ import bcrypt from "bcryptjs";
 import { normalizeUsernameForStorage } from "@/features/auth/utils/username";
 import { createHash, randomInt } from "crypto";
 import { sendVerificationOtpEmail } from "@/features/auth/providers/nodemailer";
+import { sanitizeAvatarUrl, sanitizeDisplayName } from "@/lib/sanitize";
 
 const OTP_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -259,14 +260,18 @@ export async function PATCH(req: NextRequest) {
 
     // Normalize usernames for consistency and uniqueness (align with sign-up)
     // Support legacy clients that might send profileData.username.
-    const normalizedUsername = username ? normalizeUsernameForStorage(username) : undefined;
-    const normalizedProfileUsername = profileData?.username ? normalizeUsernameForStorage(profileData.username) : undefined;
+    const normalizedUsername = username
+      ? normalizeUsernameForStorage(sanitizeDisplayName(username, 20))
+      : undefined;
+    const normalizedProfileUsername = profileData?.username
+      ? normalizeUsernameForStorage(sanitizeDisplayName(profileData.username, 20))
+      : undefined;
     const requestedUsername = normalizedUsername ?? normalizedProfileUsername;
 
     // Normalize avatar clearing
     const normalizedAvatar =
       profileData && "avatar" in profileData
-        ? profileData.avatar === "" ? null : profileData.avatar
+        ? profileData.avatar === "" ? null : sanitizeAvatarUrl(profileData.avatar)
         : undefined;
 
     const hideFromLeaderboardPatch =

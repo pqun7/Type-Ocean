@@ -5,26 +5,49 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/features/auth/lib/db";
 import { authorizeRequest } from "@/app/api/shared.server";
 import { generateInviteCode } from "@/features/pvp/server/invite-code";
+import { incrementSecurityMetric } from "@/lib/security-metrics";
+import { rateLimiter } from "@/lib/rate-limiter";
+import { PvpRoomCreateBodySchema, type PvpRoomCreateBody } from "@/lib/validation/pvp-api-schemas";
 
-function safeJson<T>(req: NextRequest): Promise<T | null> {
-  return req
-    .json()
-    .then((v) => v as T)
-    .catch(() => null);
+async function safeJson<T>(req: NextRequest): Promise<T | null> {
+  const raw = await req.text().catch(() => null);
+  if (raw == null) return null;
+  if (raw.length === 0) return {} as T;
+  if (Buffer.byteLength(raw, "utf8") > 1024) return null;
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const userId = await authorizeRequest(req);
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const rateLimit = await rateLimiter.applyRateLimit(req, "/api/pvp/rooms/create:POST");
+  if (!rateLimit.allowed) {
+    incrementSecurityMetric("api_rate_limit_rejected", { route: "/api/pvp/rooms/create", method: "POST" });
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: rateLimit.headers });
   }
 
-  const body = await safeJson<{ maxPlayers?: number }>(req);
-  const maxPlayersRaw = body?.maxPlayers;
-  const maxPlayers =
-    typeof maxPlayersRaw === "number" && Number.isFinite(maxPlayersRaw)
-      ? Math.max(2, Math.min(6, Math.floor(maxPlayersRaw)))
-      : 6;
+  const userId = await authorizeRequest(req);
+  if (!userId) {
+    incrementSecurityMetric("api_auth_rejected", { route: "/api/pvp/rooms/create", method: "POST" });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: rateLimit.headers });
+  }
+
+  const body = await safeJson<PvpRoomCreateBody>(req);
+  if (body === null) {
+    incrementSecurityMetric("api_validation_failed", { route: "/api/pvp/rooms/create", reason: "json_body" });
+    return NextResponse.json({ error: "Invalid room configuration" }, { status: 400, headers: rateLimit.headers });
+  }
+
+  const parsedBody = PvpRoomCreateBodySchema.safeParse(body);
+  if (!parsedBody.success) {
+    incrementSecurityMetric("api_validation_failed", { route: "/api/pvp/rooms/create", reason: "body" });
+    return NextResponse.json({ error: "Invalid room configuration" }, { status: 400, headers: rateLimit.headers });
+  }
+
+  const maxPlayers = parsedBody.data.maxPlayers ?? 6;
 
   // Create a unique room code (retry a few times on collision)
   let code = "";
@@ -61,9 +84,9 @@ export async function POST(req: NextRequest) {
   if (!roomId) {
     return NextResponse.json(
       { error: "Failed to create room" },
-      { status: 500 }
+      { status: 500, headers: rateLimit.headers }
     );
   }
 
-  return NextResponse.json({ roomId, code, maxPlayers });
+  return NextResponse.json({ roomId, code, maxPlayers }, { headers: rateLimit.headers });
 }

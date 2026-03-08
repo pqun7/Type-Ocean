@@ -20,6 +20,12 @@ type RateLimitConfig = {
   burstAllowed?: boolean;
 };
 
+function envNumber(name: string, fallback: number) {
+  const raw = process.env[name];
+  const parsed = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 // 1.5. إعدادات نقاط النهاية
 const ENDPOINT_CONFIGS: Record<string, RateLimitConfig> = {
   "/api/auth/signup": {
@@ -41,6 +47,21 @@ const ENDPOINT_CONFIGS: Record<string, RateLimitConfig> = {
     limit: 3,
     windowMs: 30_000,
     strategy: "sliding-window",
+  },
+  "/api/pvp/ws-token:GET": {
+    limit: envNumber("PVP_API_WS_TOKEN_LIMIT", 30),
+    windowMs: envNumber("PVP_API_WS_TOKEN_WINDOW_MS", 60_000),
+    strategy: "fixed-window",
+  },
+  "/api/pvp/me:GET": {
+    limit: envNumber("PVP_API_ME_LIMIT", 60),
+    windowMs: envNumber("PVP_API_ME_WINDOW_MS", 60_000),
+    strategy: "fixed-window",
+  },
+  "/api/pvp/rooms/create:POST": {
+    limit: envNumber("PVP_ROOM_CREATE_LIMIT", 1),
+    windowMs: envNumber("PVP_ROOM_CREATE_WINDOW_MS", 2_000),
+    strategy: "fixed-window",
   },
 
   // Internal limits for outbound email (SMTP). These are sender/recipient keyed.
@@ -367,6 +388,21 @@ export const rateLimiter = new RateLimiter(
     "/api/home/bootstrap:GET": {
       limit: 120,
       windowMs: 60_000,
+      strategy: "fixed-window",
+    },
+    "/api/pvp/ws-token:GET": {
+      limit: envNumber("PVP_API_WS_TOKEN_LIMIT", 30),
+      windowMs: envNumber("PVP_API_WS_TOKEN_WINDOW_MS", 60_000),
+      strategy: "fixed-window",
+    },
+    "/api/pvp/me:GET": {
+      limit: envNumber("PVP_API_ME_LIMIT", 60),
+      windowMs: envNumber("PVP_API_ME_WINDOW_MS", 60_000),
+      strategy: "fixed-window",
+    },
+    "/api/pvp/rooms/create:POST": {
+      limit: envNumber("PVP_ROOM_CREATE_LIMIT", 1),
+      windowMs: envNumber("PVP_ROOM_CREATE_WINDOW_MS", 2_000),
       strategy: "fixed-window",
     },
     "session-stats": {

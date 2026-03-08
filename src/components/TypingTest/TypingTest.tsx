@@ -7,6 +7,10 @@ import useTypingGame from "../../features/typing/hooks/useTypingGame";
 import { useLevel } from "@/features/level/hooks/useLevel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getTypingDir, getTypingLocale, type TypingLanguage } from "@/features/typing/i18n/typingLanguages";
+import {
+  buildKeyboardPerformanceData,
+  type KeyboardPerformanceData,
+} from "@/components/TypingTest/utils/keyboardPerformance";
 
 interface TypingTestProps {
   texts: string[];
@@ -15,6 +19,7 @@ interface TypingTestProps {
   font?: string;
   caretHeight?: string;
   className?: string;
+  optimizePerformance?: boolean;
   selectedLevel: "SHORT" | "MEDIUM" | "LONG";
   typingLanguage?: TypingLanguage;
   onStateChange: (state: "start" | "running" | "end") => void;
@@ -24,6 +29,7 @@ interface TypingTestProps {
   onElapsedTimeChange?: (time: number) => void;
   onWpmHistoryChange: (history: Array<{ time: number; wpm: number; prevWpm: number }[]>) => void;
   onErrorsChange?: (errors: number) => void;
+  onKeyboardPerformanceChange?: (data: KeyboardPerformanceData) => void;
 }
 
 export default function TypingTest({
@@ -32,6 +38,7 @@ export default function TypingTest({
   font = "font-mono",
   caretHeight = "h-6",
   className,
+  optimizePerformance = false,
   onStateChange,
   onWpmChange,
   onAccuracyChange,
@@ -39,6 +46,7 @@ export default function TypingTest({
   onElapsedTimeChange,
   onWpmHistoryChange,
   onErrorsChange,
+  onKeyboardPerformanceChange,
   selectedLevel,
   typingLanguage = "en",
 }: TypingTestProps) {
@@ -100,6 +108,19 @@ export default function TypingTest({
     onElapsedTimeChange?.(elapsedTime);
   }, [isBootstrapping, elapsedTime, onElapsedTimeChange]);
 
+  useEffect(() => {
+    if (isBootstrapping) return;
+    onKeyboardPerformanceChange?.(
+      buildKeyboardPerformanceData(text, userInput, typingLanguage)
+    );
+  }, [
+    isBootstrapping,
+    onKeyboardPerformanceChange,
+    text,
+    userInput,
+    typingLanguage,
+  ]);
+
   if (isBootstrapping) {
     return (
       <div
@@ -133,6 +154,7 @@ export default function TypingTest({
         fontSize={fontSize}
         lineHeight={lineHeight}
         font={font}
+        optimizePerformance={optimizePerformance}
         dir={dir}
         lang={locale}
       />

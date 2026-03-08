@@ -9,6 +9,7 @@ import {
   getLongTermCumulativeStats,
   getSessionHistory,
 } from "@/helper/session-stats";
+import { getOverallKeyboardPerformance } from "@/helper/overall-keyboard-performance";
 import { Prisma } from "@prisma/client";
 import { getRankInfo } from "@/features/ranking/rating";
 
@@ -278,6 +279,8 @@ export default async function ProfilePage() {
     sessionHistory = [];
   }
 
+  const overallKeyboardPerformance = await getOverallKeyboardPerformance(user.id);
+
   return (
     <div className="min-h-svh p-6 md:p-10">
       <div className="mx-auto max-w-6xl">
@@ -320,6 +323,7 @@ export default async function ProfilePage() {
           stats={stats}
           dailyActivity={dailyActivity}
           sessionHistory={sessionHistory}
+          overallKeyboardPerformance={overallKeyboardPerformance}
         />
 
         {/* <div className="mt-16 border-t border-white/10 pt-8">

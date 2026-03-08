@@ -107,6 +107,8 @@ model User {
   emailVerifyOtpExpiry         DateTime?
   emailVerifyOtpSentAt         DateTime?
   emailVerifyOtpFailedAttempts Int      @default(0)
+  pvpWsTokenVersion            Int       @default(0)
+  pvpWsTokensValidAfter        DateTime  @default(now())
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

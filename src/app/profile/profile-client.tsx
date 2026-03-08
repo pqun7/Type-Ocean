@@ -55,6 +55,11 @@ import { SignOut } from "@/components/auth/sign-out";
 import { computeDailyActivityStrength } from "@/features/typing/utils/activity-strength";
 import { NumberAnimation } from "@/components/core/number-animation-view";
 import { StatTile } from "@/components/ui/stat-tile";
+import KeyboardHeatmap, { type Language, type PerformanceData } from "@/components/TypingTest/KeyboardHeatmap";
+import {
+  getTotalsFromPerformance,
+  type OverallKeyboardPerformanceSnapshot,
+} from "@/components/TypingTest/utils/overallKeyboardPerformance";
 
 type AchievementStateSlim = {
   id: string;
@@ -359,6 +364,7 @@ export default function ProfileClient(props: {
   stats: LongTermStats;
   dailyActivity: DailyTypingActivity[];
   sessionHistory: SessionHistoryEntry[];
+  overallKeyboardPerformance: OverallKeyboardPerformanceSnapshot | null;
 }) {
   const router = useRouter();
   const { showAlert } = useAlert();
@@ -389,6 +395,9 @@ export default function ProfileClient(props: {
 
   const [busy, setBusy] = useState<null | "username" | "avatar" | "email" | "password">(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const overallKeyboardSnapshot = props.overallKeyboardPerformance;
+  const [selectedKeyboardLanguage, setSelectedKeyboardLanguage] =
+    useState<Language>((props.overallKeyboardPerformance?.lastLanguage as Language) || "en");
 
   useEffect(() => {
     setUsername(props.user.username);
@@ -398,6 +407,11 @@ export default function ProfileClient(props: {
     if (editingEmail) return;
     setEmailDraft(props.user.email);
   }, [props.user.email, editingEmail]);
+
+  useEffect(() => {
+    if (!overallKeyboardSnapshot) return;
+    setSelectedKeyboardLanguage(overallKeyboardSnapshot.lastLanguage as Language);
+  }, [overallKeyboardSnapshot]);
 
   useEffect(() => {
     if (!editingUsername) return;
@@ -629,6 +643,118 @@ async function cancelEmailChangeRequest() {
     ]
   );
 
+  const keyboardLanguageOptions = useMemo(() => {
+    if (!overallKeyboardSnapshot) return [] as Language[];
+
+    const candidates: Language[] = ["en", "ar", "fr", "es"];
+    return candidates.filter((lang) => {
+      const bucket = overallKeyboardSnapshot.byLanguage[lang] ?? {};
+      return Object.values(bucket).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
+    });
+  }, [overallKeyboardSnapshot]);
+
+  const currentKeyboardData: PerformanceData | undefined = useMemo(() => {
+    if (!overallKeyboardSnapshot) return undefined;
+    const source = overallKeyboardSnapshot.byLanguage[selectedKeyboardLanguage] ?? {};
+    const hasAny = Object.values(source).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
+    const bucket = hasAny ? source : overallKeyboardSnapshot.total;
+    if (!bucket || Object.keys(bucket).length === 0) return undefined;
+
+    const out: PerformanceData = {};
+    for (const [key, value] of Object.entries(bucket)) {
+      out[key] = { correct: value.correct, error: value.error };
+    }
+    return out;
+  }, [overallKeyboardSnapshot, selectedKeyboardLanguage]);
+
+  const keyboardTotals = useMemo(
+    () => getTotalsFromPerformance(currentKeyboardData),
+    [currentKeyboardData]
+  );
+
+  const keyboardAccuracy = useMemo(() => {
+    const total = keyboardTotals.correct + keyboardTotals.error;
+    if (total <= 0) return 0;
+    return (keyboardTotals.correct / total) * 100;
+  }, [keyboardTotals]);
+
+  const overallKeyboardHeatmapSection = useMemo(() => {
+    return (
+      <motion.div variants={fadeInUp}>
+        <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
+          <CardHeader>
+            <CardTitle className="text-[#E0E7FF]">Overall Keyboard Heatmap</CardTitle>
+            <CardDescription className="text-[#8A8FB5]">
+              Level {props.profile.level} · cumulative key performance across your typing sessions
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {keyboardLanguageOptions.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {keyboardLanguageOptions.map((lang) => (
+                  <Button
+                    key={lang}
+                    type="button"
+                    size="sm"
+                    variant={selectedKeyboardLanguage === lang ? "default" : "outline"}
+                    onClick={() => setSelectedKeyboardLanguage(lang)}
+                    className={
+                      selectedKeyboardLanguage === lang
+                        ? "border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.7)] text-cyan-200"
+                        : "border-[rgba(160,220,255,0.25)] bg-transparent text-[#8A8FB5]"
+                    }
+                  >
+                    {lang.toUpperCase()}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+
+            {currentKeyboardData ? (
+              <>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <StatTile
+                    label="Tracked sessions"
+                    value={<NumberAnimation value={overallKeyboardSnapshot?.sessions ?? 0} delay={0.2} />}
+                    icon={<BarChart3 className="h-4 w-4 text-cyan-300" />}
+                  />
+                  <StatTile
+                    label="Key accuracy"
+                    value={<NumberAnimation value={Math.round(keyboardAccuracy)} unit="%" delay={0.3} />}
+                    icon={<Target className="h-4 w-4 text-green-300" />}
+                  />
+                  <StatTile
+                    label="Total key hits"
+                    value={<NumberAnimation value={keyboardTotals.correct + keyboardTotals.error} delay={0.4} />}
+                    icon={<Activity className="h-4 w-4 text-purple-300" />}
+                  />
+                </div>
+                <KeyboardHeatmap
+                  language={selectedKeyboardLanguage}
+                  performanceData={currentKeyboardData}
+                  size="small"
+                  showLegend
+                />
+              </>
+            ) : (
+              <div className="rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.2)] px-4 py-6 text-sm text-[#8A8FB5]">
+                No cumulative keyboard data yet. Complete a few typing tests to populate your overall heatmap.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+    );
+  }, [
+    currentKeyboardData,
+    keyboardAccuracy,
+    keyboardLanguageOptions,
+    keyboardTotals,
+    overallKeyboardSnapshot?.sessions,
+    props.profile.level,
+    selectedKeyboardLanguage,
+  ]);
+
   async function patchUser(body: unknown) {
     const res = await fetch("/api/user", {
       method: "PATCH",
@@ -662,7 +788,9 @@ async function cancelEmailChangeRequest() {
     try {
       const result = (await patchUser({
         email: next,
-        ...(emailIsDirty && props.user.hasPassword ? { currentPassword: emailCurrentPassword } : {}),
+        ...(emailIsDirty && props.user.hasPassword
+          ? { currentPassword: emailCurrentPassword }
+          : {}),
       })) as {
         emailChange?: {
           requested: string;
@@ -688,17 +816,19 @@ async function cancelEmailChangeRequest() {
       }
 
       if (typeof retryAfterSeconds === "number" && retryAfterSeconds > 0) {
-        showAlert(`Please wait ${retryAfterSeconds}s before requesting a new code.`, "warning", {
-          durationMs: 5000,
-        });
+        showAlert(
+          `Please wait ${retryAfterSeconds}s before requesting a new code.`,
+          "warning",
+          { durationMs: 5000 }
+        );
       } else if (!emailIsDirty) {
         showAlert("Saved. Any in-progress email change was canceled.", "warning", {
           durationMs: 8000,
         });
       }
+
       setEditingEmail(false);
       setEmailCurrentPassword("");
-      // Refresh to pick up pending state and OTP timestamps.
       router.refresh();
     } catch (e) {
       showAlert(e instanceof Error ? e.message : "Failed to update email", "error");
@@ -1481,6 +1611,9 @@ async function cancelEmailChangeRequest() {
 
         {/* Heatmap Calendar */}
         {heatmapSection}
+
+        {/* Overall Keyboard Heatmap */}
+        {overallKeyboardHeatmapSection}
 
         {/* Statistics Card (Improved Layout) */}
         <motion.div variants={fadeInUp}>

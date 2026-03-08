@@ -27,6 +27,9 @@ import { getLongTermCumulativeStats } from "@/helper/session-stats";
 import { getLastChallengeOutcome } from "@/features/level/server-utils/dailyChallengeOutcome";
 import { getDailyChallengeStreak } from "@/features/level/server-utils/dailyChallengeStreak";
 import { recordChallengeOutcomeIfCompleted } from "@/features/level/server-utils/dailyChallengeOutcome";
+import { incrementSecurityMetric } from "@/lib/security-metrics";
+import { ChallengePatchBodySchema, ChallengeUpdateBodySchema } from "@/lib/validation/challenge-schemas";
+import { parseJsonBodyWithSchema, readJsonBody } from "@/lib/validation/request-body";
 
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
@@ -94,7 +97,7 @@ export async function GET(req: NextRequest) {
   if (authResult.error) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
-  const userId = authResult.userId;
+  const { userId } = authResult;
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -227,7 +230,7 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
     const today = getTodayDate();
 
     // If we're hitting /daily/:challengeId, parse it so we can locate the correct cache key.
-    const pathname = new URL(req.url).pathname;
+    const { pathname } = new URL(req.url);
     const maybeChallengeId = pathname.split("/").pop() || null;
     const challengeId = maybeChallengeId && maybeChallengeId !== "daily" ? maybeChallengeId : null;
 
@@ -257,32 +260,25 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
     const cacheKey = getCacheKeyForDate(userId, effectiveDate);
     const idKey = challengeId ? getChallengeIdKey(challengeId) : null;
 
-    const [existingById, existingByDate, bodyText] = await Promise.all([
+    const [existingById, existingByDate, bodyReadResult] = await Promise.all([
       idKey ? redis.get(idKey) : Promise.resolve(null),
       redis.get(cacheKey),
-      req.text().catch((error) => {
+      readJsonBody(req, 1024).catch((error) => {
         logRequestError(requestId, SERVICE_TYPE, error, {
           userId,
           operationPhase: "body_read",
           endpoint: "challenge_update",
         });
-        return "";
+        return { success: false as const, error: "Invalid JSON" };
       }),
     ]);
 
-    let bodyRaw: unknown = null;
-    if (bodyText) {
-      try {
-        bodyRaw = JSON.parse(bodyText);
-      } catch (error) {
-        logRequestError(requestId, SERVICE_TYPE, error, {
-          userId,
-          operationPhase: "json_parsing",
-          bodyPreview: bodyText.slice(0, 200),
-        });
-        return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-      }
+    if (!bodyReadResult.success) {
+      incrementSecurityMetric("api_validation_failed", { route: "/api/challenge/v1/daily", reason: bodyReadResult.error });
+      return NextResponse.json({ error: bodyReadResult.error }, { status: 400 });
     }
+
+    const bodyRaw = bodyReadResult.data;
 
     const existing = existingById ?? existingByDate;
 
@@ -296,18 +292,23 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
       completed?: boolean;
       [key: string]: unknown;
     };
-    let progress: ChallengeProgress | null = null;
-    if (isRecord(bodyRaw)) {
-      // Client sends { session } (current) or { progress } (legacy) or direct payload
-      const sessionPayload = bodyRaw["session"];
-      const legacyProgressPayload = bodyRaw["progress"];
+    const challengeBodyResult = ChallengeUpdateBodySchema.safeParse(bodyRaw);
+    if (!challengeBodyResult.success) {
+      incrementSecurityMetric("api_validation_failed", { route: "/api/challenge/v1/daily", reason: "body_schema" });
+      return NextResponse.json(
+        { error: "Invalid input data", details: challengeBodyResult.error.flatten() },
+        { status: 400 }
+      );
+    }
 
-      if (isRecord(sessionPayload)) {
-        progress = sessionPayload as ChallengeProgress;
-      } else if (isRecord(legacyProgressPayload)) {
-        progress = legacyProgressPayload as ChallengeProgress;
+    let progress: ChallengeProgress | null = null;
+    if (isRecord(challengeBodyResult.data)) {
+      if ("session" in challengeBodyResult.data) {
+        progress = challengeBodyResult.data.session as ChallengeProgress;
+      } else if ("progress" in challengeBodyResult.data) {
+        progress = challengeBodyResult.data.progress as ChallengeProgress;
       } else {
-        progress = bodyRaw as ChallengeProgress;
+        progress = challengeBodyResult.data as ChallengeProgress;
       }
     }
 
@@ -315,7 +316,7 @@ export const handleChallengeUpdate = async (req: NextRequest, method: "POST" | "
       logRequestError(requestId, SERVICE_TYPE, "Invalid progress data", {
         userId,
         operationPhase: "progress_validation",
-        hasBody: !!bodyText,
+        hasBody: bodyRaw != null,
       });
       return NextResponse.json({ error: "Invalid input data" }, { status: 400 });
     }
@@ -473,7 +474,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  const userId = authResult.userId;
+  const { userId } = authResult;
   
   // Add null check for userId
   if (!userId) {
@@ -481,16 +482,22 @@ export async function PATCH(req: NextRequest) {
   }
   
   try {
-    const { progress, operation = 'increment' } = await req.json();
-    
-    if (!progress) {
-      return NextResponse.json({ error: 'Progress data required' }, { status: 400 });
+    const parsedBody = await parseJsonBodyWithSchema({
+      req,
+      schema: ChallengePatchBodySchema,
+      maxBytes: 1024,
+    });
+
+    if (!parsedBody.success) {
+      incrementSecurityMetric("api_validation_failed", { route: "/api/challenge/v1/daily", reason: parsedBody.error });
+      const details = "issues" in parsedBody ? parsedBody.issues : undefined;
+      return NextResponse.json(
+        { error: parsedBody.error, ...(details ? { details } : {}) },
+        { status: 400 }
+      );
     }
 
-    // Validate progress data structure
-    if (typeof progress !== 'object' || progress === null) {
-      return NextResponse.json({ error: 'Invalid progress data format' }, { status: 400 });
-    }
+    const { progress, operation = 'increment' } = parsedBody.data;
 
     // Normalize + sanitize before atomic update
     const input = progress as Partial<SessionData>;

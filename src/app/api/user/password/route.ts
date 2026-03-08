@@ -100,6 +100,8 @@ export async function PATCH(req: NextRequest) {
         passwordHash: nextHash,
         resetToken: null,
         resetTokenExpiry: null,
+        pvpWsTokenVersion: { increment: 1 },
+        pvpWsTokensValidAfter: new Date(),
       },
       select: { id: true },
     });

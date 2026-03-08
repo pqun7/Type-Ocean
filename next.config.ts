@@ -4,8 +4,17 @@ process.setMaxListeners(20);
 
 import path from "path";
 import type { NextConfig } from "next";
+import { securityHeaderEntries } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: securityHeaderEntries,
+      },
+    ];
+  },
   turbopack: {
     rules: {
       "*.svg": {

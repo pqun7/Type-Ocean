@@ -1,16 +1,344 @@
-@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600;700&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300&display=swap");
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300..700&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/en/AtkinsonHyperlegible-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Consolas";
+  src: url("/fonts/en/Consolas.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Fira Code";
+  src: url("/fonts/en/FiraCode-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/en/IBMPlexMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/en/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Amiri";
+  src: url("/fonts/ar/Amiri-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Cairo";
+  src: url("/fonts/ar/Cairo-VariableFont_slnt,wght.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Lemonada";
+  src: url("/fonts/ar/Lemonada-VariableFont_wght.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Noto Sans Arabic";
+  src: url("/fonts/ar/NotoSansArabic-VariableFont_wdth,wght.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Tajawal";
+  src: url("/fonts/ar/Tajawal-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/es/Inter-VariableFont_opsz,wght.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Open Sans";
+  src: url("/fonts/es/OpenSans-VariableFont_wdth,wght.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Roboto";
+  src: url("/fonts/es/Roboto-VariableFont_wdth,wght.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/fonts/es/SourceSans3-VariableFont_wght.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "New York Large";
+  src: url("/fonts/web%20fonts/NewYorkLarge-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Arabic";
+  src: url("/fonts/web%20fonts/SF-Arabic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Arabic Rounded";
+  src: url("/fonts/web%20fonts/SF-Arabic-Rounded.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Compact";
+  src: url("/fonts/web%20fonts/SF-Compact.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Compact Text";
+  src: url("/fonts/web%20fonts/SF-Compact-Text-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono";
+  src: url("/fonts/web%20fonts/SF-Mono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Display";
+  src: url("/fonts/web%20fonts/SF-Pro-Display-Semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Display";
+  src: url("/fonts/web%20fonts/SF-Pro-Display-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Text";
+  src: url("/fonts/web%20fonts/SF-Pro-Text-Semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Text";
+  src: url("/fonts/web%20fonts/SF-Pro-Text-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Rounded";
+  src: url("/fonts/web%20fonts/SF-Pro-Rounded-Ultralight.woff2") format("woff2");
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Rounded";
+  src: url("/fonts/web%20fonts/SF-Pro-Rounded-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Rounded";
+  src: url("/fonts/web%20fonts/SF-Pro-Rounded-Semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Rounded";
+  src: url("/fonts/web%20fonts/SF-Pro-Rounded-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Display Semibold";
+  src: url("/fonts/web%20fonts/SF-Pro-Display-Semibold.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Display Bold";
+  src: url("/fonts/web%20fonts/SF-Pro-Display-Bold.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Text Semibold";
+  src: url("/fonts/web%20fonts/SF-Pro-Text-Semibold.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Text Bold";
+  src: url("/fonts/web%20fonts/SF-Pro-Text-Bold.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Rounded Ultralight";
+  src: url("/fonts/web%20fonts/SF-Pro-Rounded-Ultralight.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Rounded Regular";
+  src: url("/fonts/web%20fonts/SF-Pro-Rounded-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Rounded Semibold";
+  src: url("/fonts/web%20fonts/SF-Pro-Rounded-Semibold.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Pro Rounded Bold";
+  src: url("/fonts/web%20fonts/SF-Pro-Rounded-Bold.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Compact Regular";
+  src: url("/fonts/web%20fonts/SF-Compact.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Compact Text Regular";
+  src: url("/fonts/web%20fonts/SF-Compact-Text-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Regular";
+  src: url("/fonts/web%20fonts/SF-Mono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Arabic Regular";
+  src: url("/fonts/web%20fonts/SF-Arabic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Arabic Rounded Regular";
+  src: url("/fonts/web%20fonts/SF-Arabic-Rounded.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "New York Large Regular";
+  src: url("/fonts/web%20fonts/NewYorkLarge-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-sora: "Sora", sans-serif;
-  --font-code: "Source Code Pro", monospace;
-  --font-grotesk: "Space Grotesk", sans-serif;
   --font-fira: "Fira Code", monospace;
   --font-jetbrains: "JetBrains Mono", monospace;
   color-scheme: dark;

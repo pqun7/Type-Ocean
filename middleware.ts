@@ -42,6 +42,12 @@ export default auth(async (req) => {
     return NextResponse.next();
   }
 
+  if (process.env.NODE_ENV === 'production' && !isSecureRequest(req)) {
+    const secureUrl = req.nextUrl.clone()
+    secureUrl.protocol = 'https:'
+    return redirectWithSecurity(secureUrl)
+  }
+
   // Convert auth-related query params to short-lived flash cookies, then redirect to a clean URL.
   // This avoids exposing internal codes in the address bar and in shared links.
   {
@@ -210,6 +216,15 @@ function redirectWithSecurity(url: URL): NextResponse {
     response.headers.set(key, value)
   })
   return response
+}
+
+function isSecureRequest(req: NextRequest): boolean {
+  const forwardedProto = req.headers.get('x-forwarded-proto')
+  if (forwardedProto) {
+    return forwardedProto.split(',')[0]?.trim().toLowerCase() === 'https'
+  }
+
+  return req.nextUrl.protocol === 'https:'
 }
 
 

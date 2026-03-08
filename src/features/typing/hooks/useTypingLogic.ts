@@ -81,6 +81,8 @@ export default function useTypingLogic(
   const sessionActive = state === "running" && !idleState.current.isIdle;
 
   const textSegmentsRef = useRef<ReturnType<typeof segmentGraphemes>>([]);
+  const inputSegmentsRef = useRef<ReturnType<typeof segmentGraphemes>>([]);
+  const mismatchCountRef = useRef(0);
 
   const mistakesRef = useRef(0);
   const correctionsRef = useRef(0);
@@ -375,6 +377,7 @@ export default function useTypingLogic(
     rollback,
     computeGraphemeStats,
     typingLanguage,
+    getBestWpm,
   ]);
 
   // Idle state management
@@ -421,6 +424,7 @@ export default function useTypingLogic(
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawInput = e.target.value;
     const prevInput = userInputRef.current;
+    const prevSegments = inputSegmentsRef.current;
 
     // Cap input to the target text length in *graphemes* (not UTF-16 code units).
     // This prevents overshooting the target (common with IME / combining sequences),
@@ -428,7 +432,11 @@ export default function useTypingLogic(
     const targetSegments = textSegmentsRef.current;
     const maxGraphemes = targetSegments.length;
     const rawSegments = segmentGraphemes(rawInput, typingLanguage);
-    const typedGraphemes = Math.min(rawSegments.length, maxGraphemes);
+    const nextInputSegments =
+      maxGraphemes > 0 && rawSegments.length > maxGraphemes
+        ? rawSegments.slice(0, maxGraphemes)
+        : rawSegments;
+    const typedGraphemes = Math.min(nextInputSegments.length, maxGraphemes);
     const input =
       maxGraphemes > 0 && rawSegments.length > maxGraphemes
         ? rawInput.slice(0, rawSegments[maxGraphemes - 1]!.end)
@@ -440,33 +448,67 @@ export default function useTypingLogic(
     // Keep refs in sync immediately to avoid stale values on fast typing.
     userInputRef.current = input;
 
-    // Uncorrected errors: count current mismatches by grapheme (drops when user fixes).
-    let mismatches = 0;
-    for (let i = 0; i < typedGraphemes; i += 1) {
-      if (rawSegments[i]!.segment !== targetSegments[i]!.segment) mismatches += 1;
+    // Uncorrected errors: keep a fast incremental path for common typing/backspace,
+    // with a safe full recompute fallback for arbitrary mid-string edits/pastes.
+    let mismatches = mismatchCountRef.current;
+    if (input !== prevInput) {
+      const prevTyped = Math.min(prevSegments.length, maxGraphemes);
+
+      if (typedGraphemes >= prevTyped && input.startsWith(prevInput)) {
+        for (let i = prevTyped; i < typedGraphemes; i += 1) {
+          if (nextInputSegments[i]!.segment !== targetSegments[i]!.segment) mismatches += 1;
+        }
+      } else if (typedGraphemes < prevTyped && prevInput.startsWith(input)) {
+        for (let i = typedGraphemes; i < prevTyped; i += 1) {
+          if (prevSegments[i]!.segment !== targetSegments[i]!.segment) mismatches -= 1;
+        }
+      } else {
+        mismatches = 0;
+        for (let i = 0; i < typedGraphemes; i += 1) {
+          if (nextInputSegments[i]!.segment !== targetSegments[i]!.segment) mismatches += 1;
+        }
+      }
     }
+
+    mismatches = Math.max(0, mismatches);
+    mismatchCountRef.current = mismatches;
+    inputSegmentsRef.current = nextInputSegments;
+
     const target = textRef.current;
     setTotalErrors(mismatches);
     setIsError(mismatches > 0);
 
     // Cumulative mistakes/corrections: robust to paste and mid-string edits.
     // We approximate the edit region by finding common prefix/suffix.
-    if (input.length !== prevInput.length || input !== prevInput) {
+    if (input !== prevInput) {
       const prevLen = prevInput.length;
       const nextLen = input.length;
 
       let prefix = 0;
-      while (prefix < prevLen && prefix < nextLen && prevInput[prefix] === input[prefix]) {
-        prefix += 1;
-      }
-
       let suffix = 0;
-      while (
-        suffix < prevLen - prefix &&
-        suffix < nextLen - prefix &&
-        prevInput[prevLen - 1 - suffix] === input[nextLen - 1 - suffix]
-      ) {
-        suffix += 1;
+
+      if (nextLen >= prevLen && input.startsWith(prevInput)) {
+        // Fast path for common typing case: append at the end.
+        prefix = prevLen;
+      } else if (nextLen < prevLen && prevInput.startsWith(input)) {
+        // Fast path for common correction case: backspace from the end.
+        prefix = nextLen;
+      } else {
+        while (
+          prefix < prevLen &&
+          prefix < nextLen &&
+          prevInput[prefix] === input[prefix]
+        ) {
+          prefix += 1;
+        }
+
+        while (
+          suffix < prevLen - prefix &&
+          suffix < nextLen - prefix &&
+          prevInput[prevLen - 1 - suffix] === input[nextLen - 1 - suffix]
+        ) {
+          suffix += 1;
+        }
       }
 
       const removed = Math.max(0, prevLen - (prefix + suffix));
@@ -478,10 +520,11 @@ export default function useTypingLogic(
       }
 
       if (added > 0) {
-        const addedSegment = input.slice(prefix, nextLen - suffix);
+        const addedStart = prefix;
+        const addedEnd = nextLen - suffix;
         let addedMistakes = 0;
-        for (let i = 0; i < addedSegment.length; i += 1) {
-          if (target[prefix + i] !== addedSegment[i]) addedMistakes += 1;
+        for (let i = addedStart; i < addedEnd; i += 1) {
+          if (target[i] !== input[i]) addedMistakes += 1;
         }
         if (addedMistakes > 0) {
           mistakesRef.current += addedMistakes;
@@ -519,6 +562,8 @@ export default function useTypingLogic(
     setTotalCorrections(0);
     mistakesRef.current = 0;
     correctionsRef.current = 0;
+    mismatchCountRef.current = 0;
+    inputSegmentsRef.current = [];
     setState("start");
     setMetrics({ wpm: 0, accuracy: 100, elapsedTime: 0 });
 

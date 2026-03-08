@@ -1,7 +1,9 @@
 import "./load-env";
 
 import crypto from "crypto";
+import fs from "fs";
 import http from "http";
+import https from "https";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { PrismaClient } from "@prisma/client";
 
@@ -12,6 +14,8 @@ import { updateElo1v1 } from "./mmr";
 import { createAiProfile, estimatePlayerSkill, mulberry32, ratingFromWpm } from "./ai";
 import { createTokenBucket, tryConsume, type TokenBucket } from "./rate-limit";
 import { createRedisBus, matchChannel, roomChannel, userChannel, type RedisBus } from "./redis-bus";
+import { incrementGatewayMetric } from "./metrics";
+import { sanitizeAvatarUrl, sanitizeDisplayName, sanitizeRoomCode, sanitizeUserAgent } from "../../../src/lib/sanitize";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 const INSTANCE_ID = process.env.PVP_INSTANCE_ID ?? crypto.randomUUID();
@@ -22,7 +26,8 @@ type WsConn = WebSocket & {
   user?: AuthedUser;
   matchId?: string;
   roomCode?: string;
-  rl?: { general: TokenBucket; input: TokenBucket };
+  ip?: string;
+  rl?: { general: TokenBucket; input: TokenBucket; roomAction: TokenBucket };
   rawMsgStrikes?: number;
   presenceInterval?: NodeJS.Timeout | null;
 };
@@ -62,6 +67,57 @@ function originAllowed(origin: string | undefined | null) {
   if (!allowedOrigins) return true;
   if (!origin) return false;
   return allowedOrigins.has(origin);
+}
+
+function getClientIp(req: http.IncomingMessage) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0]?.trim() ?? "unknown";
+  }
+
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.trim()) return realIp.trim();
+
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+function createGatewayServer() {
+  const healthHandler: http.RequestListener = (_, res) => {
+    res.writeHead(200);
+    res.end("pvp-gateway ok");
+  };
+
+  if (!IS_PROD) {
+    return http.createServer(healthHandler);
+  }
+
+  const keyPath = process.env.PVP_TLS_KEY_PATH;
+  const certPath = process.env.PVP_TLS_CERT_PATH;
+  if (!keyPath || !certPath) {
+    throw new Error("Missing PVP_TLS_KEY_PATH or PVP_TLS_CERT_PATH in production");
+  }
+
+  return https.createServer(
+    {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath),
+      ca: process.env.PVP_TLS_CA_PATH ? fs.readFileSync(process.env.PVP_TLS_CA_PATH) : undefined,
+    },
+    healthHandler
+  );
+}
+
+function isSecureGatewayRequest(req: http.IncomingMessage) {
+  if (!IS_PROD) return true;
+
+  if ((req.socket as { encrypted?: boolean }).encrypted) return true;
+
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  if (typeof forwardedProto === "string") {
+    return forwardedProto.split(",")[0]?.trim().toLowerCase() === "https";
+  }
+
+  return false;
 }
 
 function send(ws: WsConn, type: ServerMessage["type"], payload: unknown) {
@@ -489,18 +545,23 @@ async function main() {
     return testBot;
   }
 
-  const server = http.createServer((_, res) => {
-    res.writeHead(200);
-    res.end("pvp-gateway ok");
-  });
+  const server = createGatewayServer();
 
   const WS_MAX_PAYLOAD_BYTES = envInt("PVP_WS_MAX_PAYLOAD_BYTES", 64 * 1024);
   const WS_MAX_MSG_PER_SEC = envInt("PVP_WS_MAX_MSG_PER_SEC", 40);
   const WS_MAX_MSG_BURST = envInt("PVP_WS_MAX_MSG_BURST", 80);
   const WS_MAX_INPUT_MSG_PER_SEC = envInt("PVP_WS_MAX_INPUT_MSG_PER_SEC", 25);
   const WS_MAX_INPUT_MSG_BURST = envInt("PVP_WS_MAX_INPUT_MSG_BURST", 50);
+  const WS_MAX_CONNECTIONS_PER_IP = envInt("PVP_WS_MAX_CONNECTIONS_PER_IP", 5);
+  const WS_CONNECTION_ATTEMPTS_PER_MIN = envInt("PVP_WS_CONNECTION_ATTEMPTS_PER_MIN", 20);
+  const WS_CONNECTION_ATTEMPTS_BURST = envInt("PVP_WS_CONNECTION_ATTEMPTS_BURST", 10);
+  const ROOM_ACTION_COOLDOWN_MS = envMs("PVP_ROOM_ACTION_COOLDOWN_MS", 2_000);
+  const CONNECTION_SPIKE_ALERT_THRESHOLD = envInt("PVP_WS_CONNECTION_SPIKE_ALERT_THRESHOLD", 30);
 
   const wss = new WebSocketServer({ server, maxPayload: WS_MAX_PAYLOAD_BYTES });
+  const activeConnectionsByIp = new Map<string, number>();
+  const connectionAttemptBuckets = new Map<string, TokenBucket>();
+  const roomActionLastSeen = new Map<string, number>();
 
   const USE_REDIS = envBool("PVP_USE_REDIS", false);
   const REDIS_URL = process.env.PVP_REDIS_URL ?? process.env.REDIS_URL ?? null;
@@ -635,8 +696,8 @@ return nil
 
     return {
       userId,
-      username: user?.username ?? "user",
-      avatar: user?.profile?.avatar ?? null,
+      username: sanitizeDisplayName(user?.username ?? "user", 32) || "user",
+      avatar: sanitizeAvatarUrl(user?.profile?.avatar ?? null),
       pvpRating: rating.rating,
       pvpDeviation: rating.deviation,
     };
@@ -701,9 +762,48 @@ return nil
   }
 
   wss.on("connection", (ws: WsConn, req: http.IncomingMessage) => {
+    if (!isSecureGatewayRequest(req)) {
+      incrementGatewayMetric("ws_connection_rejected", { reason: "insecure_transport" });
+      ws.close(1008, "Secure websocket required");
+      return;
+    }
+
     if (!originAllowed(req.headers.origin)) {
+      incrementGatewayMetric("ws_connection_rejected", { reason: "origin_not_allowed" });
       ws.close(1008, "Origin not allowed");
       return;
+    }
+
+    const ip = getClientIp(req);
+    ws.ip = ip;
+
+    let attemptBucket = connectionAttemptBuckets.get(ip);
+    if (!attemptBucket) {
+      attemptBucket = createTokenBucket({
+        capacity: WS_CONNECTION_ATTEMPTS_BURST,
+        refillPerSec: WS_CONNECTION_ATTEMPTS_PER_MIN / 60,
+        nowMs: Date.now(),
+      });
+      connectionAttemptBuckets.set(ip, attemptBucket);
+    }
+
+    if (!tryConsume(attemptBucket, 1, Date.now())) {
+      incrementGatewayMetric("ws_connection_rejected", { reason: "connection_attempt_rate_limit", ip });
+      ws.close(1013, "Too many connection attempts");
+      return;
+    }
+
+    const activeForIp = activeConnectionsByIp.get(ip) ?? 0;
+    if (activeForIp >= WS_MAX_CONNECTIONS_PER_IP) {
+      incrementGatewayMetric("ws_connection_rejected", { reason: "connection_cap", ip });
+      ws.close(1013, "Too many active connections");
+      return;
+    }
+    activeConnectionsByIp.set(ip, activeForIp + 1);
+
+    const nextSpikeCount = incrementGatewayMetric("ws_connection_opened", { ip });
+    if (nextSpikeCount >= CONNECTION_SPIKE_ALERT_THRESHOLD) {
+      console.warn(`[pvp-gateway] abnormal connection spike detected for ${ip}: ${nextSpikeCount}`);
     }
 
     const connectedAtMs = Date.now();
@@ -711,6 +811,7 @@ return nil
     ws.rl = {
       general: createTokenBucket({ capacity: WS_MAX_MSG_BURST, refillPerSec: WS_MAX_MSG_PER_SEC, nowMs: connectedAtMs }),
       input: createTokenBucket({ capacity: WS_MAX_INPUT_MSG_BURST, refillPerSec: WS_MAX_INPUT_MSG_PER_SEC, nowMs: connectedAtMs }),
+      roomAction: createTokenBucket({ capacity: 1, refillPerSec: 1000 / ROOM_ACTION_COOLDOWN_MS, nowMs: connectedAtMs }),
     };
 
     // Keepalive ping to avoid idle timeouts (~30s) killing the connection.
@@ -741,11 +842,13 @@ return nil
                 : 0;
 
       if (byteLength > WS_MAX_PAYLOAD_BYTES) {
+        incrementGatewayMetric("ws_validation_failed", { reason: "payload_too_large" });
         ws.close(1009, "Message too large");
         return;
       }
 
       if (ws.rl && !tryConsume(ws.rl.general, 1, nowMs)) {
+        incrementGatewayMetric("ws_rate_limit_rejected", { reason: "general_message_rate" });
         ws.rawMsgStrikes = (ws.rawMsgStrikes ?? 0) + 1;
         if ((ws.rawMsgStrikes ?? 0) >= 3) {
           ws.close(1013, "Rate limit");
@@ -754,20 +857,27 @@ return nil
       }
 
       const raw = typeof data === "string" ? data : data.toString("utf-8");
-      const msg = safeParseClientMessage(raw);
-      if (!msg) {
-        send(ws, "ERROR", { message: "Invalid message" });
+      const parsedMessage = safeParseClientMessage(raw);
+      if (!parsedMessage.success) {
+        incrementGatewayMetric("ws_validation_failed", { reason: parsedMessage.error });
+        send(ws, "ERROR", { message: parsedMessage.error });
         return;
       }
+      const msg = parsedMessage.data;
 
       if (msg.type === "INPUT_UPDATE" && ws.rl && !tryConsume(ws.rl.input, 1, nowMs)) {
+        incrementGatewayMetric("ws_rate_limit_rejected", { reason: "input_message_rate" });
         // Do not close immediately; ignore input spam.
         return;
       }
 
       try {
         if (msg.type === "HELLO") {
-          const authed = await verifyWsToken(msg.payload.token);
+          const authed = await verifyWsToken(msg.payload.token, {
+            prisma,
+            clientSecret: msg.payload.clientSecret,
+            userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
+          });
           const user = (await loadConnectionUser(authed.userId)) as AuthedUser;
           ws.user = user;
 
@@ -780,6 +890,24 @@ return nil
           }
 
           send(ws, "HELLO_OK", { user: { userId: user.userId, username: user.username, avatar: user.avatar } });
+          return;
+        }
+
+        if (msg.type === "AUTH_REFRESH") {
+          if (!ws.user) {
+            send(ws, "ERROR", { message: "Unauthenticated" });
+            return;
+          }
+
+          await verifyWsToken(msg.payload.token, {
+            prisma,
+            clientSecret: msg.payload.clientSecret,
+            userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
+            expectedUserId: ws.user.userId,
+          });
+
+          await markOnline(ws.user.userId);
+          send(ws, "AUTH_REFRESH_OK", { expiresAt: Math.floor(Date.now() / 1000) + envInt("PVP_WS_TOKEN_TTL_SECONDS", 900) });
           return;
         }
 
@@ -1216,10 +1344,16 @@ return nil
           // Anti-cheat: input must evolve by append or backspace only.
           const prev = participant.input;
           const next = msg.payload.input;
+          if (next.length > match.textSnapshot.length) {
+            incrementGatewayMetric("ws_validation_failed", { reason: "input_exceeds_text" });
+            send(ws, "ERROR", { message: "Input exceeds match text length" });
+            return;
+          }
 
           const isAppend = next.startsWith(prev);
           const isBackspace = prev.startsWith(next);
           if (!isAppend && !isBackspace) {
+            incrementGatewayMetric("ws_validation_failed", { reason: "invalid_input_evolution" });
             send(ws, "ERROR", { message: "Invalid input evolution" });
             return;
           }
@@ -1227,6 +1361,7 @@ return nil
           if (isAppend) {
             const added = next.slice(prev.length);
             if (added.length > 32) {
+              incrementGatewayMetric("ws_validation_failed", { reason: "input_delta_too_large" });
               send(ws, "ERROR", { message: "Input delta too large" });
               return;
             }
@@ -1547,7 +1682,22 @@ return nil
         }
 
         if (msg.type === "ROOM_JOIN") {
-          const code = msg.payload.code.toUpperCase();
+          const roomActionKey = `${ws.user.userId}:room_join`;
+          const now = Date.now();
+          const lastRoomAction = roomActionLastSeen.get(roomActionKey) ?? 0;
+          if (now - lastRoomAction < ROOM_ACTION_COOLDOWN_MS) {
+            incrementGatewayMetric("ws_rate_limit_rejected", { reason: "room_join_cooldown" });
+            send(ws, "ERROR", { message: "Room join cooldown active" });
+            return;
+          }
+          roomActionLastSeen.set(roomActionKey, now);
+
+          const code = sanitizeRoomCode(msg.payload.code);
+          if (code.length < 4) {
+            incrementGatewayMetric("ws_validation_failed", { reason: "room_code_invalid" });
+            send(ws, "ERROR", { message: "Invalid room code" });
+            return;
+          }
           ws.roomCode = code;
 
           const room = await prisma.pvpRoom.findUnique({
@@ -1608,8 +1758,8 @@ return nil
               maxPlayers: room.maxPlayers,
               members: updated.map((m) => ({
                 userId: m.userId,
-                username: m.user.username,
-                avatar: m.user.profile?.avatar ?? null,
+                username: sanitizeDisplayName(m.user.username, 32) || "user",
+                avatar: sanitizeAvatarUrl(m.user.profile?.avatar ?? null),
                 slot: m.colorSlot,
                 ready: !!m.readyAt,
               })),
@@ -1620,7 +1770,17 @@ return nil
         }
 
         if (msg.type === "READY") {
-          const code = (msg.payload?.roomCode ?? ws.roomCode)?.toUpperCase();
+          const roomActionKey = `${ws.user.userId}:ready`;
+          const now = Date.now();
+          const lastRoomAction = roomActionLastSeen.get(roomActionKey) ?? 0;
+          if (now - lastRoomAction < ROOM_ACTION_COOLDOWN_MS) {
+            incrementGatewayMetric("ws_rate_limit_rejected", { reason: "ready_cooldown" });
+            send(ws, "ERROR", { message: "Ready cooldown active" });
+            return;
+          }
+          roomActionLastSeen.set(roomActionKey, now);
+
+          const code = sanitizeRoomCode(msg.payload?.roomCode ?? ws.roomCode ?? "");
           if (!code) {
             send(ws, "ERROR", { message: "No room" });
             return;
@@ -1662,8 +1822,8 @@ return nil
               maxPlayers: room.maxPlayers,
               members: members.map((m) => ({
                 userId: m.userId,
-                username: m.user.username,
-                avatar: m.user.profile?.avatar ?? null,
+                username: sanitizeDisplayName(m.user.username, 32) || "user",
+                avatar: sanitizeAvatarUrl(m.user.profile?.avatar ?? null),
                 slot: m.colorSlot,
                 ready: !!m.readyAt,
               })),
@@ -1743,6 +1903,14 @@ return nil
     ws.on("close", () => {
       if (pingInterval) clearInterval(pingInterval);
       if (ws.presenceInterval) clearInterval(ws.presenceInterval);
+      if (ws.ip) {
+        const next = Math.max(0, (activeConnectionsByIp.get(ws.ip) ?? 1) - 1);
+        if (next === 0) {
+          activeConnectionsByIp.delete(ws.ip);
+        } else {
+          activeConnectionsByIp.set(ws.ip, next);
+        }
+      }
       if (ws.user) {
         state.removeFromQueue(ws.user.userId);
         state.clearQueueTimeout(ws.user.userId);

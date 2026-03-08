@@ -1,7 +1,14 @@
-import Main from "@/components/Main";
-import Benefits from "@/components/Benefits";
-import Pricing from "@/components/Pricing";
 import Header from "@/components/layout/Header/Header";
+import Main from "@/components/Main";
+import dynamic from "next/dynamic";
+
+const Benefits = dynamic(() => import("@/components/Benefits"), {
+  loading: () => null,
+});
+
+const Pricing = dynamic(() => import("@/components/Pricing"), {
+  loading: () => null,
+});
 
 export default function Home() {
   return (

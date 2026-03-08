@@ -1,5 +1,6 @@
 export type ServerMessage =
   | { type: "HELLO_OK"; payload: { user: { userId: string; username: string; avatar: string | null } } }
+  | { type: "AUTH_REFRESH_OK"; payload: { expiresAt: number } }
   | { type: "QUEUE_STATUS"; payload: { status: string } }
   | {
       type: "ROOM_STATE";
@@ -72,7 +73,8 @@ export type ServerMessage =
   | { type: "ERROR"; payload: { message: string } };
 
 export type ClientMessage =
-  | { type: "HELLO"; payload: { token: string } }
+  | { type: "HELLO"; payload: { token: string; clientSecret: string } }
+  | { type: "AUTH_REFRESH"; payload: { token: string; clientSecret: string } }
     | { type: "QUEUE_JOIN"; payload: Record<string, never> }
     | { type: "QUEUE_LEAVE"; payload: Record<string, never> }
   | { type: "ROOM_JOIN"; payload: { code: string } }

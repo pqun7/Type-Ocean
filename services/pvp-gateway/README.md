@@ -13,9 +13,17 @@ It is designed to run **separately from Next.js** (e.g. on Fly.io), while the Ne
 
 Security / limits:
 - `PVP_ALLOWED_ORIGINS` (comma-separated). **Required in production**.
+- `PVP_TLS_KEY_PATH` / `PVP_TLS_CERT_PATH` (required in production for direct TLS termination)
+- `PVP_TLS_CA_PATH` (optional chain / CA bundle)
+- `PVP_WS_TOKEN_TTL_SECONDS` (default: 900)
+- `PVP_WS_TOKEN_REFRESH_WINDOW_SECONDS` (default: 120)
 - `PVP_WS_MAX_PAYLOAD_BYTES` (default: 65536)
 - `PVP_WS_MAX_MSG_PER_SEC` / `PVP_WS_MAX_MSG_BURST` (general message rate limit; defaults: 40 / 80)
 - `PVP_WS_MAX_INPUT_MSG_PER_SEC` / `PVP_WS_MAX_INPUT_MSG_BURST` (INPUT_UPDATE rate limit; defaults: 25 / 50)
+- `PVP_WS_MAX_CONNECTIONS_PER_IP` (default: 5)
+- `PVP_WS_CONNECTION_ATTEMPTS_PER_MIN` / `PVP_WS_CONNECTION_ATTEMPTS_BURST` (defaults: 20 / 10)
+- `PVP_ROOM_ACTION_COOLDOWN_MS` (default: 2000)
+- `PVP_WS_CONNECTION_SPIKE_ALERT_THRESHOLD` (default: 30)
 
 Multi-instance (optional):
 - `PVP_USE_REDIS` (`1`/`0`, default: `0`)
@@ -27,9 +35,16 @@ Multi-instance (optional):
 - `npm run pvp:gateway:build`
 - `npm run pvp:gateway:start`
 
+## Transport / edge protection
+- Production deployments should expose the gateway over **WSS only**.
+- This service now supports direct TLS termination via `PVP_TLS_KEY_PATH` and `PVP_TLS_CERT_PATH`.
+- A WAF / CDN is still recommended at the infrastructure layer for volumetric DDoS protection.
+- Keep `PVP_ALLOWED_ORIGINS` aligned with the frontend origin(s) that fetch `/api/pvp/ws-token`.
+
 ## Protocol (high level)
 Client sends:
-- `HELLO { token }`
+- `HELLO { token, clientSecret }`
+- `AUTH_REFRESH { token, clientSecret }`
 - `QUEUE_JOIN {}`
 - `ROOM_JOIN { code }`
 - `READY {}`
@@ -39,6 +54,7 @@ Client sends:
 
 Server sends:
 - `HELLO_OK { user }`
+- `AUTH_REFRESH_OK { expiresAt }`
 - `QUEUE_STATUS { status }`
 - `ROOM_STATE { room }`
 - `MATCH_FOUND { matchId, textSnapshot, serverStartAt, players }`

@@ -1,12 +1,15 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import LevelsDock from "@/components/ui/levels-dock";
 import { motion, AnimatePresence } from "framer-motion";
-import ResultsChart from "@/components/TypingTest/ResultsChart";
+import Results, { RESULTS_VIEW_MODE } from "@/components/TypingTest/Results";
+import type { Language } from "@/components/TypingTest/KeyboardHeatmap";
 import TypingTest from "@/components/TypingTest/TypingTest";
 import { TextType } from "@/features/typing/types/typing";
 import { useSettings } from "@/features/settings/context";
 import { getTypingTypography } from "@/features/settings/typingTypography";
+import type { KeyboardPerformanceData } from "@/components/TypingTest/utils/keyboardPerformance";
+import { useLevel } from "@/features/level/hooks/useLevel";
 
 export type Mode = "course" | "game" | "practice" | "online";
 
@@ -23,6 +26,7 @@ const HeaderGame = ({
   fontSize?: string;
 }) => {
   const { settings } = useSettings();
+  const { userId } = useLevel();
 
   const [selectedLevel, setSelectedLevel] = useState<TextType>("SHORT");
   const [gameState, setGameState] = useState<"start" | "running" | "end">(
@@ -39,6 +43,9 @@ const HeaderGame = ({
     { time: number; wpm: number; prevWpm: number }[][]
   >([]);
   const [currentErrors, setCurrentErrors] = useState(0);
+  const [keyboardPerformance, setKeyboardPerformance] =
+    useState<KeyboardPerformanceData>();
+  const lastStoredResultKeyRef = useRef<string | null>(null);
 
   
 
@@ -64,23 +71,65 @@ const HeaderGame = ({
     setTextKey((prev) => prev + 1);
   }, []);
 
+  const resultStorageKey = useMemo(
+    () => [userId, textKey, currentTime, currentWpm, currentErrors].join(":"),
+    [userId, textKey, currentTime, currentWpm, currentErrors]
+  );
+
+  useEffect(() => {
+    if (gameState !== "end") return;
+    if (!keyboardPerformance || !userId) return;
+
+    if (lastStoredResultKeyRef.current === resultStorageKey) return;
+
+    void fetch("/api/session-stats/v1/keyboard", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        language: settings.typingLanguage,
+        performanceData: keyboardPerformance,
+      }),
+      keepalive: true,
+    }).catch(() => {
+      // Best-effort persistence; UI should never block on this.
+    });
+
+    lastStoredResultKeyRef.current = resultStorageKey;
+  }, [
+    gameState,
+    keyboardPerformance,
+    userId,
+    resultStorageKey,
+    settings.typingLanguage,
+  ]);
+
   const typography = HomePage
     ? { fontSize, lineHeight: "leading-8", caretHeight: "h-4 md:h-5" }
     : getTypingTypography(settings.fontScale);
 
-  const optimizePerformance = !settings.showSessionChart;
+  const optimizePerformance = HomePage;
+
+  const resultsViewMode = HomePage
+    ? RESULTS_VIEW_MODE.KEYBOARD
+    : settings.showSessionChart
+    ? RESULTS_VIEW_MODE.CHART
+    : RESULTS_VIEW_MODE.KEYBOARD;
 
   return (
     <>
       {gameState === "end" && (
-        <ResultsChart
+        <Results
           wpm={currentWpm}
           accuracy={currentAccuracy}
           gameState={gameState}
           currentTime={currentTime}
           wpmHistory={wpmHistory}
           currentErrors={currentErrors}
-          optimizePerformance={optimizePerformance}
+          language={settings.typingLanguage as Language}
+          performanceData={keyboardPerformance}
+          viewMode={resultsViewMode}
         />
       )}
 
@@ -129,6 +178,8 @@ const HeaderGame = ({
               onElapsedTimeChange={setCurrentTime}
               onWpmHistoryChange={setWpmHistory}
               onErrorsChange={setCurrentErrors}
+              onKeyboardPerformanceChange={setKeyboardPerformance}
+              optimizePerformance={optimizePerformance}
               selectedLevel={selectedLevel}
             />
           </div>

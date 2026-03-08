@@ -1,7 +1,7 @@
 "use client";
 
 // Core imports
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
@@ -23,7 +23,6 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { DailyChallenge } from "./DailyChallenge";
 
-import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Skeleton } from "@/components/ui/skeleton";
 
       
@@ -125,7 +124,7 @@ const XPMessages = () => {
   const { settings } = useSettings();
 
   // Resolve base style class per message type – متوافقة مع تصميم المرجع
-  const getBaseStyle = (type: XPMessageType): string => {
+  const getBaseStyle = useCallback((type: XPMessageType): string => {
     const pill = "mb-1 px-3 py-2 rounded-full border text-xs text-center w-full backdrop-blur shadow-sm";
 
     const map: Record<XPMessageType, string> = {
@@ -141,9 +140,9 @@ const XPMessages = () => {
     };
 
     return map[type] ?? `${pill} border-white/10 bg-white/5 text-[#E0E7FF]`;
-  };
+  }, []);
 
-  const resolveStyle = (type: XPMessageType, text: string, value: number): string => {
+  const resolveStyle = useCallback((type: XPMessageType, text: string, value: number): string => {
     if (type === "bonus") {
       const lowered = text.toLowerCase();
       const isEndurance =
@@ -170,11 +169,11 @@ const XPMessages = () => {
     }
 
     return cls;
-  };
+  }, [getBaseStyle]);
 
   const styledMessages = useMemo(
     () => xpMessages.map((msg) => ({ ...msg, cls: resolveStyle(msg.type, msg.text, msg.value) })),
-    [xpMessages]
+    [xpMessages, resolveStyle]
   );
 
   const useFancyAnimation = xpMessages.length <= 2;
@@ -321,17 +320,15 @@ const UserMenu: React.FC<UserMenuProps> = ({
               }
             >
               {profileAvatarUrl && !avatarBroken ? (
-                // Use <img> to avoid next/image remote config requirements
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <Image
                   src={profileAvatarUrl}
                   alt="Profile avatar"
+                  width={32}
+                  height={32}
+                  sizes="32px"
                   className="h-8 w-8 rounded-full border border-white/10 bg-white/5 object-cover"
                   referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = "";
-                    setAvatarBroken(true);
-                  }}
+                  onError={() => setAvatarBroken(true)}
                 />
               ) : (
                 <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[10px] font-semibold text-slate-200">

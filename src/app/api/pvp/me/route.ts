@@ -5,11 +5,17 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/features/auth/lib/db";
 import { authorizeRequest } from "@/app/api/shared.server";
 import { getPvpRankInfo } from "@/features/pvp/rank";
+import { rateLimiter } from "@/lib/rate-limiter";
 
 export async function GET(req: NextRequest) {
+  const rateLimit = await rateLimiter.applyRateLimit(req, "/api/pvp/me:GET");
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: rateLimit.headers });
+  }
+
   const userId = await authorizeRequest(req);
   if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: rateLimit.headers });
   }
 
   const rating = await prisma.pvpRating.upsert({
@@ -51,12 +57,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
-    rating: rating.rating,
-    deviation: rating.deviation,
-    gamesPlayed: rating.gamesPlayed,
-    updatedAt: rating.updatedAt.toISOString(),
-    rank,
-    classified,
-  });
+  return NextResponse.json(
+    {
+      rating: rating.rating,
+      deviation: rating.deviation,
+      gamesPlayed: rating.gamesPlayed,
+      updatedAt: rating.updatedAt.toISOString(),
+      rank,
+      classified,
+    },
+    { headers: rateLimit.headers }
+  );
 }

@@ -192,6 +192,51 @@ export default {
         grotesk: "var(--font-grotesk)",
         fira: "var(--font-fira)",
         jetbrains: "var(--font-jetbrains)",
+
+        atkinson: ["Atkinson Hyperlegible", ...fontFamily.sans],
+        amiri: ["Amiri", "serif"],
+        cairo: ["Cairo", ...fontFamily.sans],
+        lemonada: ["Lemonada", ...fontFamily.sans],
+        notoArabic: ["Noto Sans Arabic", ...fontFamily.sans],
+        tajawal: ["Tajawal", ...fontFamily.sans],
+
+        interLocal: ["Inter", ...fontFamily.sans],
+        openSans: ["Open Sans", ...fontFamily.sans],
+        robotoLocal: ["Roboto", ...fontFamily.sans],
+        sourceSans3: ["Source Sans 3", ...fontFamily.sans],
+
+        consolas: ["Consolas", ...fontFamily.mono],
+        firaLocal: ["Fira Code", ...fontFamily.mono],
+        ibmPlexMono: ["IBM Plex Mono", ...fontFamily.mono],
+        jetbrainsLocal: ["JetBrains Mono", ...fontFamily.mono],
+
+        sfArabic: ["SF Arabic", ...fontFamily.sans],
+        sfArabicRounded: ["SF Arabic Rounded", ...fontFamily.sans],
+        sfCompact: ["SF Compact", ...fontFamily.sans],
+        sfCompactText: ["SF Compact Text", ...fontFamily.sans],
+        sfMono: ["SF Mono", ...fontFamily.mono],
+        newYorkLarge: ["New York Large", "serif"],
+
+        sfProDisplay: ["SF Pro Display", ...fontFamily.sans],
+        sfProText: ["SF Pro Text", ...fontFamily.sans],
+        sfProRounded: ["SF Pro Rounded", ...fontFamily.sans],
+
+        sfProDisplaySemibold: ["SF Pro Display Semibold", ...fontFamily.sans],
+        sfProDisplayBold: ["SF Pro Display Bold", ...fontFamily.sans],
+        sfProTextSemibold: ["SF Pro Text Semibold", ...fontFamily.sans],
+        sfProTextBold: ["SF Pro Text Bold", ...fontFamily.sans],
+
+        sfProRoundedUltralight: ["SF Pro Rounded Ultralight", ...fontFamily.sans],
+        sfProRoundedRegular: ["SF Pro Rounded Regular", ...fontFamily.sans],
+        sfProRoundedSemibold: ["SF Pro Rounded Semibold", ...fontFamily.sans],
+        sfProRoundedBold: ["SF Pro Rounded Bold", ...fontFamily.sans],
+
+        sfCompactRegular: ["SF Compact Regular", ...fontFamily.sans],
+        sfCompactTextRegular: ["SF Compact Text Regular", ...fontFamily.sans],
+        sfMonoRegular: ["SF Mono Regular", ...fontFamily.mono],
+        sfArabicRegular: ["SF Arabic Regular", ...fontFamily.sans],
+        sfArabicRoundedRegular: ["SF Arabic Rounded Regular", ...fontFamily.sans],
+        newYorkLargeRegular: ["New York Large Regular", "serif"],
       },
       letterSpacing: {
         tagline: ".15em",
