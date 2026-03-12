@@ -61,21 +61,27 @@ jobs:
       - name: Check required production secrets
         id: secrets_check
         run: |
-          node -e "const req=['AUTH_SECRET','DATABASE_URL','API_INTERNAL_SECRET','PVP_GATEWAY_JWT_SECRET','VERCEL_TOKEN','VERCEL_ORG_ID','VERCEL_PROJECT_ID']; const missing=req.filter(k=>!process.env[k]||!String(process.env[k]).trim()); if(missing.length){console.log('deploy_ready=false'); console.log('missing='+missing.join(',')); process.exit(0)}; console.log('deploy_ready=true');" > .deploy_check
-          Get-Content .deploy_check
-          $ready = (Get-Content .deploy_check | Select-String '^deploy_ready=' | ForEach-Object { $_.ToString().Split('=')[1] })
-          $missing = (Get-Content .deploy_check | Select-String '^missing=' | ForEach-Object { $_.ToString().Substring(8) })
-          if ([string]::IsNullOrWhiteSpace($ready)) { $ready = 'false' }
-          "deploy_ready=$ready" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          if ($ready -ne 'true') {
-            if (-not [string]::IsNullOrWhiteSpace($missing)) {
-              "::warning::Skipping production deploy. Missing required secrets: $missing"
-            } else {
-              "::warning::Skipping production deploy. Required secrets are not configured."
-            }
-          } else {
-            "Production secrets validation passed."
-          }
+          check_output=$(node -e "const req=['AUTH_SECRET','DATABASE_URL','API_INTERNAL_SECRET','PVP_GATEWAY_JWT_SECRET','VERCEL_TOKEN','VERCEL_ORG_ID','VERCEL_PROJECT_ID']; const missing=req.filter(k=>!process.env[k]||!String(process.env[k]).trim()); if(missing.length){console.log('deploy_ready=false'); console.log('missing='+missing.join(',')); process.exit(0)}; console.log('deploy_ready=true');")
+          echo "$check_output"
+
+          ready=$(echo "$check_output" | sed -n 's/^deploy_ready=//p' | head -n1)
+          missing=$(echo "$check_output" | sed -n 's/^missing=//p' | head -n1)
+
+          if [ -z "$ready" ]; then
+            ready="false"
+          fi
+
+          echo "deploy_ready=$ready" >> "$GITHUB_OUTPUT"
+
+          if [ "$ready" != "true" ]; then
+            if [ -n "$missing" ]; then
+              echo "::warning::Skipping production deploy. Missing required secrets: $missing"
+            else
+              echo "::warning::Skipping production deploy. Required secrets are not configured."
+            fi
+          else
+            echo "Production secrets validation passed."
+          fi
 
       - name: Install dependencies
         if: steps.secrets_check.outputs.deploy_ready == 'true'
