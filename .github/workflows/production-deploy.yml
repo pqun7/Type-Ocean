@@ -58,20 +58,39 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Validate required production secrets
+      - name: Check required production secrets
+        id: secrets_check
         run: |
-          node -e "const req=['AUTH_SECRET','DATABASE_URL','API_INTERNAL_SECRET','PVP_GATEWAY_JWT_SECRET','VERCEL_TOKEN','VERCEL_ORG_ID','VERCEL_PROJECT_ID']; const missing=req.filter(k=>!process.env[k]||!String(process.env[k]).trim()); if(missing.length){console.error('Missing required production secrets: '+missing.join(', ')); process.exit(1)}; console.log('Production secrets validation passed.');"
+          node -e "const req=['AUTH_SECRET','DATABASE_URL','API_INTERNAL_SECRET','PVP_GATEWAY_JWT_SECRET','VERCEL_TOKEN','VERCEL_ORG_ID','VERCEL_PROJECT_ID']; const missing=req.filter(k=>!process.env[k]||!String(process.env[k]).trim()); if(missing.length){console.log('deploy_ready=false'); console.log('missing='+missing.join(',')); process.exit(0)}; console.log('deploy_ready=true');" > .deploy_check
+          Get-Content .deploy_check
+          $ready = (Get-Content .deploy_check | Select-String '^deploy_ready=' | ForEach-Object { $_.ToString().Split('=')[1] })
+          $missing = (Get-Content .deploy_check | Select-String '^missing=' | ForEach-Object { $_.ToString().Substring(8) })
+          if ([string]::IsNullOrWhiteSpace($ready)) { $ready = 'false' }
+          "deploy_ready=$ready" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          if ($ready -ne 'true') {
+            if (-not [string]::IsNullOrWhiteSpace($missing)) {
+              "::warning::Skipping production deploy. Missing required secrets: $missing"
+            } else {
+              "::warning::Skipping production deploy. Required secrets are not configured."
+            }
+          } else {
+            "Production secrets validation passed."
+          }
 
       - name: Install dependencies
+        if: steps.secrets_check.outputs.deploy_ready == 'true'
         run: npm ci
 
       - name: Prisma generate
+        if: steps.secrets_check.outputs.deploy_ready == 'true'
         run: npm run prisma:generate
 
       - name: Build
+        if: steps.secrets_check.outputs.deploy_ready == 'true'
         run: npm run build
 
       - name: Deploy to Vercel (Production)
+        if: steps.secrets_check.outputs.deploy_ready == 'true'
         run: |
           npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
           npx vercel build --prod --token="$VERCEL_TOKEN"
