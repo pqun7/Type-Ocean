@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Sora, Source_Code_Pro, Space_Grotesk } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import Footer from "@/components/layout/Footer";
 import Background from "@/components/ui/Background";
@@ -87,6 +88,7 @@ export default async function RootLayout({
             </MotionSettingsProvider>
           </SettingsProvider>
         </div>
+        <SpeedInsights />
       </body>
     </html>
   );

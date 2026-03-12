@@ -65,6 +65,42 @@ Notes:
 - `npm run test:ci` - jest CI run
 - `npm run admin:grant -- --email you@example.com` - grant admin locally through Prisma
 
+## Get Started: Vercel Speed Insights
+To start collecting performance metrics, follow these steps.
+
+### 1. Install the package
+Install Speed Insights in your existing project:
+
+```bash
+npm i @vercel/speed-insights
+```
+
+### 2. Add the Next.js component
+Import and render `SpeedInsights` in your app layout (or main app entry):
+
+```tsx
+import { SpeedInsights } from "@vercel/speed-insights/next";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+	return (
+		<html lang="en">
+			<body>
+				{children}
+				<SpeedInsights />
+			</body>
+		</html>
+	);
+}
+```
+
+For full examples and reference, see the official docs:
+- https://vercel.com/docs/speed-insights
+
+### 3. Deploy and visit your site
+Deploy your changes and visit your deployment to collect your first data points.
+
+If you do not see data after about 30 seconds, check content blockers and navigate between pages on your site.
+
 Gateway notes:
 - Detailed gateway setup and runtime options are documented in [services/pvp-gateway/README.md](services/pvp-gateway/README.md).
 
