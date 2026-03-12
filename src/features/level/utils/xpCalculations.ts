@@ -491,7 +491,7 @@ export const calculateSessionXP = (
     }
 
     // High-XP monitoring
-    if (totalXP > 500) {
+    if (totalXP > 500 && process.env.NODE_ENV !== "test") {
       console.warn(
         JSON.stringify({
           type: "HIGH_XP_EVENT",
