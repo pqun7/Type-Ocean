@@ -65,6 +65,16 @@ Notes:
 - `npm run test:ci` - jest CI run
 - `npm run admin:grant -- --email you@example.com` - grant admin locally through Prisma
 
+## Production deployment
+- Deploy the Next.js app to Vercel.
+- Deploy the PvP gateway as a separate service; Vercel should not be used for the long-lived WebSocket gateway in this repo.
+- Set `NEXT_PUBLIC_PVP_WS_URL` in Vercel to your gateway's public `wss://` URL.
+- Set the same `PVP_GATEWAY_JWT_SECRET` value in both Vercel and the gateway service.
+- Set `PVP_ALLOWED_ORIGINS` in the gateway to your Vercel origin(s), such as `https://your-project.vercel.app,https://your-domain.com`.
+- If the gateway host terminates TLS at the edge, set `PVP_TRUST_PROXY_TLS=1` in the gateway and leave `PVP_TLS_KEY_PATH` / `PVP_TLS_CERT_PATH` empty.
+- A starter Fly.io gateway config is available at [fly.toml](fly.toml).
+- See [services/pvp-gateway/README.md](services/pvp-gateway/README.md) for gateway runtime details.
+
 ## Get Started: Vercel Speed Insights
 To start collecting performance metrics, follow these steps.
 
@@ -115,3 +125,7 @@ Gateway notes:
 - Prisma errors about `DATABASE_URL`: verify `.env.local` is present and the URL is valid.
 - Redis connection issues in Docker: set `REDIS_HOST=redis` (or `REDIS_URL=redis://redis:6379`).
 
+
+
+$env:PATH = [System.Environment]::GetEnvironmentVariable('PATH','User') + ';' + [System.Environment]::GetEnvironmentVariable('PATH','Machine')
+.\scripts\local-prod.ps1

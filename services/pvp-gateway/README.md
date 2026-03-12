@@ -13,7 +13,8 @@ It is designed to run **separately from Next.js** (e.g. on Fly.io), while the Ne
 
 Security / limits:
 - `PVP_ALLOWED_ORIGINS` (comma-separated). **Required in production**.
-- `PVP_TLS_KEY_PATH` / `PVP_TLS_CERT_PATH` (required in production for direct TLS termination)
+- `PVP_TRUST_PROXY_TLS` (`1`/`0`, default: `0`). Set to `1` when a trusted proxy / platform edge terminates TLS and forwards `x-forwarded-proto=https`.
+- `PVP_TLS_KEY_PATH` / `PVP_TLS_CERT_PATH` (required in production only when the gateway terminates TLS directly)
 - `PVP_TLS_CA_PATH` (optional chain / CA bundle)
 - `PVP_WS_TOKEN_TTL_SECONDS` (default: 900)
 - `PVP_WS_TOKEN_REFRESH_WINDOW_SECONDS` (default: 120)
@@ -43,9 +44,40 @@ Load testing:
 
 ## Transport / edge protection
 - Production deployments should expose the gateway over **WSS only**.
-- This service now supports direct TLS termination via `PVP_TLS_KEY_PATH` and `PVP_TLS_CERT_PATH`.
+- Use `PVP_TRUST_PROXY_TLS=1` when deploying behind a trusted reverse proxy or platform edge that terminates TLS for you.
+- Use `PVP_TLS_KEY_PATH` and `PVP_TLS_CERT_PATH` only when the gateway itself terminates TLS directly.
 - A WAF / CDN is still recommended at the infrastructure layer for volumetric DDoS protection.
 - Keep `PVP_ALLOWED_ORIGINS` aligned with the frontend origin(s) that fetch `/api/pvp/ws-token`.
+
+## Vercel production topology
+- Deploy the Next.js app to Vercel.
+- Deploy this gateway as a separate long-lived service (for example Fly.io, Railway, Render, or any container host) using this directory's `Dockerfile`.
+- Set `NEXT_PUBLIC_PVP_WS_URL` in Vercel to the public `wss://` URL of the gateway.
+- Set `PVP_ALLOWED_ORIGINS` in the gateway to your Vercel origin(s), for example `https://your-app.vercel.app,https://example.com`.
+- Share the same `PVP_GATEWAY_JWT_SECRET` value between Vercel and the gateway service.
+- If your platform already terminates TLS, set `PVP_TRUST_PROXY_TLS=1` and leave `PVP_TLS_KEY_PATH` / `PVP_TLS_CERT_PATH` empty.
+
+## Fly.io deployment
+- A ready-to-edit Fly config now lives at [fly.toml](../../fly.toml).
+- The Fly config deploys this gateway only, not the Next.js app.
+- Before first deploy, change `app = "type-space-pvp-gateway"` in [fly.toml](../../fly.toml) to a globally unique Fly app name.
+- Keep `PVP_TRUST_PROXY_TLS=1` on Fly because Fly terminates TLS at the edge and forwards secure requests to the app.
+
+Deploy steps:
+- Install `flyctl` and sign in.
+- Create the app once: `fly apps create your-pvp-gateway-name`
+- Set required secrets:
+	- `fly secrets set DATABASE_URL=...`
+	- `fly secrets set PVP_GATEWAY_JWT_SECRET=...`
+	- `fly secrets set PVP_ALLOWED_ORIGINS=https://your-project.vercel.app,https://your-domain.com`
+- Optional Redis / scale-out secrets when used:
+	- `fly secrets set PVP_USE_REDIS=1`
+	- `fly secrets set PVP_REDIS_URL=redis://...`
+- Deploy from the repo root: `fly deploy`
+
+Then configure Vercel:
+- `NEXT_PUBLIC_PVP_WS_URL=wss://your-pvp-gateway-name.fly.dev`
+- `PVP_GATEWAY_JWT_SECRET=...` with the exact same value used on Fly
 
 ## Health / telemetry
 - `GET /healthz` returns a simple readiness response.

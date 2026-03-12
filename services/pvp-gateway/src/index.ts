@@ -48,6 +48,7 @@ import { canJoinPvpMatchSocket, isTerminalPvpMatchStatus } from "../../../src/fe
 import { getPvpRankInfo } from "../../../src/features/pvp/rank";
 
 const IS_PROD = process.env.NODE_ENV === "production";
+const TRUST_PROXY_TLS = envBool("PVP_TRUST_PROXY_TLS", false);
 const INSTANCE_ID = process.env.PVP_INSTANCE_ID ?? crypto.randomUUID();
 
 let redisBus: RedisBus | null = null;
@@ -269,10 +270,17 @@ function createGatewayServer() {
     return http.createServer(healthHandler);
   }
 
+  if (TRUST_PROXY_TLS) {
+    gatewayLogInfo("Starting PvP gateway behind trusted TLS proxy", {
+      trustProxyTls: true,
+    });
+    return http.createServer(healthHandler);
+  }
+
   const keyPath = process.env.PVP_TLS_KEY_PATH;
   const certPath = process.env.PVP_TLS_CERT_PATH;
   if (!keyPath || !certPath) {
-    throw new Error("Missing PVP_TLS_KEY_PATH or PVP_TLS_CERT_PATH in production");
+    throw new Error("Missing PVP_TLS_KEY_PATH or PVP_TLS_CERT_PATH in production (or set PVP_TRUST_PROXY_TLS=1 behind a trusted proxy)");
   }
 
   return https.createServer(
@@ -289,6 +297,8 @@ function isSecureGatewayRequest(req: http.IncomingMessage) {
   if (!IS_PROD) return true;
 
   if ((req.socket as { encrypted?: boolean }).encrypted) return true;
+
+  if (!TRUST_PROXY_TLS) return false;
 
   const forwardedProto = req.headers["x-forwarded-proto"];
   if (typeof forwardedProto === "string") {

@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 
 import { auth } from "@/features/auth/lib/auth";
 
@@ -14,7 +14,7 @@ export default async function AdminPage() {
   }
 
   if (session.user.role !== "admin") {
-    notFound();
+    redirect("/forbidden?from=admin");
   }
 
   return <AdminDashboardClient isProduction={process.env.NODE_ENV === "production"} />;
