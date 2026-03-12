@@ -41,4 +41,36 @@ describe("in-memory queue integration", () => {
     expect(queue).toHaveLength(0);
     expect(matches[0]?.sort()).toEqual(["u1", "u2"]);
   });
+
+  it("keeps the latest queue metadata for duplicate joins", () => {
+    const queue: QueueEntry[] = [];
+    const user = createUser("u1", 1500);
+
+    const first = enqueueOrMatchInMemory({
+      queue,
+      user,
+      ratingRange: 200,
+      nowMs: 1_000,
+      requestId: "req-first",
+      connectionId: "conn-first",
+    });
+
+    const second = enqueueOrMatchInMemory({
+      queue,
+      user,
+      ratingRange: 200,
+      nowMs: 1_100,
+      requestId: "req-second",
+      connectionId: "conn-second",
+    });
+
+    expect(first.kind).toBe("searching");
+    expect(second.kind).toBe("searching");
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({
+      joinedAtMs: 1_100,
+      requestId: "req-second",
+      connectionId: "conn-second",
+    });
+  });
 });

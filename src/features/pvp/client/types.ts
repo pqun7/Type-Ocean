@@ -1,3 +1,5 @@
+import type { PvpErrorPayload } from "@/features/pvp/shared/error-codes";
+
 export type ServerMessage =
   | { type: "HELLO_OK"; payload: { user: { userId: string; username: string; avatar: string | null } } }
   | { type: "AUTH_REFRESH_OK"; payload: { expiresAt: number } }
@@ -8,7 +10,12 @@ export type ServerMessage =
         room: {
           code: string;
           status: string;
+          visibility?: "PRIVATE" | "PUBLIC";
+          minPlayers?: number;
           maxPlayers: number;
+          hostUserId?: string | null;
+          autoStartAt?: string | null;
+          expiresAt?: string | null;
           members: Array<{ userId: string; username: string; avatar: string | null; slot: number; ready: boolean }>;
         };
       };
@@ -18,8 +25,18 @@ export type ServerMessage =
       payload: {
         matchId: string;
         textSnapshot: string;
+        textId?: string | null;
+        inputNonce?: string | null;
         serverStartAt: string;
-        players: Array<{ userId: string; username: string; avatar: string | null; slot: number }>;
+        players: Array<{
+          userId: string;
+          username: string;
+          avatar: string | null;
+          slot: number;
+          rating?: number;
+          rankTier?: string;
+          averageWpm?: number | null;
+        }>;
       };
     }
   | {
@@ -30,6 +47,8 @@ export type ServerMessage =
         roomCode: string | null;
         status: string;
         textSnapshot: string;
+        textId?: string | null;
+        inputNonce?: string | null;
         serverStartAt: string;
         snapshotAt: string;
         players: Array<{
@@ -94,18 +113,21 @@ export type ServerMessage =
       type: "REMATCH_STATUS";
       payload: { matchId: string; acceptedUserIds: string[] };
     }
-  | { type: "ERROR"; payload: { message: string } };
+  | { type: "ERROR"; payload: PvpErrorPayload };
 
 export type ClientMessage =
   | { type: "HELLO"; payload: { token: string; clientSecret: string }; requestId?: string }
   | { type: "AUTH_REFRESH"; payload: { token: string; clientSecret: string }; requestId?: string }
-  | { type: "QUEUE_JOIN"; payload: Record<string, never>; requestId?: string }
+  | { type: "QUEUE_JOIN"; payload: { language?: "en" | "ar" | "es" | "fr" }; requestId?: string }
   | { type: "QUEUE_LEAVE"; payload: Record<string, never>; requestId?: string }
   | { type: "ROOM_JOIN"; payload: { code: string }; requestId?: string }
   | { type: "READY"; payload?: { roomCode?: string }; requestId?: string }
+  | { type: "ROOM_LEAVE"; payload?: { roomCode?: string }; requestId?: string }
+  | { type: "ROOM_START"; payload: { roomCode?: string }; requestId?: string }
+  | { type: "ROOM_KICK"; payload: { roomCode?: string; userId: string }; requestId?: string }
   | { type: "MATCH_JOIN"; payload: { matchId: string }; requestId?: string }
   | { type: "MATCH_LEAVE"; payload: { matchId: string }; requestId?: string }
-  | { type: "INPUT_UPDATE"; payload: { matchId: string; input: string; seq: number; clientTs?: number }; requestId?: string }
+  | { type: "INPUT_UPDATE"; payload: { matchId: string; input: string; seq: number; clientTs?: number; inputNonce?: string }; requestId?: string }
   | { type: "FINISH"; payload: { matchId: string; clientTs?: number }; requestId?: string }
   | { type: "REMATCH_REQUEST"; payload: { matchId: string }; requestId?: string }
   | { type: "REMATCH_RESPONSE"; payload: { matchId: string; accept: boolean }; requestId?: string };

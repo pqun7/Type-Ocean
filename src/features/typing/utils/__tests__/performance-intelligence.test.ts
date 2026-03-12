@@ -178,4 +178,25 @@ describe("computePerformanceIntelligence", () => {
 
     expect(stable.trend.stabilityScore).toBeGreaterThan(volatile.trend.stabilityScore);
   });
+
+  test("keeps a brand-new user profile balanced around the center", () => {
+    const result = computePerformanceIntelligence({
+      dailyActivity: [],
+      stats: {
+        averageWPM: 0,
+        averageAccuracy: 0,
+        averageConsistency: 0,
+        totalMistakes: 0,
+        totalCorrections: 0,
+        totalCharactersTyped: 0,
+      },
+    });
+
+    expect(result.trend.category).toBe("STABLE");
+    expect(result.scores.wpmScore).toBe(50);
+    expect(result.scores.accuracyScore).toBe(50);
+    expect(result.scores.consistencyScore).toBe(50);
+    expect(result.scores.cleanlinessScore).toBe(50);
+    expect(result.scores.stabilityScore).toBe(50);
+  });
 });

@@ -75,4 +75,45 @@ describe("PvpClientMessageSchema", () => {
 
     expect(result.success).toBe(true);
   });
+
+  it("accepts INPUT_UPDATE with a ranked match nonce", () => {
+    const result = PvpClientMessageSchema.safeParse({
+      type: "INPUT_UPDATE",
+      requestId: "input_update_123",
+      payload: {
+        matchId: "550e8400-e29b-41d4-a716-446655440000",
+        input: "hello world",
+        seq: 3,
+        clientTs: 1_710_000_000_000,
+        inputNonce: "0123456789abcdef0123456789abcdef",
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts ROOM_START with an optional room code", () => {
+    const result = PvpClientMessageSchema.safeParse({
+      type: "ROOM_START",
+      requestId: "room_start_123",
+      payload: {
+        roomCode: "ROOM12",
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts ROOM_KICK with a target user id", () => {
+    const result = PvpClientMessageSchema.safeParse({
+      type: "ROOM_KICK",
+      requestId: "room_kick_123",
+      payload: {
+        roomCode: "ROOM12",
+        userId: "550e8400-e29b-41d4-a716-446655440000",
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
 });

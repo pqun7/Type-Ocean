@@ -13,6 +13,8 @@ import { createHash, randomInt } from "crypto";
 import { sendVerificationOtpEmail } from "@/features/auth/providers/nodemailer";
 import { sanitizeAvatarUrl, sanitizeDisplayName } from "@/lib/sanitize";
 import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
+import { ensurePlayerProfile, syncPlayerProfile } from "@/features/auth/server/player-profile";
+import { clearAuthSessionCookies } from "@/features/auth/server/session-cookies";
 
 const OTP_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -121,8 +123,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    logUserOperation.start(requestId, "get_user_profile", session.user.id);
-
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
@@ -148,14 +148,21 @@ export async function GET(req: NextRequest) {
     });
 
     if (!user) {
-      logUserOperation.error(requestId, "get_user_profile", new Error("User not found"), {
-        userId: session.user.id
+      logging.warn("Rejecting stale authenticated profile request for deleted user", {
+        requestId,
+        service: SERVICE_TYPE,
+        userId: session.user.id,
       });
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
+
+      return clearAuthSessionCookies(
+        NextResponse.json(
+          { error: "Unauthorized", reason: "USER_NOT_FOUND" },
+          { status: 401 }
+        )
       );
     }
+
+    logUserOperation.start(requestId, "get_user_profile", user.id);
 
     logUserOperation.success(requestId, "get_user_profile", {
       userId: user.id,
@@ -164,18 +171,9 @@ export async function GET(req: NextRequest) {
 
     let {profile} = user;
     if (!profile) {
-      // Ensure profile exists for legacy/OAuth users
-      profile = await prisma.playerProfile.upsert({
-        where: { userId: user.id },
-        update: {},
-        create: {
-          userId: user.id,
-          username: user.username,
-          level: 1,
-          xp: 0,
-          achievements: [],
-          avatar: null,
-        },
+      profile = await ensurePlayerProfile({
+        userId: user.id,
+        username: user.username,
         select: {
           id: true,
           username: true,
@@ -504,8 +502,9 @@ export async function PATCH(req: NextRequest) {
     if (profileData || requestedUsername) {
       const nextProfileUsername = updatedUser.username;
 
-      await prisma.playerProfile.upsert({
-        where: { userId: session.user.id },
+      await syncPlayerProfile({
+        userId: session.user.id,
+        username: nextProfileUsername || updatedUser.username,
         update: {
           ...(nextProfileUsername && { username: nextProfileUsername }),
           ...(normalizedAvatar !== undefined && { avatar: normalizedAvatar }),
@@ -514,11 +513,7 @@ export async function PATCH(req: NextRequest) {
           }),
         },
         create: {
-          userId: session.user.id,
           username: nextProfileUsername || updatedUser.username,
-          level: 1,
-          xp: 0,
-          achievements: [],
           avatar: normalizedAvatar ?? null,
           ...(hideFromLeaderboardPatch !== undefined && {
             hideFromLeaderboard: hideFromLeaderboardPatch,

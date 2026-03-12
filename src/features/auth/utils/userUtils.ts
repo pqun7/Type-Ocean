@@ -20,9 +20,12 @@ export function generateEmergencyProfile(userId: string): PlayerProfile & { user
     user: {
       id: userId,
       email: 'fallback@example.com',
+      role: 'user',
       pendingEmail: null,
       pendingEmailRequestedAt: null,
       emailVerified: null,
+      banned: false,
+      isPrimaryAdmin: false,
       username: 'Guest',
       usernameLastChangedAt: null,
       passwordHash: '',

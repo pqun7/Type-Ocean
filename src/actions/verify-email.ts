@@ -2,6 +2,7 @@
 "use server";
 
 import { prisma } from "@/features/auth/lib/db";
+import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
 import { redirect } from "next/navigation";
 import { logging } from "@/log/ServerLogger";
 import { createHash } from "crypto";
@@ -170,15 +171,9 @@ export async function verifyEmail(token: string) {
 
     // Ensure PlayerProfile exists.
     try {
-      await prisma.playerProfile.create({
-        data: {
-          userId: user.id,
-          username: user.username,
-          level: 1,
-          xp: 0,
-          achievements: [],
-          avatar: null,
-        },
+      await ensurePlayerProfile({
+        userId: user.id,
+        username: user.username,
       });
     } catch {
       // Ignore duplicates / race conditions

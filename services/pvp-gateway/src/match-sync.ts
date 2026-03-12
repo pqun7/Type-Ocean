@@ -26,6 +26,8 @@ export function buildMatchStatePayload(match: MatchState, snapshotAtMs = Date.no
     roomCode: match.roomCode,
     status: match.status,
     textSnapshot: match.textSnapshot,
+    textId: match.textId,
+    inputNonce: match.inputNonce,
     serverStartAt: new Date(match.serverStartAtMs).toISOString(),
     snapshotAt: new Date(snapshotAtMs).toISOString(),
     players: Array.from(match.participants.values())

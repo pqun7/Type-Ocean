@@ -6,6 +6,8 @@ import Background from "@/components/ui/Background";
 import { LevelProvider } from "@/features/level/context/LevelProvider";
 import { AlertProvider } from "@/contexts/alert-context";
 import { AlertState } from "@/components/ui/alert-state";
+import { AdminNoticeDialog } from "@/components/admin/AdminNoticeDialog";
+import { FeedbackDialog } from "@/components/feedback/FeedbackDialog";
 import { HandleAuthSuccess } from "@/components/handle-auth-success";
 import { DevPanelsWrapper } from "@/components/dev/DevPanelsWrapper";
 import { auth } from "@/features/auth/lib/auth";
@@ -74,6 +76,8 @@ export default async function RootLayout({
                   <AlertProvider>
                     <AlertState />
                     <HandleAuthSuccess />
+                    <AdminNoticeDialog initialUserId={initialUserId} />
+                    <FeedbackDialog />
                     {process.env.NODE_ENV !== "production" && <DevPanelsWrapper />}
                     <main className="flex-grow">{children}</main>
                     <Footer />

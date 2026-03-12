@@ -41,6 +41,7 @@ export type PvpWpmPoint = {
 export default function PvpResultsOverlay(props: {
   open: boolean;
   title?: string;
+  primaryActionLabel?: string;
   placements: PvpResultsPlacement[];
   ratingChanges: PvpRatingChange[];
   chartData: PvpWpmPoint[];
@@ -60,6 +61,7 @@ export default function PvpResultsOverlay(props: {
   const {
     open,
     title = "Match Results",
+    primaryActionLabel = "Find new opponent",
     placements,
     ratingChanges,
     chartData,
@@ -202,7 +204,7 @@ export default function PvpResultsOverlay(props: {
 
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" onClick={onFindNewOpponent}>
-                Find new opponent
+                {primaryActionLabel}
               </Button>
             </div>
           </CardContent>

@@ -9,6 +9,8 @@ import { incrementSecurityMetric } from "@/lib/security-metrics";
 import { rateLimiter } from "@/lib/rate-limiter";
 import { PvpRoomCreateBodySchema, type PvpRoomCreateBody } from "@/lib/validation/pvp-api-schemas";
 
+const PUBLIC_ROOM_AUTO_START_MS = 50_000;
+
 async function safeJson<T>(req: NextRequest): Promise<T | null> {
   const raw = await req.text().catch(() => null);
   if (raw == null) return null;
@@ -48,6 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   const maxPlayers = parsedBody.data.maxPlayers ?? 6;
+  const visibility = parsedBody.data.visibility ?? "PRIVATE";
 
   // Create a unique room code (retry a few times on collision)
   let code = "";
@@ -60,10 +63,13 @@ export async function POST(req: NextRequest) {
         data: {
           code,
           status: "OPEN",
+          visibility,
           createdByUserId: userId,
+          hostUserId: userId,
           minPlayers: 2,
           maxPlayers,
-          expiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000),
+          autoStartAt: visibility === "PUBLIC" ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS) : null,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           members: {
             create: {
               userId,
@@ -88,5 +94,5 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ roomId, code, maxPlayers }, { headers: rateLimit.headers });
+  return NextResponse.json({ roomId, code, maxPlayers, visibility }, { headers: rateLimit.headers });
 }

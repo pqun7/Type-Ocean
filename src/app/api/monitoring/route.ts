@@ -1,9 +1,15 @@
 import { monitoring } from "@/monitoring/monitoringSystem";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { authorizeAdminRequest } from "@/app/api/shared.server";
 import { PerformanceAnalyzer } from "@/monitoring/kpis";
 import { logging } from "@/log/ServerLogger";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const adminUserId = await authorizeAdminRequest(req);
+  if (!adminUserId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const requestId = `monitoring-${Date.now()}`;
   
   try {
@@ -30,7 +36,7 @@ export async function GET() {
       requestId,
     });
   
-    return NextResponse.json({ metrics, stats });
+    return NextResponse.json({ metrics, stats, requestedBy: adminUserId });
   } catch (error) {
     logging.error("Monitoring report generation failed", error, {
       requestId,

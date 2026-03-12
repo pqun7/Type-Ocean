@@ -5,7 +5,7 @@ import fs from "fs";
 import http from "http";
 import https from "https";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 import { safeParseClientMessage, toJson, type ServerMessage } from "./protocol";
 import { verifyWsToken, type AuthedUser } from "./auth";
@@ -16,25 +16,44 @@ import { createTokenBucket, tryConsume, type TokenBucket } from "./rate-limit";
 import { createRedisBus, matchChannel, roomChannel, userChannel, type RedisBus } from "./redis-bus";
 import { incrementGatewayMetric, observeGatewayHistogram, renderGatewayMetrics, setGatewayGauge } from "./metrics";
 import { createGatewayEventBus } from "./events";
+import { createGatewayHealthController, type GatewayHealthController } from "./health";
 import { buildIdempotencyKey, getIdempotencyRecord, getIdempotencyTtlSeconds, InMemoryIdempotencyStore, setIdempotencyRecord, type IdempotencyRecord } from "./idempotency";
 import { buildDisconnectForfeitOutcome, runDisconnectForfeitSequence } from "./disconnect-forfeit";
 import { enqueueOrMatchInMemory } from "./in-memory-queue";
+import {
+  buildQueueBucketKey,
+  DEFAULT_QUEUE_BAND_CONFIG,
+  getExpandedQueueRatingRange,
+  normalizeMatchmakingPreference,
+  type MatchmakingPreference,
+} from "./matchmaking/bands";
+import { recordQueueMatchMetrics } from "./matchmaking/metrics";
 import { shouldAcceptInputUpdate } from "./input-update";
 import { createLocalLock } from "./local-lock";
 import { matchStateFromDbStatus, matchStateToDbStatus, matchStateToLegacyStatus, transitionMatchState, type MatchLifecycleState } from "./match-fsm";
 import { buildMatchStatePayload, buildProgressPayload, bumpMatchRevision, markMatchSnapshotBroadcast, shouldBroadcastPeriodicMatchSnapshot } from "./match-sync";
 import { createMessageBatcher, isBatchableServerMessage } from "./message-batcher";
 import { invalidatePvpSelfCaches } from "./pvp-rating-cache";
+import { assessMatch } from "./anti-cheat/anomaly";
+import { recordCheatAssessment } from "./anti-cheat/flagging";
+import { clearReplayProtection, registerAcceptedReplaySeq, registerReplayNonce, validateReplayProtectedInput } from "./anti-cheat/replay";
 import { getDisconnectForfeitPolicy, getStaleMatchAbortReason, shouldRejectDuplicateMatchTab, shouldScheduleDisconnectForfeit } from "./match-session-guards";
+import { buildRoomReconnectKey, getPublicRoomStartCondition, isRoomReadyToStart, selectNextRoomHost } from "./rooms/lifecycle";
+import { selectRankedText } from "./anti-cheat/text-selection";
+import { createGatewayMetrics, type GatewayMetrics } from "./observability/metrics";
 import { sanitizeAvatarUrl, sanitizeDisplayName, sanitizeRoomCode, sanitizeUserAgent } from "../../../src/lib/sanitize";
+import { PVP_ERROR_CODES, type PvpErrorPayload } from "../../../src/features/pvp/shared/error-codes";
 import { gatewayLogger } from "../../../src/log/gatewayLogger";
 import { canJoinPvpMatchSocket, isTerminalPvpMatchStatus } from "../../../src/features/pvp/server/match-access";
+import { getPvpRankInfo } from "../../../src/features/pvp/rank";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 const INSTANCE_ID = process.env.PVP_INSTANCE_ID ?? crypto.randomUUID();
 
 let redisBus: RedisBus | null = null;
 let messageBatcher: ReturnType<typeof createMessageBatcher<WsConn>> | null = null;
+let gatewayMetrics: GatewayMetrics | null = null;
+let gatewayHealthController: GatewayHealthController | null = null;
 const WS_BATCH_FLUSH_SIZE_BUCKETS = [1, 2, 4, 8, 16, 32, 64];
 const WS_MESSAGE_SIZE_BUCKETS = [64, 128, 256, 512, 1024, 2048, 4096, 8192];
 const DISCONNECT_FORFEIT_GRACE_MS = envInt("PVP_DISCONNECT_FORFEIT_GRACE_MS", 10_000);
@@ -42,8 +61,20 @@ const MATCH_RESULT_RETENTION_MS = envMs("PVP_MATCH_RESULT_RETENTION_MS", 5 * 60 
 const MATCH_SWEEP_INTERVAL_MS = envMs("PVP_MATCH_SWEEP_INTERVAL_MS", 30_000);
 const MATCH_MAX_COUNTDOWN_AGE_MS = envMs("PVP_MATCH_MAX_COUNTDOWN_AGE_MS", 2 * 60 * 1000);
 const MATCH_MAX_LIVE_AGE_MS = envMs("PVP_MATCH_MAX_LIVE_AGE_MS", 30 * 60 * 1000);
+const ONLINE_KEY_PREFIX = "pvp:online:";
+const ROOM_INACTIVITY_TTL_MS = envMs("PVP_ROOM_INACTIVITY_TTL_MS", 60 * 60 * 1000);
+const ROOM_RECONNECT_GRACE_MS = envMs("PVP_ROOM_RECONNECT_GRACE_MS", 30_000);
+const ROOM_SWEEP_INTERVAL_MS = envMs("PVP_ROOM_SWEEP_INTERVAL_MS", 2_000);
+const PUBLIC_ROOM_AUTO_START_MS = envMs("PVP_PUBLIC_ROOM_AUTO_START_MS", 50_000);
+const RANKED_MATCH_START_DELAY_MS = envMs("PVP_RANKED_MATCH_START_DELAY_MS", 3_000);
+const ROOM_MATCH_START_DELAY_MS = envMs("PVP_ROOM_MATCH_START_DELAY_MS", 3_000);
+const ROOM_SWEEP_LOCK_KEY = "pvp:room:sweep:lock";
 const matchFinalizationLocks = new Set<string>();
 const matchCleanupTimers = new Map<string, NodeJS.Timeout>();
+let hasPvpMatchmakingPreferenceTable: boolean | null = null;
+let pvpMatchmakingPreferenceTableLastCheckedAt = 0;
+let hasLoggedMissingPvpMatchmakingPreferenceTableWarning = false;
+const PVP_PREFERENCE_TABLE_RETRY_MS = 60_000;
 
 function gatewayLogDebug(message: string, meta?: Record<string, unknown>) {
   if (process.env.NODE_ENV !== "development") return;
@@ -58,8 +89,59 @@ function gatewayLogWarn(message: string, meta?: Record<string, unknown>) {
   gatewayLogger.warn(`[PVP-GATEWAY] ${message}`, meta);
 }
 
+function isMissingPvpMatchmakingPreferenceTable(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== "P2021") return false;
+
+  const table = String(error.meta?.table ?? "").toLowerCase();
+  return table.includes("pvp_matchmaking_preference");
+}
+
+function logMissingGatewayPreferenceTableOnce() {
+  if (hasLoggedMissingPvpMatchmakingPreferenceTableWarning) return;
+
+  hasLoggedMissingPvpMatchmakingPreferenceTableWarning = true;
+  gatewayLogWarn("Using default matchmaking preferences because the preference table is missing", {
+    migrationHint: "Run Prisma migrations to add pvp_matchmaking_preference",
+  });
+}
+
 function gatewayLogError(message: string, error: unknown, meta?: Record<string, unknown>) {
   gatewayLogger.error(`[PVP-GATEWAY] ${message}`, error, meta);
+}
+
+class PvpClientVisibleError extends Error {
+  readonly payload: PvpErrorPayload;
+
+  constructor(payload: PvpErrorPayload) {
+    super(payload.message);
+    this.name = "PvpClientVisibleError";
+    this.payload = payload;
+  }
+}
+
+function buildQueueError(payload: PvpErrorPayload) {
+  return new PvpClientVisibleError(payload);
+}
+
+function toClientErrorPayload(error: unknown, fallback?: Partial<PvpErrorPayload>): PvpErrorPayload {
+  if (error instanceof PvpClientVisibleError) {
+    return {
+      ...error.payload,
+      ...fallback,
+      details: {
+        ...error.payload.details,
+        ...fallback?.details,
+      },
+    };
+  }
+
+  return {
+    message: fallback?.message ?? (error instanceof Error ? error.message : "Unknown error"),
+    code: fallback?.code,
+    retryable: fallback?.retryable,
+    details: fallback?.details,
+  };
 }
 
 type WsConn = WebSocket & {
@@ -136,23 +218,51 @@ function getClientIp(req: http.IncomingMessage) {
 function createGatewayServer() {
   const healthHandler: http.RequestListener = (req, res) => {
     const path = req.url?.split("?")[0] ?? "/";
+    void (async () => {
+      if (path === "/metrics") {
+        setGatewayGauge("pvp_gateway_uptime_seconds", Number(process.uptime().toFixed(3)));
+        setGatewayGauge("pvp_gateway_heap_used_bytes", process.memoryUsage().heapUsed);
+        const body = gatewayMetrics ? await gatewayMetrics.renderMetrics() : renderGatewayMetrics();
+        res.writeHead(200, {
+          "Content-Type": gatewayMetrics?.register.contentType ?? "text/plain; version=0.0.4; charset=utf-8",
+        });
+        res.end(body);
+        return;
+      }
 
-    if (path === "/metrics") {
-      setGatewayGauge("pvp_gateway_uptime_seconds", Number(process.uptime().toFixed(3)));
-      setGatewayGauge("pvp_gateway_heap_used_bytes", process.memoryUsage().heapUsed);
-      res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" });
-      res.end(renderGatewayMetrics());
-      return;
-    }
+      if (path === "/health" || path === "/healthz") {
+        const response = gatewayHealthController
+          ? await gatewayHealthController.evaluate("health")
+          : { statusCode: 200, body: { status: "ok", instanceId: INSTANCE_ID } };
+        res.writeHead(response.statusCode, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(response.body));
+        return;
+      }
 
-    if (path === "/healthz" || path === "/") {
-      res.writeHead(200);
-      res.end("pvp-gateway ok");
-      return;
-    }
+      if (path === "/ready") {
+        const response = gatewayHealthController
+          ? await gatewayHealthController.evaluate("ready")
+          : { statusCode: 503, body: { status: "not_ready", instanceId: INSTANCE_ID } };
+        res.writeHead(response.statusCode, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(response.body));
+        return;
+      }
 
-    res.writeHead(404);
-    res.end("not found");
+      if (path === "/") {
+        res.writeHead(200);
+        res.end("pvp-gateway ok");
+        return;
+      }
+
+      res.writeHead(404);
+      res.end("not found");
+    })().catch((error) => {
+      gatewayLogError("Gateway probe handler failed", error, { path });
+      if (!res.headersSent) {
+        res.writeHead(500);
+      }
+      res.end("internal error");
+    });
   };
 
   if (!IS_PROD) {
@@ -192,6 +302,7 @@ function sendImmediate(ws: WsConn, type: ServerMessage["type"], payload: unknown
   try {
     const serialized = toJson({ type, payload });
     incrementGatewayMetric("pvp_ws_outbound_messages_total", { type, batching: "immediate" });
+    gatewayMetrics?.recordWsMessage({ direction: "out", type });
     observeGatewayHistogram("pvp_ws_outbound_message_bytes", Buffer.byteLength(serialized, "utf8"), WS_MESSAGE_SIZE_BUCKETS, {
       type,
       batching: "immediate",
@@ -359,6 +470,10 @@ function envMs(name: string, fallbackMs: number) {
   return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : fallbackMs;
 }
 
+function createInputNonce() {
+  return crypto.randomBytes(16).toString("hex");
+}
+
 function isAiUserId(userId: string) {
   return userId.startsWith("ai:");
 }
@@ -462,17 +577,240 @@ async function storeIdempotencyHit(params: {
   });
 }
 
+function nextRoomExpiryDate() {
+  return new Date(Date.now() + ROOM_INACTIVITY_TTL_MS);
+}
+
+async function touchRoomExpiry(prisma: PrismaClient, roomId: string) {
+  await prisma.pvpRoom.update({
+    where: { id: roomId },
+    data: { expiresAt: nextRoomExpiryDate() },
+  });
+}
+
+function extractAverageWpm(longTermStats: unknown) {
+  if (!longTermStats || typeof longTermStats !== "object") return null;
+
+  const averageWpm = (longTermStats as Record<string, unknown>).averageWPM;
+  if (typeof averageWpm !== "number" || !Number.isFinite(averageWpm)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round(averageWpm));
+}
+
+function buildMatchFoundPlayerPayload(user: Pick<ConnectionUser, "userId" | "username" | "avatar" | "pvpRating" | "rankTier" | "averageWpm"> & { slot: number }) {
+  return {
+    userId: user.userId,
+    username: user.username,
+    avatar: user.avatar,
+    slot: user.slot,
+    rating: user.pvpRating,
+    rankTier: user.rankTier,
+    averageWpm: user.averageWpm ?? null,
+  };
+}
+
+async function loadRoomStatePayload(prisma: PrismaClient, roomCode: string) {
+  const room = await prisma.pvpRoom.findUnique({
+    where: { code: roomCode },
+    select: {
+      id: true,
+      code: true,
+      status: true,
+      visibility: true,
+      minPlayers: true,
+      maxPlayers: true,
+      hostUserId: true,
+      autoStartAt: true,
+      expiresAt: true,
+      members: {
+        where: { leftAt: null },
+        orderBy: { joinedAt: "asc" },
+        select: {
+          userId: true,
+          colorSlot: true,
+          readyAt: true,
+          joinedAt: true,
+          leftAt: true,
+          user: { select: { username: true, profile: { select: { avatar: true } } } },
+        },
+      },
+    },
+  });
+  if (!room) return null;
+
+  return {
+    roomId: room.id,
+    room: {
+      code: room.code,
+      status: room.status,
+      visibility: room.visibility,
+      minPlayers: room.minPlayers,
+      maxPlayers: room.maxPlayers,
+      hostUserId: room.hostUserId,
+      autoStartAt: room.autoStartAt?.toISOString() ?? null,
+      expiresAt: room.expiresAt?.toISOString() ?? null,
+      members: room.members.map((member) => ({
+        userId: member.userId,
+        username: sanitizeDisplayName(member.user.username, 32) || "user",
+        avatar: sanitizeAvatarUrl(member.user.profile?.avatar ?? null),
+        slot: member.colorSlot,
+        ready: !!member.readyAt,
+        joinedAt: member.joinedAt,
+        leftAt: member.leftAt,
+      })),
+    },
+  };
+}
+
+async function broadcastRoomState(prisma: PrismaClient, wss: WebSocketServer, roomCode: string) {
+  const payload = await loadRoomStatePayload(prisma, roomCode);
+  if (!payload) return null;
+
+  broadcastRoom(wss, roomCode, "ROOM_STATE", {
+    room: {
+      code: payload.room.code,
+      status: payload.room.status,
+      visibility: payload.room.visibility,
+      minPlayers: payload.room.minPlayers,
+      maxPlayers: payload.room.maxPlayers,
+      hostUserId: payload.room.hostUserId,
+      autoStartAt: payload.room.autoStartAt,
+      expiresAt: payload.room.expiresAt,
+      members: payload.room.members.map((member) => ({
+        userId: member.userId,
+        username: member.username,
+        avatar: member.avatar,
+        slot: member.slot,
+        ready: member.ready,
+      })),
+    },
+  });
+
+  return payload;
+}
+
+async function transferRoomHostIfNeeded(prisma: PrismaClient, roomId: string) {
+  const room = await prisma.pvpRoom.findUnique({
+    where: { id: roomId },
+    select: {
+      hostUserId: true,
+      members: {
+        orderBy: { joinedAt: "asc" },
+        select: {
+          userId: true,
+          joinedAt: true,
+          readyAt: true,
+          leftAt: true,
+        },
+      },
+    },
+  });
+  if (!room) return null;
+
+  const nextHostUserId = selectNextRoomHost(room.members, room.hostUserId);
+  if (!nextHostUserId || nextHostUserId === room.hostUserId) return nextHostUserId;
+
+  await prisma.pvpRoom.update({
+    where: { id: roomId },
+    data: { hostUserId: nextHostUserId },
+  });
+  return nextHostUserId;
+}
+
+async function tryAcquireRoomSweepLock() {
+  const redis = redisBus?.redis ?? null;
+  if (!redis) return true;
+  const token = `${INSTANCE_ID}:${Date.now()}`;
+  const acquired = await redis.set(ROOM_SWEEP_LOCK_KEY, token, "EX", 10, "NX");
+  return acquired === "OK";
+}
+
+async function sweepRoomLifecycle(
+  prisma: PrismaClient,
+  wss: WebSocketServer,
+  onPublicRoomReady?: (roomCode: string) => Promise<unknown>
+) {
+  const redis = redisBus?.redis ?? null;
+  const acquired = await tryAcquireRoomSweepLock();
+  if (!acquired) return;
+
+  const now = Date.now();
+  const rooms = await prisma.pvpRoom.findMany({
+    where: {
+      OR: [{ status: "OPEN" }, { expiresAt: { lte: new Date(now) } }],
+    },
+    select: {
+      id: true,
+      code: true,
+      status: true,
+      visibility: true,
+      minPlayers: true,
+      maxPlayers: true,
+      autoStartAt: true,
+      expiresAt: true,
+      hostUserId: true,
+      members: {
+        orderBy: { joinedAt: "asc" },
+        select: {
+          userId: true,
+          joinedAt: true,
+          readyAt: true,
+          leftAt: true,
+        },
+      },
+    },
+  });
+
+  for (const room of rooms) {
+    if (room.expiresAt && room.expiresAt.getTime() <= now) {
+      broadcastRoom(wss, room.code, "ERROR", { message: "Room expired" });
+      await prisma.pvpRoom.delete({ where: { id: room.id } }).catch(() => null);
+      continue;
+    }
+
+    let changed = false;
+    for (const member of room.members) {
+      if (member.leftAt) continue;
+      const reconnectKey = buildRoomReconnectKey(room.id, member.userId);
+      const hasReconnectLease = redis ? (await redis.exists(reconnectKey)) === 1 : false;
+      const isOnline = redis ? (await redis.exists(`${ONLINE_KEY_PREFIX}${member.userId}`)) === 1 : getAuthedSocketsForUser(wss, member.userId).length > 0;
+      if (isOnline || hasReconnectLease) continue;
+
+      await prisma.pvpRoomMember.update({
+        where: { roomId_userId: { roomId: room.id, userId: member.userId } },
+        data: { leftAt: new Date() },
+      });
+      changed = true;
+    }
+
+    if (changed) {
+      await transferRoomHostIfNeeded(prisma, room.id);
+      await broadcastRoomState(prisma, wss, room.code);
+    }
+
+    if (room.visibility === "PUBLIC") {
+      await onPublicRoomReady?.(room.code);
+    }
+  }
+}
+
 async function restoreRoomAfterMatch(prisma: PrismaClient, wss: WebSocketServer, roomCode: string) {
   const room = await prisma.pvpRoom.findUnique({
     where: { code: roomCode },
-    select: { id: true, code: true, status: true, maxPlayers: true },
+    select: { id: true, code: true, status: true, visibility: true, maxPlayers: true },
   });
   if (!room) return;
 
   await prisma.$transaction([
     prisma.pvpRoom.update({
       where: { id: room.id },
-      data: { status: "OPEN" },
+      data: {
+        status: "OPEN",
+        autoStartAt: room.visibility === "PUBLIC" ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS) : null,
+        expiresAt: nextRoomExpiryDate(),
+      },
     }),
     prisma.pvpRoomMember.updateMany({
       where: { roomId: room.id, leftAt: null },
@@ -480,31 +818,7 @@ async function restoreRoomAfterMatch(prisma: PrismaClient, wss: WebSocketServer,
     }),
   ]);
 
-  const members = await prisma.pvpRoomMember.findMany({
-    where: { roomId: room.id, leftAt: null },
-    orderBy: { joinedAt: "asc" },
-    select: {
-      userId: true,
-      colorSlot: true,
-      readyAt: true,
-      user: { select: { username: true, profile: { select: { avatar: true } } } },
-    },
-  });
-
-  broadcastRoom(wss, roomCode, "ROOM_STATE", {
-    room: {
-      code: room.code,
-      status: "OPEN",
-      maxPlayers: room.maxPlayers,
-      members: members.map((member) => ({
-        userId: member.userId,
-        username: sanitizeDisplayName(member.user.username, 32) || "user",
-        avatar: sanitizeAvatarUrl(member.user.profile?.avatar ?? null),
-        slot: member.colorSlot,
-        ready: false,
-      })),
-    },
-  });
+  await broadcastRoomState(prisma, wss, roomCode);
 }
 
 async function finalizeMatchResults(params: {
@@ -653,6 +967,29 @@ async function finalizeMatchResults(params: {
     ];
   }
 
+  for (const participant of match.participants.values()) {
+    if (isAiUserId(participant.userId)) continue;
+
+    const assessment = await assessMatch(match.matchId, participant.userId, participant.inputEvents ?? [], {
+      isBot: isAiUserId(participant.userId),
+      redis: redisBus?.redis ?? null,
+    });
+
+    await recordCheatAssessment({
+      prisma: params.prisma,
+      userId: participant.userId,
+      matchId: match.matchId,
+      confidence: assessment.confidence,
+      flags: assessment.flags,
+      redis: redisBus?.redis ?? null,
+      metadata: {
+        resultReason: params.reason,
+        textId: match.textId,
+        revision: match.revision,
+      },
+    });
+  }
+
   broadcastMatch(params.wss, match.matchId, "RESULTS", {
     matchId: match.matchId,
     placements: params.placements,
@@ -662,6 +999,14 @@ async function finalizeMatchResults(params: {
   await invalidatePvpSelfCaches(
     redisBus?.redis ?? null,
     ratingChanges.map((change) => change.userId)
+  );
+
+  await clearReplayProtection(
+    redisBus?.redis ?? null,
+    match.matchId,
+    Array.from(match.participants.values())
+      .filter((participant) => !isAiUserId(participant.userId))
+      .map((participant) => participant.userId)
   );
 
   match.finalizedAtMs = Date.now();
@@ -813,6 +1158,14 @@ async function abortMatchLifecycle(params: {
         finalResultsPending: false,
       });
     }
+
+    await clearReplayProtection(
+      redisBus?.redis ?? null,
+      match.matchId,
+      Array.from(match.participants.values())
+        .filter((participant) => !isAiUserId(participant.userId))
+        .map((participant) => participant.userId)
+    );
 
     match.finalizedAtMs = Date.now();
     scheduleMatchCleanup(params.state, match.matchId);
@@ -1009,6 +1362,50 @@ async function main() {
   const WS_PING_INTERVAL_MS = envInt("PVP_WS_PING_INTERVAL_MS", 15_000);
   const DEV = process.env.NODE_ENV !== "production";
   const TEST_FORCE_BOT_MATCH = DEV && envBool("PVP_TEST_FORCE_BOT_MATCH", false);
+  const ENABLE_PROMETHEUS_METRICS = envBool("PVP_PROMETHEUS_METRICS_ENABLED", true);
+  const WS_SOFT_CONNECTION_LIMIT = envInt("PVP_WS_SOFT_CONNECTION_LIMIT", 1_000);
+  const SHUTDOWN_GRACE_MS = envMs("PVP_GRACEFUL_SHUTDOWN_TIMEOUT_MS", 30_000);
+  const USE_REDIS = envBool("PVP_USE_REDIS", false);
+  const REDIS_URL = process.env.PVP_REDIS_URL ?? process.env.REDIS_URL ?? null;
+
+  const getActiveMatchCount = () => {
+    let activeMatches = 0;
+    for (const match of state.matches.values()) {
+      if (match.state === "finished" || match.state === "aborted") continue;
+      activeMatches += 1;
+    }
+    return activeMatches;
+  };
+
+  gatewayMetrics = createGatewayMetrics({
+    enableMetrics: ENABLE_PROMETHEUS_METRICS,
+    gateway: "pvp-gateway",
+    instanceId: INSTANCE_ID,
+  });
+  gatewayHealthController = createGatewayHealthController({
+    instanceId: INSTANCE_ID,
+    prisma,
+    getRedisClient: () => redisBus?.redis ?? null,
+    getConnectionCount: () => wss?.clients.size ?? 0,
+    getActiveMatchCount,
+    wsSoftConnectionLimit: WS_SOFT_CONNECTION_LIMIT,
+    redisRequired: USE_REDIS,
+  });
+  gatewayHealthController.markReady();
+  gatewayMetrics.setLifecycle({
+    ready: gatewayHealthController.isReady(),
+    draining: gatewayHealthController.isDraining(),
+  });
+
+  eventBus.on("match:finished", ({ reason }) => {
+    if (reason === "opponent_disconnected") {
+      gatewayMetrics?.incrementMatchResult("abandon");
+      return;
+    }
+    if (reason === "aborted") {
+      gatewayMetrics?.incrementMatchResult("timeout");
+    }
+  });
 
   let testBot: ConnectionUser | null = null;
   async function ensureTestBot(): Promise<ConnectionUser> {
@@ -1068,6 +1465,7 @@ async function main() {
       observeGatewayHistogram("pvp_ws_batch_flush_size", messages.length, WS_BATCH_FLUSH_SIZE_BUCKETS);
       for (const message of messages) {
         incrementGatewayMetric("pvp_ws_outbound_messages_total", { type: message.type, batching: "batched" });
+        gatewayMetrics?.recordWsMessage({ direction: "out", type: message.type });
       }
     },
   });
@@ -1136,7 +1534,7 @@ async function main() {
     const created = await createRanked1v1Match({
       users: params.users,
       persistUserIds: params.persistUserIds,
-      startDelayMs: 3500,
+      startDelayMs: RANKED_MATCH_START_DELAY_MS,
     });
 
     const sourceMatch = state.matches.get(params.sourceMatchId);
@@ -1231,18 +1629,27 @@ async function main() {
     staleMatchSweepInterval.unref();
   }
 
-  const snapshotGatewayMetrics = () => {
-    let activeMatches = 0;
-    for (const match of state.matches.values()) {
-      if (match.state === "finished" || match.state === "aborted") continue;
-      activeMatches += 1;
-    }
+  const roomLifecycleSweepInterval = setInterval(() => {
+    void sweepRoomLifecycle(prisma, wss, maybeAutoStartPublicRoom).catch((error) => {
+      gatewayLogError("Failed to sweep room lifecycle", error);
+    });
+  }, ROOM_SWEEP_INTERVAL_MS);
+  if (typeof roomLifecycleSweepInterval.unref === "function") {
+    roomLifecycleSweepInterval.unref();
+  }
 
+  const snapshotGatewayMetrics = () => {
     setGatewayGauge("pvp_active_connections", wss.clients.size);
     setGatewayGauge("pvp_queue_depth", state.queue.length);
-    setGatewayGauge("pvp_active_matches", activeMatches);
+    setGatewayGauge("pvp_active_matches", getActiveMatchCount());
     setGatewayGauge("pvp_gateway_uptime_seconds", Number(process.uptime().toFixed(3)));
     setGatewayGauge("pvp_gateway_heap_used_bytes", process.memoryUsage().heapUsed);
+    gatewayMetrics?.setConnectionsActive(wss.clients.size);
+    gatewayMetrics?.setQueueLength("ranked", state.queue.length);
+    gatewayMetrics?.setLifecycle({
+      ready: gatewayHealthController?.isReady() ?? false,
+      draining: gatewayHealthController?.isDraining() ?? false,
+    });
   };
 
   snapshotGatewayMetrics();
@@ -1250,9 +1657,6 @@ async function main() {
   if (typeof metricSnapshotInterval.unref === "function") {
     metricSnapshotInterval.unref();
   }
-
-  const USE_REDIS = envBool("PVP_USE_REDIS", false);
-  const REDIS_URL = process.env.PVP_REDIS_URL ?? process.env.REDIS_URL ?? null;
 
   if (USE_REDIS) {
     if (!REDIS_URL) throw new Error("PVP_USE_REDIS is enabled but PVP_REDIS_URL/REDIS_URL is missing");
@@ -1293,12 +1697,12 @@ async function main() {
   }
 
   const redis = redisBus?.redis ?? null;
-  const ONLINE_KEY_PREFIX = "pvp:online:";
   const ONLINE_TTL_SEC = envInt("PVP_ONLINE_TTL_SEC", 90);
   const PRESENCE_REFRESH_MS = Math.max(5_000, Math.floor((ONLINE_TTL_SEC * 1000) / 3));
 
-  const QUEUE_KEY = "pvp:queue:ranked:1v1";
-  const QUEUE_RATING_RANGE = envInt("PVP_QUEUE_RATING_RANGE", 200);
+  const QUEUE_KEY_PREFIX = "pvp:queue:ranked";
+  const QUEUE_META_KEY_PREFIX = "pvp:queue:user:";
+  const QUEUE_RATING_RANGE = envInt("PVP_QUEUE_RATING_RANGE", 50);
 
   const QUEUE_MATCH_LUA = `
 -- KEYS[1] = queue zset key
@@ -1338,46 +1742,295 @@ end
 return nil
 `;
 
+  type QueuedUserMeta = {
+    bucketKey: string;
+    joinedAtMs: number;
+    preference: MatchmakingPreference;
+    rating: number;
+  };
+
+  function getQueueMetaKey(userId: string) {
+    return `${QUEUE_META_KEY_PREFIX}${userId}`;
+  }
+
   async function markOnline(userId: string) {
     if (!redis) return;
     await redis.set(`${ONLINE_KEY_PREFIX}${userId}`, INSTANCE_ID, "EX", ONLINE_TTL_SEC);
   }
 
-  async function queueLeave(userId: string) {
-    if (!redis) return;
-    await redis.zrem(QUEUE_KEY, userId);
-  }
-
-  async function queueJoin(user: AuthedUser) {
-    if (!redis) return;
-    await redis.zadd(QUEUE_KEY, String(user.pvpRating), user.userId);
-  }
-
-  async function tryMatchQueuedUser(user: AuthedUser): Promise<string | null> {
+  async function readQueueMeta(userId: string): Promise<QueuedUserMeta | null> {
     if (!redis) return null;
-    const minR = user.pvpRating - QUEUE_RATING_RANGE;
-    const maxR = user.pvpRating + QUEUE_RATING_RANGE;
+    const raw = await redis.get(getQueueMetaKey(userId));
+    if (!raw) return null;
+
+    try {
+      return JSON.parse(raw) as QueuedUserMeta;
+    } catch {
+      return null;
+    }
+  }
+
+  async function queueLeave(userId: string) {
+    if (!redis) return 0;
+    const meta = await readQueueMeta(userId);
+    if (!meta) return 0;
+
+    const removed = await redis.zrem(meta.bucketKey, userId);
+    await redis.del(getQueueMetaKey(userId));
+    return removed;
+  }
+
+  async function queueJoin(user: ConnectionUser) {
+    if (!redis) return null;
+
+    const preference = normalizeMatchmakingPreference(user.matchmakingPreference);
+    const bucketKey = buildQueueBucketKey(QUEUE_KEY_PREFIX, preference);
+    const joinedAtMs = Date.now();
+    const meta: QueuedUserMeta = {
+      bucketKey,
+      joinedAtMs,
+      preference,
+      rating: user.pvpRating,
+    };
+
+    await redis.zadd(bucketKey, String(user.pvpRating), user.userId);
+    await redis.set(getQueueMetaKey(user.userId), JSON.stringify(meta), "EX", Math.ceil(AI_QUEUE_TIMEOUT_MS / 1000) + 120);
+    return meta;
+  }
+
+  async function tryMatchQueuedUser(user: ConnectionUser): Promise<{ otherId: string; me: QueuedUserMeta; other: QueuedUserMeta | null } | null> {
+    if (!redis) return null;
+    const me = await readQueueMeta(user.userId);
+    if (!me) return null;
+
+    const currentRange = getExpandedQueueRatingRange(Date.now() - me.joinedAtMs, {
+      ...DEFAULT_QUEUE_BAND_CONFIG,
+      initialRange: QUEUE_RATING_RANGE,
+    });
+    const minR = user.pvpRating - currentRange;
+    const maxR = user.pvpRating + currentRange;
     const otherId = (await redis.eval(
       QUEUE_MATCH_LUA,
       1,
-      QUEUE_KEY,
+      me.bucketKey,
       user.userId,
       String(minR),
       String(maxR),
       ONLINE_KEY_PREFIX
     )) as string | null;
-    return otherId && typeof otherId === "string" ? otherId : null;
+    if (!otherId || typeof otherId !== "string") return null;
+
+    const other = await readQueueMeta(otherId);
+    await redis.del(getQueueMetaKey(user.userId), getQueueMetaKey(otherId));
+    return { otherId, me, other };
   }
 
   const AI_REMATCH_COOLDOWN_MS = envMs("PVP_AI_REMATCH_COOLDOWN_MS", 20 * 60 * 1000);
   const aiRematchRefuseUntilByHumanId = new Map<string, number>();
   const rematchAcceptedByMatchId = new Map<string, Set<string>>();
 
-  async function loadConnectionUser(userId: string): Promise<ConnectionUser> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { username: true, profile: { select: { avatar: true } } },
+  const startRoomMatch = async (params: {
+    roomId: string;
+    roomCode: string;
+    members: Array<{
+      userId: string;
+      colorSlot: number;
+      readyAt: Date | null;
+      leftAt: Date | null;
+      user: { username: string | null; profile: { avatar: string | null } | null };
+    }>;
+    startDelayMs?: number;
+  }) => {
+    const activeMembers = params.members.filter((member) => member.leftAt === null);
+    if (activeMembers.length < 2) {
+      return null;
+    }
+
+    const serverStartAtMs = Date.now() + (params.startDelayMs ?? ROOM_MATCH_START_DELAY_MS);
+    const match = await prisma.pvpMatch.create({
+      data: {
+        status: "COUNTDOWN",
+        roomId: params.roomId,
+        textSnapshot: "placeholder",
+        serverStartAt: new Date(serverStartAtMs),
+      },
+      select: { id: true },
     });
+
+    const local = state.createLocalMatch({
+      matchId: match.id,
+      roomCode: params.roomCode,
+      users: activeMembers.map((member) => ({
+        userId: member.userId,
+        username: sanitizeDisplayName(member.user.username ?? "user", 32) || "user",
+        avatar: member.user.profile?.avatar ?? null,
+        pvpRating: 1500,
+        pvpDeviation: 350,
+        slot: member.colorSlot,
+      })),
+      serverStartAtMs,
+    });
+    eventBus.emit("match:countdown", {
+      matchId: match.id,
+      from: "lobby",
+      to: "countdown",
+      roomCode: params.roomCode,
+      atMs: local.stateChangedAt,
+    });
+
+    await prisma.pvpMatch.update({
+      where: { id: match.id },
+      data: { textSnapshot: local.textSnapshot },
+    });
+
+    await prisma.pvpParticipant.createMany({
+      data: activeMembers.map((member) => ({
+        matchId: match.id,
+        userId: member.userId,
+        slot: member.colorSlot,
+      })),
+      skipDuplicates: true,
+    });
+
+    await prisma.pvpRoom.update({
+      where: { id: params.roomId },
+      data: { status: "IN_MATCH", autoStartAt: null },
+    });
+
+    broadcastRoom(wss, params.roomCode, "MATCH_FOUND", {
+      matchId: match.id,
+      textSnapshot: local.textSnapshot,
+      serverStartAt: new Date(serverStartAtMs).toISOString(),
+      players: Array.from(local.participants.values()).map((participant) => ({
+        userId: participant.userId,
+        username: participant.username,
+        avatar: participant.avatar,
+        slot: participant.slot,
+      })),
+    });
+
+    return { matchId: match.id, local, serverStartAtMs };
+  };
+
+  const maybeAutoStartPublicRoom = async (roomCode: string) => {
+    const room = await prisma.pvpRoom.findUnique({
+      where: { code: roomCode },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        visibility: true,
+        minPlayers: true,
+        maxPlayers: true,
+        autoStartAt: true,
+        members: {
+          where: { leftAt: null },
+          orderBy: { joinedAt: "asc" },
+          select: {
+            userId: true,
+            colorSlot: true,
+            readyAt: true,
+            leftAt: true,
+            user: { select: { username: true, profile: { select: { avatar: true } } } },
+          },
+        },
+      },
+    });
+    if (!room || room.status !== "OPEN" || room.visibility !== "PUBLIC") {
+      return false;
+    }
+
+    const startCondition = getPublicRoomStartCondition({
+      members: room.members,
+      minimumPlayers: room.minPlayers,
+      maxPlayers: room.maxPlayers,
+      autoStartAt: room.autoStartAt,
+    });
+    if (!startCondition) {
+      return false;
+    }
+
+    await startRoomMatch({
+      roomId: room.id,
+      roomCode: room.code,
+      members: room.members,
+    });
+    return true;
+  };
+
+  async function loadConnectionUser(userId: string): Promise<ConnectionUser> {
+    const shouldSkipPreferenceLookup =
+      hasPvpMatchmakingPreferenceTable === false &&
+      Date.now() - pvpMatchmakingPreferenceTableLastCheckedAt < PVP_PREFERENCE_TABLE_RETRY_MS;
+
+    let user:
+      | {
+          username: string | null;
+          banned: boolean;
+          profile: { avatar: string | null; longTermStats?: unknown } | null;
+          pvpMatchmakingPreference?: {
+            preferredMode: string;
+          } | null;
+        }
+      | null;
+
+    if (shouldSkipPreferenceLookup) {
+      user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          username: true,
+          banned: true,
+          profile: { select: { avatar: true, longTermStats: true } },
+        },
+      });
+    } else {
+      try {
+        user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            username: true,
+            banned: true,
+            profile: { select: { avatar: true, longTermStats: true } },
+            pvpMatchmakingPreference: {
+              select: {
+                preferredMode: true,
+              },
+            },
+          },
+        });
+        hasPvpMatchmakingPreferenceTable = true;
+        pvpMatchmakingPreferenceTableLastCheckedAt = Date.now();
+      } catch (error) {
+        if (!isMissingPvpMatchmakingPreferenceTable(error)) {
+          throw error;
+        }
+
+        hasPvpMatchmakingPreferenceTable = false;
+        pvpMatchmakingPreferenceTableLastCheckedAt = Date.now();
+        logMissingGatewayPreferenceTableOnce();
+        user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            username: true,
+            banned: true,
+            profile: { select: { avatar: true, longTermStats: true } },
+          },
+        });
+      }
+    }
+
+    if (!user || user.banned) {
+      gatewayLogWarn("Rejected PvP user load because the user is unavailable", {
+        userId,
+        reason: !user ? "missing_user" : "banned_user",
+      });
+      throw buildQueueError({
+        code: PVP_ERROR_CODES.QUEUE_USER_UNAVAILABLE,
+        message: "Your PvP session is no longer available. Refresh and rejoin the queue.",
+        retryable: true,
+        details: { phase: "load_connection_user" },
+      });
+    }
 
     const rating = await prisma.pvpRating.upsert({
       where: { userId },
@@ -1386,12 +2039,19 @@ return nil
       select: { rating: true, deviation: true },
     });
 
+    const rankInfo = getPvpRankInfo(rating.rating);
+
     return {
       userId,
       username: sanitizeDisplayName(user?.username ?? "user", 32) || "user",
       avatar: sanitizeAvatarUrl(user?.profile?.avatar ?? null),
       pvpRating: rating.rating,
       pvpDeviation: rating.deviation,
+      rankTier: rankInfo.tier,
+      averageWpm: extractAverageWpm(user?.profile?.longTermStats),
+      matchmakingPreference: normalizeMatchmakingPreference({
+        mode: user?.pvpMatchmakingPreference?.preferredMode,
+      }),
     };
   }
 
@@ -1405,12 +2065,22 @@ return nil
       select: { id: true },
     });
 
-    const serverStartAtMs = Date.now() + (params.startDelayMs ?? 3500);
+    const rankedText = await selectRankedText({
+      matchId: match.id,
+      userIds: params.persistUserIds.filter((userId) => !isAiUserId(userId)),
+      redis,
+    });
+    const inputNonce = createInputNonce();
+
+    const serverStartAtMs = Date.now() + (params.startDelayMs ?? RANKED_MATCH_START_DELAY_MS);
     const local = state.createLocalMatch({
       matchId: match.id,
       roomCode: null,
       users: params.users,
       serverStartAtMs,
+      textSnapshot: rankedText.textSnapshot,
+      textId: rankedText.textId,
+      inputNonce,
     });
     eventBus.emit("match:countdown", {
       matchId: match.id,
@@ -1420,11 +2090,15 @@ return nil
       atMs: local.stateChangedAt,
     });
 
+    await registerReplayNonce(redis, match.id, local.inputNonce);
+
     await prisma.pvpMatch.update({
       where: { id: match.id },
       data: {
         status: "COUNTDOWN",
         textSnapshot: local.textSnapshot,
+        textId: local.textId,
+        inputNonce: local.inputNonce,
         serverStartAt: new Date(serverStartAtMs),
       },
     });
@@ -1443,13 +2117,10 @@ return nil
     const payload = {
       matchId: match.id,
       textSnapshot: local.textSnapshot,
+      textId: local.textId,
+      inputNonce: local.inputNonce,
       serverStartAt: new Date(serverStartAtMs).toISOString(),
-      players: Array.from(local.participants.values()).map((p) => ({
-        userId: p.userId,
-        username: p.username,
-        avatar: p.avatar,
-        slot: p.slot,
-      })),
+      players: params.users.map((user) => buildMatchFoundPlayerPayload(user)),
     };
 
     for (const u of params.users) {
@@ -1457,7 +2128,7 @@ return nil
       sendToUser(wss, u.userId, "MATCH_FOUND", payload);
     }
 
-    return { matchId: match.id, local, serverStartAtMs };
+    return { matchId: match.id, local, serverStartAtMs, payload };
   }
 
   const resendExistingRematch = (matchId: string, userId: string) => {
@@ -1467,6 +2138,8 @@ return nil
     sendToUser(wss, userId, "MATCH_FOUND", {
       matchId: rematch.matchId,
       textSnapshot: rematch.textSnapshot,
+      textId: rematch.textId,
+      inputNonce: rematch.inputNonce,
       serverStartAt: new Date(rematch.serverStartAtMs).toISOString(),
       players: Array.from(rematch.participants.values()).map((participant) => ({
         userId: participant.userId,
@@ -1482,13 +2155,22 @@ return nil
   wss.on("connection", (ws: WsConn, req: http.IncomingMessage) => {
     ws.connectionId = crypto.randomUUID();
 
+    if (!gatewayHealthController?.canAcceptTraffic()) {
+      gatewayMetrics?.incrementWsHandshake("rejected");
+      incrementGatewayMetric("ws_connection_rejected", { reason: "gateway_not_ready" });
+      ws.close(1013, "Gateway not ready");
+      return;
+    }
+
     if (!isSecureGatewayRequest(req)) {
+      gatewayMetrics?.incrementWsHandshake("rejected");
       incrementGatewayMetric("ws_connection_rejected", { reason: "insecure_transport" });
       ws.close(1008, "Secure websocket required");
       return;
     }
 
     if (!originAllowed(req.headers.origin)) {
+      gatewayMetrics?.incrementWsHandshake("rejected");
       incrementGatewayMetric("ws_connection_rejected", { reason: "origin_not_allowed" });
       ws.close(1008, "Origin not allowed");
       return;
@@ -1513,6 +2195,7 @@ return nil
     }
 
     if (!tryConsume(attemptBucket, 1, Date.now())) {
+      gatewayMetrics?.incrementWsHandshake("rejected");
       incrementGatewayMetric("ws_connection_rejected", { reason: "connection_attempt_rate_limit", ip });
       ws.close(1013, "Too many connection attempts");
       return;
@@ -1520,11 +2203,13 @@ return nil
 
     const activeForIp = activeConnectionsByIp.get(ip) ?? 0;
     if (activeForIp >= WS_MAX_CONNECTIONS_PER_IP) {
+      gatewayMetrics?.incrementWsHandshake("rejected");
       incrementGatewayMetric("ws_connection_rejected", { reason: "connection_cap", ip });
       ws.close(1013, "Too many active connections");
       return;
     }
     activeConnectionsByIp.set(ip, activeForIp + 1);
+    gatewayMetrics?.setConnectionsActive(wss.clients.size);
 
     const nextSpikeCount = incrementGatewayMetric("ws_connection_opened", { ip });
     if (nextSpikeCount >= CONNECTION_SPIKE_ALERT_THRESHOLD) {
@@ -1554,6 +2239,8 @@ return nil
     send(ws, "QUEUE_STATUS", { status: "CONNECTED" });
 
     ws.on("message", async (data: RawData) => {
+      const messageStartedAt = process.hrtime.bigint();
+      let metricMessageType = "unknown";
       const nowMs = Date.now();
       const byteLength =
         typeof data === "string"
@@ -1589,6 +2276,7 @@ return nil
         return;
       }
       const msg = parsedMessage.data;
+      metricMessageType = msg.type;
       incrementGatewayMetric("pvp_ws_inbound_messages_total", { type: msg.type });
 
       if (msg.type === "INPUT_UPDATE" && ws.rl && !tryConsume(ws.rl.input, 1, nowMs)) {
@@ -1606,6 +2294,7 @@ return nil
           });
           const user = (await loadConnectionUser(authed.userId)) as AuthedUser;
           ws.user = user;
+          gatewayMetrics?.incrementWsHandshake("success");
 
           gatewayLogInfo("Websocket client authenticated", {
             userId: user.userId,
@@ -1666,9 +2355,28 @@ return nil
         }
 
         if (msg.type === "QUEUE_JOIN") {
-          gatewayLogDebug("Queue join requested", {
+          const requestId = "requestId" in msg ? msg.requestId : undefined;
+          const queueLogContext = {
             userId: ws.user.userId,
-            requestId: "requestId" in msg ? msg.requestId : undefined,
+            requestId,
+            connectionId: ws.connectionId,
+            queueMode: redis ? "redis" : "local",
+          };
+
+          if (!gatewayHealthController?.canAcceptTraffic()) {
+            gatewayLogWarn("Rejected ranked queue join because the gateway is draining", queueLogContext);
+            send(ws, "ERROR", {
+              code: PVP_ERROR_CODES.QUEUE_GATEWAY_DRAINING,
+              message: "Gateway is draining",
+              retryable: true,
+              details: { requestId, phase: "queue_join_precondition" },
+            });
+            send(ws, "QUEUE_STATUS", { status: "IDLE" });
+            return;
+          }
+
+          gatewayLogInfo("Ranked queue join requested", {
+            ...queueLogContext,
             useRedis: Boolean(redis),
           });
           // Dev TEST: force a match vs a real DB-backed bot user (exercise human-vs-human path).
@@ -1684,49 +2392,13 @@ return nil
             state.removeFromQueue(me.userId);
             state.clearQueueTimeout(me.userId);
 
-            const match = await prisma.pvpMatch.create({
-              data: { status: "PENDING", textSnapshot: "placeholder" },
-              select: { id: true },
-            });
-
-            const serverStartAtMs = Date.now() + 3500;
-            const local = state.createLocalMatch({
-              matchId: match.id,
-              roomCode: null,
+            const created = await createRanked1v1Match({
               users: [
                 { ...me, slot: 0 },
                 { ...bot, slot: 1 },
               ],
-              serverStartAtMs,
-            });
-
-            await prisma.pvpMatch.update({
-              where: { id: match.id },
-              data: {
-                status: "COUNTDOWN",
-                textSnapshot: local.textSnapshot,
-                serverStartAt: new Date(serverStartAtMs),
-              },
-            });
-
-            await prisma.pvpParticipant.createMany({
-              data: [
-                { matchId: match.id, userId: me.userId, slot: 0 },
-                { matchId: match.id, userId: bot.userId, slot: 1 },
-              ],
-              skipDuplicates: true,
-            });
-
-            sendToUser(wss, me.userId, "MATCH_FOUND", {
-              matchId: match.id,
-              textSnapshot: local.textSnapshot,
-              serverStartAt: new Date(serverStartAtMs).toISOString(),
-              players: Array.from(local.participants.values()).map((p) => ({
-                userId: p.userId,
-                username: p.username,
-                avatar: p.avatar,
-                slot: p.slot,
-              })),
+              persistUserIds: [me.userId, bot.userId],
+              startDelayMs: RANKED_MATCH_START_DELAY_MS,
             });
 
             await startAiSimulation({
@@ -1734,7 +2406,7 @@ return nil
               wss,
               state,
               eventBus,
-              matchId: match.id,
+              matchId: created.matchId,
               humanId: me.userId,
               aiUserId: bot.userId,
               snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
@@ -1747,41 +2419,88 @@ return nil
               store: idempotencyStore,
               key: idempotency?.key,
               messageType: msg.type,
-              value: { response: null },
+              value: { response: { type: "MATCH_FOUND", payload: created.payload } },
             });
 
             return;
           }
 
-          const me = ws.user;
+          const me = await loadConnectionUser(ws.user.userId);
           await markOnline(me.userId);
 
           // Redis-backed queue + atomic pairing (multi-instance safe)
           if (redis) {
-            state.clearQueueTimeout(me.userId);
-            await queueJoin(me);
-
-            const otherId = await tryMatchQueuedUser(me);
-            if (otherId) {
-              const other = await loadConnectionUser(otherId);
-
-              await createRanked1v1Match({
-                users: [
-                  { ...other, slot: 0 },
-                  { ...me, slot: 1 },
-                ],
-                persistUserIds: [other.userId, me.userId],
-                startDelayMs: 4000,
+            const existingQueued = await readQueueMeta(me.userId);
+            if (existingQueued) {
+              gatewayLogInfo("Resumed existing ranked queue search", {
+                ...queueLogContext,
+                queuedForMs: Math.max(0, Date.now() - existingQueued.joinedAtMs),
+                bucketKey: existingQueued.bucketKey,
               });
               await storeIdempotencyHit({
                 redis,
                 store: idempotencyStore,
                 key: idempotency?.key,
                 messageType: msg.type,
-                value: { response: null },
+                value: { response: { type: "QUEUE_STATUS", payload: { status: "SEARCHING" } } },
+              });
+              send(ws, "QUEUE_STATUS", { status: "SEARCHING" });
+              return;
+            }
+
+            state.clearQueueTimeout(me.userId);
+            const queuedMeta = await queueJoin(me);
+            gatewayLogDebug("Ranked queue join enqueued", {
+              ...queueLogContext,
+              bucketKey: queuedMeta?.bucketKey,
+              rating: me.pvpRating,
+            });
+
+            const queuedMatch = await tryMatchQueuedUser(me);
+            if (queuedMatch) {
+              const other = await loadConnectionUser(queuedMatch.otherId);
+
+              const otherWaitMs = queuedMatch.other ? Math.max(0, Date.now() - queuedMatch.other.joinedAtMs) : 0;
+              await recordQueueMatchMetrics(redis, {
+                queueWaitMs: [Math.max(0, Date.now() - queuedMatch.me.joinedAtMs), otherWaitMs],
+                ratingDelta: Math.abs(other.pvpRating - me.pvpRating),
+              });
+              gatewayMetrics?.observeMatchStartLatency(
+                "ranked",
+                Math.max(Math.max(0, Date.now() - queuedMatch.me.joinedAtMs), otherWaitMs) / 1000
+              );
+              gatewayLogInfo("Ranked queue matched", {
+                userIds: [other.userId, me.userId],
+                ratingDelta: Math.abs(other.pvpRating - me.pvpRating),
+                queueWaitMs: [Math.max(0, Date.now() - queuedMatch.me.joinedAtMs), otherWaitMs],
+                preference: me.matchmakingPreference,
+              });
+
+              const created = await createRanked1v1Match({
+                users: [
+                  { ...other, slot: 0 },
+                  { ...me, slot: 1 },
+                ],
+                persistUserIds: [other.userId, me.userId],
+                startDelayMs: RANKED_MATCH_START_DELAY_MS,
+              });
+              await storeIdempotencyHit({
+                redis,
+                store: idempotencyStore,
+                key: idempotency?.key,
+                messageType: msg.type,
+                value: { response: { type: "MATCH_FOUND", payload: created.payload } },
               });
               return;
             }
+
+            await storeIdempotencyHit({
+              redis,
+              store: idempotencyStore,
+              key: idempotency?.key,
+              messageType: msg.type,
+              value: { response: { type: "QUEUE_STATUS", payload: { status: "SEARCHING" } } },
+            });
 
             // Fallback: after a timeout, start a match vs AI (and remove from Redis queue first).
             const timeout = setTimeout(() => {
@@ -1791,29 +2510,23 @@ return nil
               // If there is no live socket, just clean up queue membership.
               const sockets = getAuthedSocketsForUser(wss, userId);
               if (sockets.length === 0) {
+                gatewayLogInfo("Removed ranked queue user after disconnect before AI fallback", queueLogContext);
                 void queueLeave(userId);
                 state.clearQueueTimeout(userId);
                 return;
               }
 
               void (async () => {
-                const removed = await redis.zrem(QUEUE_KEY, userId);
-                if (removed === 0) return; // matched or left already
+                const removed = await queueLeave(userId);
+                if (removed === 0) {
+                  gatewayLogDebug("Skipped ranked queue AI fallback because the user was no longer queued", queueLogContext);
+                  return;
+                }
 
                 state.clearQueueTimeout(userId);
                 const human = await loadConnectionUser(userId);
-
-                const match = await prisma.pvpMatch.create({
-                  data: { status: "PENDING", textSnapshot: "placeholder" },
-                  select: { id: true },
-                });
-
-                const serverStartAtMs = Date.now() + 3500;
-                const aiUserId = `ai:${match.id}`;
-
-                const local = state.createLocalMatch({
-                  matchId: match.id,
-                  roomCode: null,
+                const aiUserId = `ai:${crypto.randomUUID()}`;
+                const created = await createRanked1v1Match({
                   users: [
                     { ...human, slot: 0 },
                     {
@@ -1825,34 +2538,13 @@ return nil
                       slot: 1,
                     },
                   ],
-                  serverStartAtMs,
+                  persistUserIds: [human.userId],
+                  startDelayMs: RANKED_MATCH_START_DELAY_MS,
                 });
-
-                await prisma.pvpMatch.update({
-                  where: { id: match.id },
-                  data: {
-                    status: "COUNTDOWN",
-                    textSnapshot: local.textSnapshot,
-                    serverStartAt: new Date(serverStartAtMs),
-                  },
-                });
-
-                await prisma.pvpParticipant.createMany({
-                  data: [{ matchId: match.id, userId: human.userId, slot: 0 }],
-                  skipDuplicates: true,
-                });
-
-                // Notify the human only (AI has no socket).
-                sendToUser(wss, human.userId, "MATCH_FOUND", {
-                  matchId: match.id,
-                  textSnapshot: local.textSnapshot,
-                  serverStartAt: new Date(serverStartAtMs).toISOString(),
-                  players: Array.from(local.participants.values()).map((p) => ({
-                    userId: p.userId,
-                    username: p.username,
-                    avatar: p.avatar,
-                    slot: p.slot,
-                  })),
+                gatewayLogInfo("Created ranked AI fallback match", {
+                  ...queueLogContext,
+                  matchId: created.matchId,
+                  queuedForMs: queuedMeta ? Math.max(0, Date.now() - queuedMeta.joinedAtMs) : undefined,
                 });
 
                 await startAiSimulation({
@@ -1860,14 +2552,20 @@ return nil
                   wss,
                   state,
                   eventBus,
-                  matchId: match.id,
+                  matchId: created.matchId,
                   humanId: human.userId,
                   aiUserId,
                   snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
                 });
               })().catch((e) => {
-                const message = e instanceof Error ? e.message : "AI fallback failed";
-                sendToUser(wss, userId, "ERROR", { message });
+                const payload = toClientErrorPayload(e, {
+                  code: PVP_ERROR_CODES.QUEUE_AI_FALLBACK_FAILED,
+                  message: "AI fallback failed",
+                  retryable: true,
+                  details: { requestId, phase: "queue_ai_fallback" },
+                });
+                gatewayLogError("Ranked queue AI fallback failed", e, queueLogContext);
+                sendToUser(wss, userId, "ERROR", payload);
                 sendToUser(wss, userId, "QUEUE_STATUS", { status: "IDLE" });
               });
             }, AI_QUEUE_TIMEOUT_MS);
@@ -1877,13 +2575,31 @@ return nil
             return;
           }
 
+          let localQueueResponseType: ServerMessage["type"] | null = null;
+          let localQueueResponsePayload: unknown = null;
+          let shouldSendLocalQueueResponse = false;
+
           await localQueueLock.runExclusive(async () => {
+            const existingEntry = state.queue.find((entry) => entry.user.userId === ws.user!.userId);
+            if (existingEntry) {
+              gatewayLogInfo("Resumed existing local ranked queue search", {
+                ...queueLogContext,
+                queuedForMs: Math.max(0, Date.now() - existingEntry.joinedAtMs),
+              });
+              localQueueResponseType = "QUEUE_STATUS";
+              localQueueResponsePayload = { status: "SEARCHING" };
+              shouldSendLocalQueueResponse = true;
+              return;
+            }
+
             state.removeFromQueue(ws.user!.userId);
             state.clearQueueTimeout(ws.user!.userId);
             const queueResult = enqueueOrMatchInMemory({
               queue: state.queue,
-              user: ws.user!,
-              ratingRange: 200,
+              user: me,
+              ratingRange: QUEUE_RATING_RANGE,
+              requestId,
+              connectionId: ws.connectionId,
             });
 
             if (queueResult.kind === "matched") {
@@ -1891,28 +2607,46 @@ return nil
               state.clearQueueTimeout(currentUser.userId);
               state.clearQueueTimeout(other.userId);
 
-              await createRanked1v1Match({
+              gatewayLogInfo("Ranked queue matched (local)", {
+                userIds: [other.userId, currentUser.userId],
+                ratingDelta: Math.abs(other.pvpRating - currentUser.pvpRating),
+                queueWaitMs: queueResult.queueWaitMs,
+                preference: currentUser.matchmakingPreference,
+              });
+              gatewayMetrics?.observeMatchStartLatency(
+                "ranked",
+                Math.max(...queueResult.queueWaitMs.map((value) => Math.max(0, value))) / 1000
+              );
+
+              const created = await createRanked1v1Match({
                 users: [
                   { ...other, slot: 0 },
                   { ...currentUser, slot: 1 },
                 ],
                 persistUserIds: [other.userId, currentUser.userId],
-                startDelayMs: 4000,
+                startDelayMs: RANKED_MATCH_START_DELAY_MS,
               });
               await storeIdempotencyHit({
                 redis,
                 store: idempotencyStore,
                 key: idempotency?.key,
                 messageType: msg.type,
-                value: { response: null },
+                value: { response: { type: "MATCH_FOUND", payload: created.payload } },
               });
+              localQueueResponseType = "MATCH_FOUND";
+              localQueueResponsePayload = created.payload;
               return;
             }
 
             const timeout = setTimeout(() => {
               const userId = ws.user?.userId;
               if (!userId) return;
-              const stillQueued = state.queue.find((e) => e.user.userId === userId);
+              const stillQueued = state.queue.find(
+                (e) =>
+                  e.user.userId === userId &&
+                  e.requestId === requestId &&
+                  e.connectionId === ws.connectionId
+              );
               if (!stillQueued) return;
 
               const sockets = getAuthedSocketsForUser(wss, userId);
@@ -1927,17 +2661,8 @@ return nil
 
               void (async () => {
                 const human = stillQueued.user;
-                const match = await prisma.pvpMatch.create({
-                  data: { status: "PENDING", textSnapshot: "placeholder" },
-                  select: { id: true },
-                });
-
-                const serverStartAtMs = Date.now() + 3500;
-                const aiUserId = `ai:${match.id}`;
-
-                const local = state.createLocalMatch({
-                  matchId: match.id,
-                  roomCode: null,
+                const aiUserId = `ai:${crypto.randomUUID()}`;
+                const created = await createRanked1v1Match({
                   users: [
                     {
                       userId: human.userId,
@@ -1956,40 +2681,13 @@ return nil
                       slot: 1,
                     },
                   ],
-                  serverStartAtMs,
+                  persistUserIds: [human.userId],
+                  startDelayMs: RANKED_MATCH_START_DELAY_MS,
                 });
-                eventBus.emit("match:countdown", {
-                  matchId: match.id,
-                  from: "lobby",
-                  to: "countdown",
-                  roomCode: null,
-                  atMs: local.stateChangedAt,
-                });
-
-                await prisma.pvpMatch.update({
-                  where: { id: match.id },
-                  data: {
-                    status: "COUNTDOWN",
-                    textSnapshot: local.textSnapshot,
-                    serverStartAt: new Date(serverStartAtMs),
-                  },
-                });
-
-                await prisma.pvpParticipant.createMany({
-                  data: [{ matchId: match.id, userId: human.userId, slot: 0 }],
-                  skipDuplicates: true,
-                });
-
-                sendToUser(wss, human.userId, "MATCH_FOUND", {
-                  matchId: match.id,
-                  textSnapshot: local.textSnapshot,
-                  serverStartAt: new Date(serverStartAtMs).toISOString(),
-                  players: Array.from(local.participants.values()).map((p) => ({
-                    userId: p.userId,
-                    username: p.username,
-                    avatar: p.avatar,
-                    slot: p.slot,
-                  })),
+                gatewayLogInfo("Created local ranked AI fallback match", {
+                  ...queueLogContext,
+                  matchId: created.matchId,
+                  queuedForMs: Math.max(0, Date.now() - stillQueued.joinedAtMs),
                 });
 
                 await startAiSimulation({
@@ -1997,28 +2695,46 @@ return nil
                   wss,
                   state,
                   eventBus,
-                  matchId: match.id,
+                  matchId: created.matchId,
                   humanId: human.userId,
                   aiUserId,
                   snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
                 });
               })().catch((e) => {
-                const message = e instanceof Error ? e.message : "AI fallback failed";
-                sendToUser(wss, userId, "ERROR", { message });
+                const payload = toClientErrorPayload(e, {
+                  code: PVP_ERROR_CODES.QUEUE_AI_FALLBACK_FAILED,
+                  message: "AI fallback failed",
+                  retryable: true,
+                  details: { requestId, phase: "queue_ai_fallback" },
+                });
+                gatewayLogError("Local ranked queue AI fallback failed", e, queueLogContext);
+                sendToUser(wss, userId, "ERROR", payload);
                 sendToUser(wss, userId, "QUEUE_STATUS", { status: "IDLE" });
               });
             }, AI_QUEUE_TIMEOUT_MS);
             state.queueTimeouts.set(ws.user!.userId, timeout);
+            localQueueResponseType = "QUEUE_STATUS";
+            localQueueResponsePayload = { status: "SEARCHING" };
+            shouldSendLocalQueueResponse = true;
           });
 
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { response: { type: "QUEUE_STATUS", payload: { status: "SEARCHING" } } },
-          });
-          send(ws, "QUEUE_STATUS", { status: "SEARCHING" });
+          if (localQueueResponseType) {
+            await storeIdempotencyHit({
+              redis,
+              store: idempotencyStore,
+              key: idempotency?.key,
+              messageType: msg.type,
+              value: {
+                response: {
+                  type: localQueueResponseType,
+                  payload: localQueueResponsePayload,
+                },
+              },
+            });
+          }
+          if (localQueueResponseType && shouldSendLocalQueueResponse) {
+            send(ws, localQueueResponseType, localQueueResponsePayload);
+          }
           return;
         }
 
@@ -2057,6 +2773,8 @@ return nil
                   id: true,
                   status: true,
                   textSnapshot: true,
+                  textId: true,
+                  inputNonce: true,
                   serverStartAt: true,
                 },
               },
@@ -2108,11 +2826,18 @@ return nil
               lastSnapshotBroadcastAtMs: 0,
               status: matchStateToLegacyStatus(lifecycleState),
               textSnapshot: db.textSnapshot,
+              textId: db.textId ?? null,
+              inputNonce: db.inputNonce ?? null,
               serverStartAtMs: db.serverStartAt ? db.serverStartAt.getTime() : Date.now() + 3000,
               participants: new Map(),
               endedReason: null,
               forfeitedUserId: null,
+              rematchMatchId: null,
+              finalizedAtMs: null,
+              cleanupScheduledAtMs: null,
             });
+
+            await registerReplayNonce(redis, db.id, db.inputNonce ?? null);
           }
 
           const effective = state.matches.get(msg.payload.matchId)!;
@@ -2228,6 +2953,32 @@ return nil
           });
           if (!inputDecision.accept) return;
 
+          const replayDecision = await validateReplayProtectedInput({
+            redis,
+            matchId: match.matchId,
+            userId: ws.user.userId,
+            seq: msg.payload.seq,
+            inputNonce: msg.payload.inputNonce,
+            expectedNonce: match.inputNonce,
+          });
+          if (!replayDecision.accept) {
+            incrementGatewayMetric("pvp_anti_cheat_nonce_reject_total", {
+              reason:
+                replayDecision.reason === "missing_nonce"
+                  ? "missing"
+                  : replayDecision.reason === "mismatch_nonce"
+                    ? "mismatch"
+                    : "replayed_seq",
+            });
+            send(ws, "ERROR", {
+              message:
+                replayDecision.reason === "replayed_seq"
+                  ? "This PvP input was already processed. Please refresh and try again."
+                  : "This PvP client is out of date. Please refresh and try again.",
+            });
+            return;
+          }
+
           // Anti-cheat: input must evolve by append or backspace only.
           const prev = participant.input;
           const next = msg.payload.input;
@@ -2267,7 +3018,21 @@ return nil
           participant.errors = countErrors(match.textSnapshot, participant.input);
           participant.accuracy = computeAccuracy(match.textSnapshot, participant.input);
           participant.wpm = computeWpm(match.textSnapshot, participant.input, match.serverStartAtMs, nowMs);
+          participant.inputEvents = participant.inputEvents ?? [];
+          participant.inputEvents.push({
+            atMs: nowMs,
+            inputLength: participant.input.length,
+            deltaChars: participant.input.length - (participant.lastInputLen ?? 0),
+            wpm: participant.wpm,
+          });
+          if (participant.inputEvents.length > 64) {
+            participant.inputEvents.shift();
+          }
+          participant.lastInputAtMs = nowMs;
+          participant.lastInputLen = participant.input.length;
           observeGatewayHistogram("pvp_input_update_chars", participant.input.length, [8, 16, 32, 64, 128, 256, 512, 1024]);
+
+          await registerAcceptedReplaySeq(redis, match.matchId, ws.user.userId, msg.payload.seq);
 
           if (participant.input.length >= match.textSnapshot.length && participant.finishedAt === null) {
             participant.finishedAt = nowMs;
@@ -2404,7 +3169,14 @@ return nil
               select: { id: true },
             });
 
-            const serverStartAtMs = Date.now() + 3500;
+            const rankedText = await selectRankedText({
+              matchId: matchRow.id,
+              userIds: [meId],
+              redis,
+            });
+            const inputNonce = createInputNonce();
+
+            const serverStartAtMs = Date.now() + RANKED_MATCH_START_DELAY_MS;
             const aiUserId = `ai:${matchRow.id}`;
 
             const local = state.createLocalMatch({
@@ -2429,13 +3201,20 @@ return nil
                 },
               ],
               serverStartAtMs,
+              textSnapshot: rankedText.textSnapshot,
+              textId: rankedText.textId,
+              inputNonce,
             });
+
+            await registerReplayNonce(redis, matchRow.id, local.inputNonce);
 
             await prisma.pvpMatch.update({
               where: { id: matchRow.id },
               data: {
                 status: "COUNTDOWN",
                 textSnapshot: local.textSnapshot,
+                textId: local.textId,
+                inputNonce: local.inputNonce,
                 serverStartAt: new Date(serverStartAtMs),
               },
             });
@@ -2448,6 +3227,8 @@ return nil
             sendToUser(wss, meId, "MATCH_FOUND", {
               matchId: matchRow.id,
               textSnapshot: local.textSnapshot,
+              textId: local.textId,
+              inputNonce: local.inputNonce,
               serverStartAt: new Date(serverStartAtMs).toISOString(),
               players: Array.from(local.participants.values()).map((p) => ({
                 userId: p.userId,
@@ -2610,7 +3391,17 @@ return nil
 
           const room = await prisma.pvpRoom.findUnique({
             where: { code },
-            select: { id: true, code: true, status: true, maxPlayers: true, expiresAt: true },
+            select: {
+              id: true,
+              code: true,
+              status: true,
+              visibility: true,
+              minPlayers: true,
+              maxPlayers: true,
+              autoStartAt: true,
+              expiresAt: true,
+              hostUserId: true,
+            },
           });
           if (!room) {
             send(ws, "ERROR", { message: "Room not found" });
@@ -2631,48 +3422,46 @@ return nil
             select: { userId: true, colorSlot: true, readyAt: true, user: { select: { username: true, profile: { select: { avatar: true } } } } },
           });
 
-          if (members.length >= room.maxPlayers) {
+          const existingMember = members.find((member) => member.userId === ws.user!.userId) ?? null;
+
+          if (members.length >= room.maxPlayers && !existingMember) {
             send(ws, "ERROR", { message: "Room full" });
             return;
           }
 
           const used = new Set(members.map((m) => m.colorSlot));
-          let slot = 0;
-          while (used.has(slot) && slot < room.maxPlayers) slot += 1;
-          if (slot >= room.maxPlayers) slot = Math.min(room.maxPlayers - 1, 5);
+          let slot = existingMember?.colorSlot ?? 0;
+          if (!existingMember) {
+            while (used.has(slot) && slot < room.maxPlayers) slot += 1;
+            if (slot >= room.maxPlayers) slot = Math.min(room.maxPlayers - 1, 5);
+          }
+
+          const reconnectKey = buildRoomReconnectKey(room.id, ws.user.userId);
+          const restoringMembership = redis ? (await redis.exists(reconnectKey)) === 1 : false;
 
           await prisma.pvpRoomMember.upsert({
             where: { roomId_userId: { roomId: room.id, userId: ws.user.userId } },
-            update: { leftAt: null, readyAt: null },
+            update: restoringMembership ? { leftAt: null } : { leftAt: null, readyAt: null },
             create: { roomId: room.id, userId: ws.user.userId, colorSlot: slot },
           });
 
-          const updated = await prisma.pvpRoomMember.findMany({
-            where: { roomId: room.id, leftAt: null },
-            orderBy: { joinedAt: "asc" },
-            select: {
-              userId: true,
-              colorSlot: true,
-              readyAt: true,
-              joinedAt: true,
-              user: { select: { username: true, profile: { select: { avatar: true } } } },
-            },
-          });
+          if (redis && restoringMembership) {
+            await redis.del(reconnectKey);
+          }
 
-          broadcastRoom(wss, code, "ROOM_STATE", {
-            room: {
-              code,
-              status: room.status,
-              maxPlayers: room.maxPlayers,
-              members: updated.map((m) => ({
-                userId: m.userId,
-                username: sanitizeDisplayName(m.user.username, 32) || "user",
-                avatar: sanitizeAvatarUrl(m.user.profile?.avatar ?? null),
-                slot: m.colorSlot,
-                ready: !!m.readyAt,
-              })),
-            },
-          });
+          await touchRoomExpiry(prisma, room.id);
+
+          if (!room.hostUserId) {
+            await prisma.pvpRoom.update({
+              where: { id: room.id },
+              data: { hostUserId: ws.user.userId },
+            });
+          }
+
+          await broadcastRoomState(prisma, wss, code);
+          if (room.visibility === "PUBLIC") {
+            await maybeAutoStartPublicRoom(code);
+          }
 
           await storeIdempotencyHit({
             redis,
@@ -2704,7 +3493,7 @@ return nil
 
           const room = await prisma.pvpRoom.findUnique({
             where: { code },
-            select: { id: true, code: true, status: true, maxPlayers: true },
+            select: { id: true, code: true, status: true, visibility: true, maxPlayers: true },
           });
           if (!room) {
             send(ws, "ERROR", { message: "Room not found" });
@@ -2720,31 +3509,11 @@ return nil
             data: { readyAt: new Date() },
           });
 
-          const members = await prisma.pvpRoomMember.findMany({
-            where: { roomId: room.id, leftAt: null },
-            orderBy: { joinedAt: "asc" },
-            select: {
-              userId: true,
-              colorSlot: true,
-              readyAt: true,
-              user: { select: { username: true, profile: { select: { avatar: true } } } },
-            },
-          });
-
-          broadcastRoom(wss, code, "ROOM_STATE", {
-            room: {
-              code,
-              status: room.status,
-              maxPlayers: room.maxPlayers,
-              members: members.map((m) => ({
-                userId: m.userId,
-                username: sanitizeDisplayName(m.user.username, 32) || "user",
-                avatar: sanitizeAvatarUrl(m.user.profile?.avatar ?? null),
-                slot: m.colorSlot,
-                ready: !!m.readyAt,
-              })),
-            },
-          });
+          await touchRoomExpiry(prisma, room.id);
+          await broadcastRoomState(prisma, wss, code);
+          if (room.visibility === "PUBLIC") {
+            await maybeAutoStartPublicRoom(code);
+          }
 
           await storeIdempotencyHit({
             redis,
@@ -2754,72 +3523,58 @@ return nil
             value: { response: null },
           });
 
-          const active = members;
-          const allReady = active.length >= 2 && active.every((m) => !!m.readyAt);
-          if (!allReady) return;
+          return;
+        }
 
-          // Start match
-          const serverStartAtMs = Date.now() + 5000;
-          const match = await prisma.pvpMatch.create({
-            data: {
-              status: "COUNTDOWN",
-              roomId: room.id,
-              textSnapshot: "placeholder",
-              serverStartAt: new Date(serverStartAtMs),
+        if (msg.type === "ROOM_START") {
+          const code = sanitizeRoomCode(msg.payload.roomCode ?? ws.roomCode ?? "");
+          if (!code) {
+            send(ws, "ERROR", { message: "No room" });
+            return;
+          }
+
+          const room = await prisma.pvpRoom.findUnique({
+            where: { code },
+            select: { id: true, code: true, status: true, visibility: true, hostUserId: true },
+          });
+          if (!room) {
+            send(ws, "ERROR", { message: "Room not found" });
+            return;
+          }
+          if (room.status !== "OPEN") {
+            send(ws, "ERROR", { message: "Room not open" });
+            return;
+          }
+          if (room.visibility !== "PRIVATE") {
+            send(ws, "ERROR", { message: "Public rooms start automatically" });
+            return;
+          }
+          if (room.hostUserId !== ws.user.userId) {
+            send(ws, "ERROR", { message: "Host only action" });
+            return;
+          }
+
+          const members = await prisma.pvpRoomMember.findMany({
+            where: { roomId: room.id, leftAt: null },
+            orderBy: { joinedAt: "asc" },
+            select: {
+              userId: true,
+              colorSlot: true,
+              readyAt: true,
+              leftAt: true,
+              user: { select: { username: true, profile: { select: { avatar: true } } } },
             },
-            select: { id: true },
           });
 
-          const local = state.createLocalMatch({
-            matchId: match.id,
+          if (!isRoomReadyToStart({ members })) {
+            send(ws, "ERROR", { message: "All players must be ready before the host can start" });
+            return;
+          }
+
+          await startRoomMatch({
+            roomId: room.id,
             roomCode: code,
-            users: active.map((m) => ({
-              userId: m.userId,
-              username: m.user.username,
-              avatar: m.user.profile?.avatar ?? null,
-              pvpRating: 1500,
-              pvpDeviation: 350,
-              slot: m.colorSlot,
-            })),
-            serverStartAtMs,
-          });
-          eventBus.emit("match:countdown", {
-            matchId: match.id,
-            from: "lobby",
-            to: "countdown",
-            roomCode: code,
-            atMs: local.stateChangedAt,
-          });
-
-          await prisma.pvpMatch.update({
-            where: { id: match.id },
-            data: { textSnapshot: local.textSnapshot },
-          });
-
-          await prisma.pvpParticipant.createMany({
-            data: active.map((m) => ({
-              matchId: match.id,
-              userId: m.userId,
-              slot: m.colorSlot,
-            })),
-            skipDuplicates: true,
-          });
-
-          await prisma.pvpRoom.update({
-            where: { id: room.id },
-            data: { status: "IN_MATCH" },
-          });
-
-          broadcastRoom(wss, code, "MATCH_FOUND", {
-            matchId: match.id,
-            textSnapshot: local.textSnapshot,
-            serverStartAt: new Date(serverStartAtMs).toISOString(),
-            players: Array.from(local.participants.values()).map((p) => ({
-              userId: p.userId,
-              username: p.username,
-              avatar: p.avatar,
-              slot: p.slot,
-            })),
+            members,
           });
 
           await storeIdempotencyHit({
@@ -2833,14 +3588,133 @@ return nil
           return;
         }
 
+        if (msg.type === "ROOM_KICK") {
+          const code = sanitizeRoomCode(msg.payload.roomCode ?? ws.roomCode ?? "");
+          if (!code) {
+            send(ws, "ERROR", { message: "No room" });
+            return;
+          }
+
+          const room = await prisma.pvpRoom.findUnique({
+            where: { code },
+            select: { id: true, code: true, status: true, visibility: true, hostUserId: true },
+          });
+          if (!room) {
+            send(ws, "ERROR", { message: "Room not found" });
+            return;
+          }
+          if (room.visibility !== "PRIVATE") {
+            send(ws, "ERROR", { message: "Public rooms do not support host kicks" });
+            return;
+          }
+          if (room.hostUserId !== ws.user.userId) {
+            send(ws, "ERROR", { message: "Host only action" });
+            return;
+          }
+          if (msg.payload.userId === ws.user.userId) {
+            send(ws, "ERROR", { message: "Host cannot kick itself" });
+            return;
+          }
+
+          await prisma.pvpRoomMember.update({
+            where: { roomId_userId: { roomId: room.id, userId: msg.payload.userId } },
+            data: { leftAt: new Date(), readyAt: null },
+          }).catch(() => null);
+
+          if (redis) {
+            await redis.del(buildRoomReconnectKey(room.id, msg.payload.userId));
+          }
+
+          sendToUser(wss, msg.payload.userId, "ERROR", { message: "Kicked from room" });
+          await transferRoomHostIfNeeded(prisma, room.id);
+          await touchRoomExpiry(prisma, room.id);
+          await broadcastRoomState(prisma, wss, code);
+
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { response: null },
+          });
+
+          return;
+        }
+
+        if (msg.type === "ROOM_LEAVE") {
+          const code = sanitizeRoomCode(msg.payload?.roomCode ?? ws.roomCode ?? "");
+          if (!code) {
+            send(ws, "ERROR", { message: "No room" });
+            return;
+          }
+
+          const room = await prisma.pvpRoom.findUnique({
+            where: { code },
+            select: { id: true, code: true, status: true, visibility: true },
+          });
+          if (!room) {
+            send(ws, "ERROR", { message: "Room not found" });
+            return;
+          }
+
+          await prisma.pvpRoomMember.update({
+            where: { roomId_userId: { roomId: room.id, userId: ws.user.userId } },
+            data: { leftAt: new Date(), readyAt: null },
+          }).catch(() => null);
+
+          if (redis) {
+            await redis.del(buildRoomReconnectKey(room.id, ws.user.userId));
+          }
+
+          ws.roomCode = undefined;
+          await transferRoomHostIfNeeded(prisma, room.id);
+          await touchRoomExpiry(prisma, room.id);
+          await broadcastRoomState(prisma, wss, code);
+          if (room.visibility === "PUBLIC") {
+            await maybeAutoStartPublicRoom(code);
+          }
+
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { response: null },
+          });
+
+          return;
+        }
+
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
+        if (metricMessageType === "HELLO") {
+          gatewayMetrics?.incrementWsHandshake("failure");
+        }
+        const requestId = parsedMessage.success && "requestId" in parsedMessage.data ? parsedMessage.data.requestId : undefined;
+        const errorPayload = toClientErrorPayload(e, {
+          message: e instanceof Error ? e.message : "Unknown error",
+          retryable: parsedMessage.success ? parsedMessage.data.type === "QUEUE_JOIN" : undefined,
+          details: {
+            requestId,
+            phase: parsedMessage.success ? parsedMessage.data.type.toLowerCase() : "message_handler",
+          },
+        });
         gatewayLogError("Websocket message handler failed", e, {
           userId: ws.user?.userId,
           ip: ws.ip ?? "unknown",
           messageType: parsedMessage.success ? parsedMessage.data.type : "unknown",
+          requestId,
+          connectionId: ws.connectionId,
         });
-        send(ws, "ERROR", { message });
+        send(ws, "ERROR", errorPayload);
+        if (parsedMessage.success && parsedMessage.data.type === "QUEUE_JOIN") {
+          send(ws, "QUEUE_STATUS", { status: "IDLE" });
+        }
+      } finally {
+        gatewayMetrics?.recordWsMessage({
+          direction: "in",
+          type: metricMessageType,
+          durationSeconds: Number(process.hrtime.bigint() - messageStartedAt) / 1_000_000_000,
+        });
       }
     });
 
@@ -2862,6 +3736,7 @@ return nil
           activeConnectionsByIp.set(ws.ip, next);
         }
       }
+      gatewayMetrics?.setConnectionsActive(wss.clients.size);
       if (ws.user) {
         state.removeFromQueue(ws.user.userId);
         state.clearQueueTimeout(ws.user.userId);
@@ -2890,20 +3765,152 @@ return nil
 
       if (ws.user && ws.roomCode) {
         const code = ws.roomCode;
-        void prisma.pvpRoom
-          .findUnique({ where: { code }, select: { id: true } })
-          .then((room) => {
-            if (!room) return;
-            return prisma.pvpRoomMember.update({
-              where: { roomId_userId: { roomId: room.id, userId: ws.user!.userId } },
-              data: { leftAt: new Date() },
-            });
-          })
-          .catch(() => {
-            // ignore
+        void (async () => {
+          const room = await prisma.pvpRoom.findUnique({
+            where: { code },
+            select: { id: true, code: true, status: true, visibility: true },
           });
+          if (!room) return;
+
+          if (room.status === "OPEN" && redis) {
+            await redis.set(
+              buildRoomReconnectKey(room.id, ws.user!.userId),
+              INSTANCE_ID,
+              "EX",
+              Math.ceil(ROOM_RECONNECT_GRACE_MS / 1000)
+            );
+            return;
+          }
+
+          await prisma.pvpRoomMember.update({
+            where: { roomId_userId: { roomId: room.id, userId: ws.user!.userId } },
+            data: { leftAt: new Date() },
+          }).catch(() => null);
+
+          await transferRoomHostIfNeeded(prisma, room.id);
+          await broadcastRoomState(prisma, wss, code);
+          if (room.visibility === "PUBLIC") {
+            await maybeAutoStartPublicRoom(code);
+          }
+        })().catch(() => {
+          // ignore
+        });
       }
     });
+  });
+
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  let shutdownPromise: Promise<void> | null = null;
+  const beginGracefulShutdown = (signal: string) => {
+    if (shutdownPromise) return shutdownPromise;
+
+    shutdownPromise = (async () => {
+      gatewayLogWarn("Starting graceful shutdown", {
+        signal,
+        instanceId: INSTANCE_ID,
+        activeConnections: wss.clients.size,
+        activeMatches: getActiveMatchCount(),
+      });
+
+      gatewayHealthController?.beginDraining();
+      gatewayMetrics?.setLifecycle({
+        ready: gatewayHealthController?.isReady() ?? false,
+        draining: gatewayHealthController?.isDraining() ?? true,
+      });
+
+      const serverClosed = new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+      const websocketClosed = new Promise<void>((resolve) => {
+        wss.close(() => resolve());
+      });
+
+      for (const client of Array.from(wss.clients)) {
+        const socket = client as WsConn;
+        if (socket.user) {
+          state.removeFromQueue(socket.user.userId);
+          state.clearQueueTimeout(socket.user.userId);
+          void queueLeave(socket.user.userId);
+        }
+
+        if (!socket.matchId) {
+          try {
+            socket.close(1001, "Gateway draining");
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      const deadlineAt = Date.now() + SHUTDOWN_GRACE_MS;
+      while (Date.now() < deadlineAt && getActiveMatchCount() > 0) {
+        await sleep(250);
+      }
+
+      messageBatcher?.flushAll();
+      messageBatcher?.stop();
+
+      for (const client of Array.from(wss.clients)) {
+        try {
+          (client as WsConn).close(1001, "Gateway shutting down");
+        } catch {
+          // ignore
+        }
+      }
+
+      await sleep(250);
+
+      for (const client of Array.from(wss.clients)) {
+        try {
+          (client as WsConn).terminate();
+        } catch {
+          // ignore
+        }
+      }
+
+      clearInterval(metricSnapshotInterval);
+      clearInterval(roomLifecycleSweepInterval);
+      for (const timeout of disconnectForfeitTimers.values()) {
+        clearTimeout(timeout);
+      }
+      disconnectForfeitTimers.clear();
+      for (const timeout of state.queueTimeouts.values()) {
+        clearTimeout(timeout);
+      }
+      state.queueTimeouts.clear();
+      for (const timer of matchCleanupTimers.values()) {
+        clearTimeout(timer);
+      }
+      matchCleanupTimers.clear();
+      for (const interval of state.aiIntervals.values()) {
+        clearInterval(interval);
+      }
+      state.aiIntervals.clear();
+
+      await Promise.allSettled([serverClosed, websocketClosed]);
+      await Promise.allSettled([redisBus?.close(), prisma.$disconnect()]);
+
+      gatewayLogInfo("Graceful shutdown complete", {
+        signal,
+        instanceId: INSTANCE_ID,
+      });
+    })().catch((error) => {
+      gatewayLogError("Graceful shutdown failed", error, {
+        signal,
+        instanceId: INSTANCE_ID,
+      });
+      throw error;
+    });
+
+    return shutdownPromise;
+  };
+
+  process.once("SIGINT", () => {
+    void beginGracefulShutdown("SIGINT");
+  });
+  process.once("SIGTERM", () => {
+    void beginGracefulShutdown("SIGTERM");
   });
 
   server.listen(PORT, () => {

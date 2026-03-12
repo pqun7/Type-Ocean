@@ -27,6 +27,7 @@ export const TypingLanguageSchema = z.enum(["en", "ar", "es", "fr"]);
 export const PvpClientSecretSchema = z.string().trim().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/);
 export const PvpWsTokenSchema = z.string().min(32).max(4096);
 export const RoomCodeSchema = z.string().trim().min(4).max(10).regex(/^[a-zA-Z0-9]+$/);
+export const InputNonceSchema = z.string().trim().length(32).regex(/^[A-Fa-f0-9]+$/);
 
 const HelloMessageBaseSchema = z
   .object({
@@ -124,6 +125,62 @@ const ReadyMessageBaseSchema = z
 
 export const ReadyMessageSchema = withByteLimit(ReadyMessageBaseSchema, MAX_MESSAGE_BYTES, "READY payload is too large");
 
+const RoomLeaveMessageBaseSchema = z
+  .object({
+    type: z.literal("ROOM_LEAVE"),
+    requestId: RequestIdSchema.optional(),
+    payload: z
+      .object({
+        roomCode: RoomCodeSchema.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const RoomLeaveMessageSchema = withByteLimit(
+  RoomLeaveMessageBaseSchema,
+  MAX_MESSAGE_BYTES,
+  "ROOM_LEAVE payload is too large"
+);
+
+const RoomStartMessageBaseSchema = z
+  .object({
+    type: z.literal("ROOM_START"),
+    requestId: RequestIdSchema.optional(),
+    payload: z
+      .object({
+        roomCode: RoomCodeSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const RoomStartMessageSchema = withByteLimit(
+  RoomStartMessageBaseSchema,
+  MAX_MESSAGE_BYTES,
+  "ROOM_START payload is too large"
+);
+
+const RoomKickMessageBaseSchema = z
+  .object({
+    type: z.literal("ROOM_KICK"),
+    requestId: RequestIdSchema.optional(),
+    payload: z
+      .object({
+        roomCode: RoomCodeSchema.optional(),
+        userId: z.string().uuid(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const RoomKickMessageSchema = withByteLimit(
+  RoomKickMessageBaseSchema,
+  MAX_MESSAGE_BYTES,
+  "ROOM_KICK payload is too large"
+);
+
 const MatchJoinMessageBaseSchema = z
   .object({
     type: z.literal("MATCH_JOIN"),
@@ -170,6 +227,7 @@ const InputUpdateMessageBaseSchema = z
         input: z.string().max(20_000),
         seq: z.number().int().min(1).max(1_000_000),
         clientTs: z.number().int().min(0).max(9_999_999_999_999).optional(),
+        inputNonce: InputNonceSchema.optional(),
       })
       .strict(),
   })
@@ -241,6 +299,9 @@ export const PvpClientMessageSchema = z
     QueueLeaveMessageBaseSchema,
     RoomJoinMessageBaseSchema,
     ReadyMessageBaseSchema,
+    RoomLeaveMessageBaseSchema,
+    RoomStartMessageBaseSchema,
+    RoomKickMessageBaseSchema,
     MatchJoinMessageBaseSchema,
     MatchLeaveMessageBaseSchema,
     InputUpdateMessageBaseSchema,

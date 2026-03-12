@@ -3,6 +3,7 @@ import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
 import Google from "next-auth/providers/google";   
 import Credentials from "next-auth/providers/credentials";
+import type { JWT } from "next-auth/jwt";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { loginSchema } from "@/schemas/authSchema";
@@ -11,6 +12,7 @@ import {
   normalizeUsernameForDisplay,
   sanitizeUsernameFromProvider,
 } from "@/features/auth/utils/username";
+import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
 import { ZodError } from "zod";
 
 // declare module "next-auth" {
@@ -31,6 +33,46 @@ import { ZodError } from "zod";
 
 const prisma = new PrismaClient();
 const prismaAdapter = PrismaAdapter(prisma);
+
+type AuthUserState = {
+  username: string;
+  email: string;
+  emailVerified: Date | null;
+  image: string | null;
+  role: string;
+  banned: boolean;
+  isPrimaryAdmin: boolean;
+};
+
+async function getAuthUserState(userId: string): Promise<AuthUserState | null> {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      username: true,
+      email: true,
+      emailVerified: true,
+      image: true,
+      role: true,
+      banned: true,
+      isPrimaryAdmin: true,
+    },
+  });
+}
+
+function invalidateToken(token: JWT, reason: "missing" | "banned") {
+  delete token.id;
+  delete token.username;
+  delete token.email;
+  delete token.emailVerified;
+  delete token.image;
+  delete token.role;
+  delete token.banned;
+  delete token.isPrimaryAdmin;
+  token.invalidUser = true;
+  token.invalidUserReason = reason;
+  (token as unknown as { profileRefreshedAt?: number }).profileRefreshedAt = Date.now();
+  return token;
+}
 
 async function usernameExists(username: string): Promise<boolean> {
   const [existingUser, existingPending] = await Promise.all([
@@ -199,58 +241,65 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.username = normalizeUsernameForDisplay(user.username as string | null | undefined);
-        token.email = user.email;
-        token.emailVerified = user.emailVerified;
-        // propagate avatar/image for session usage
-        token.image = (user as unknown as { image?: string | null }).image;
-        (token as unknown as { profileRefreshedAt?: number }).profileRefreshedAt = Date.now();
-        return token;
-      }
-
-      // Keep token/session in sync with DB for email verification and profile updates.
-      // Throttle refresh to avoid a DB query on every request.
-      const tokenUserId = token.id as string | undefined;
+      const tokenUserId = user?.id ?? (token.id as string | undefined);
       if (!tokenUserId) return token;
 
-      const now = Date.now();
-      const last = (token as unknown as { profileRefreshedAt?: number }).profileRefreshedAt ?? 0;
-      const REFRESH_EVERY_MS = 5 * 60 * 1000;
-      if (now - last < REFRESH_EVERY_MS) return token;
+      if (user) {
+        token.id = user.id;
+      }
 
       try {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: tokenUserId },
-          select: {
-            username: true,
-            email: true,
-            emailVerified: true,
-            image: true,
-          },
-        });
+        // JWT presence alone is not sufficient; the backing user may have been deleted
+        // or banned by server-side state changes. Validate against the DB on every auth read.
+        const dbUser = await getAuthUserState(tokenUserId);
 
-        if (dbUser) {
-          token.username = normalizeUsernameForDisplay(dbUser.username);
-          token.email = dbUser.email;
-          token.emailVerified = dbUser.emailVerified;
-          token.image = dbUser.image;
+        if (!dbUser) {
+          return invalidateToken(token, "missing");
         }
+
+        if (dbUser.banned) {
+          return invalidateToken(token, "banned");
+        }
+
+        token.id = tokenUserId;
+        token.username = normalizeUsernameForDisplay(dbUser.username);
+        token.email = dbUser.email;
+        token.emailVerified = dbUser.emailVerified;
+        token.image = dbUser.image;
+        token.role = dbUser.role;
+        token.banned = false;
+        token.isPrimaryAdmin = dbUser.isPrimaryAdmin;
+        token.invalidUser = false;
+        delete token.invalidUserReason;
       } catch {
         // Ignore refresh failures; keep existing token values.
       }
 
-      (token as unknown as { profileRefreshedAt?: number }).profileRefreshedAt = now;
+      (token as unknown as { profileRefreshedAt?: number }).profileRefreshedAt = Date.now();
       return token;
     },
     session({ session, token }) {
+      if (token.invalidUser || !token.id) {
+        session.user.id = "";
+        session.user.username = null;
+        session.user.email = "";
+        session.user.emailVerified = null;
+        session.user.image = null;
+        session.user.role = null;
+        session.user.banned = null;
+        session.user.isPrimaryAdmin = null;
+        return session;
+      }
+
       if (session.user) {
         session.user.id = token.id as string;
         session.user.username = normalizeUsernameForDisplay(token.username as string | null | undefined);
         session.user.email = token.email as string;
         session.user.emailVerified = token.emailVerified as Date;
         session.user.image = (token as unknown as { image?: string | null }).image ?? null;
+        session.user.role = (token as { role?: string | null }).role ?? "user";
+        session.user.banned = (token as { banned?: boolean | null }).banned ?? false;
+        session.user.isPrimaryAdmin = (token as { isPrimaryAdmin?: boolean | null }).isPrimaryAdmin ?? false;
       }
       return session;
     },
@@ -273,15 +322,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         const username = normalizeUsernameForDisplay(
           (user as unknown as { username?: string | null }).username
         );
-        await prisma.playerProfile.create({
-          data: {
-            user: { connect: { id: user.id } },
-            username: username ?? "user",
-            level: 1,
-            xp: 0,
-            achievements: [],
-            avatar: null,
-          },
+        await ensurePlayerProfile({
+          userId: user.id,
+          username: username ?? "user",
         });
       } catch {
         // Ignore duplicates / race conditions

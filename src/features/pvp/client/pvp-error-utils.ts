@@ -3,12 +3,67 @@
 import { useEffect, useRef } from "react";
 
 import { useAlert } from "@/contexts/alert-context";
+import { PVP_ERROR_CODES, isPvpErrorCode, type PvpErrorPayload } from "@/features/pvp/shared/error-codes";
 
 const GENERIC_PVP_ERROR_MESSAGE = "We couldn't complete the PvP action right now. Please try again.";
 
-export function toSafePvpErrorMessage(error: string | null | undefined) {
-  const raw = error?.trim();
-  if (!raw) return null;
+function normalizeRawError(error: string | PvpErrorPayload | null | undefined): PvpErrorPayload | null {
+  if (!error) return null;
+
+  if (typeof error === "string") {
+    const raw = error.trim();
+    return raw
+      ? {
+          message: raw,
+          code: undefined,
+          retryable: undefined,
+          details: undefined,
+        }
+      : null;
+  }
+
+  const message = error.message?.trim();
+  if (!message) return null;
+
+  return {
+    ...error,
+    message,
+    code: isPvpErrorCode(error.code) ? error.code : undefined,
+  };
+}
+
+export function toSafePvpErrorMessage(error: string | PvpErrorPayload | null | undefined) {
+  const normalizedError = normalizeRawError(error);
+  if (!normalizedError) return null;
+
+  if (normalizedError.code === PVP_ERROR_CODES.QUEUE_SOCKET_NOT_READY) {
+    return "The ranked queue is still connecting. Wait a moment and try again.";
+  }
+
+  if (normalizedError.code === PVP_ERROR_CODES.QUEUE_CONNECTION_CLOSED) {
+    return "The PvP connection was interrupted. Please refresh and try again.";
+  }
+
+  if (normalizedError.code === PVP_ERROR_CODES.QUEUE_GATEWAY_DRAINING) {
+    return "Ranked matchmaking is restarting. Please retry in a moment.";
+  }
+
+  if (normalizedError.code === PVP_ERROR_CODES.QUEUE_USER_UNAVAILABLE) {
+    return "Your PvP session is no longer available. Refresh and rejoin the queue.";
+  }
+
+  if (normalizedError.code === PVP_ERROR_CODES.QUEUE_ALREADY_SEARCHING) {
+    return "You are already in the ranked queue. Wait for matchmaking or cancel the current search first.";
+  }
+
+  if (
+    normalizedError.code === PVP_ERROR_CODES.QUEUE_MATCH_CREATION_FAILED ||
+    normalizedError.code === PVP_ERROR_CODES.QUEUE_AI_FALLBACK_FAILED
+  ) {
+    return "Matchmaking hit a server issue. Please retry in a moment.";
+  }
+
+  const raw = normalizedError.message;
 
   const normalized = raw.toLowerCase();
 
@@ -55,6 +110,18 @@ export function toSafePvpErrorMessage(error: string | null | undefined) {
 
   if (normalized.includes("room") && normalized.includes("not")) {
     return "We couldn't complete the room action. Please verify the room and try again.";
+  }
+
+  if (normalized.includes("room expired")) {
+    return "This room expired from inactivity. Refresh or create a new room to continue.";
+  }
+
+  if (normalized.includes("host only")) {
+    return "Only the current room host can do that. Wait for host transfer or ask the host to continue.";
+  }
+
+  if (normalized.includes("kicked from room")) {
+    return "You were removed from the room by the host. Rejoin with a new invite if needed.";
   }
 
   return GENERIC_PVP_ERROR_MESSAGE;

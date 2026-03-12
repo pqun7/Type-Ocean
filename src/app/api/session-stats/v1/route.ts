@@ -3,11 +3,13 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+ import type { Prisma } from "@prisma/client";
 import { connectIfNeeded, redis } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { authorizeRequest } from "@/app/api/shared.server";
 import prisma from "@/features/auth/lib/db";
+import { syncPlayerProfile } from "@/features/auth/server/player-profile";
 import {
   DEFAULT_RATING,
   DEFAULT_RATING_DEVIATION,
@@ -445,9 +447,12 @@ export async function POST(req: NextRequest) {
       );
 
       const now = new Date();
+      const effectiveLongTermStatsJson = JSON.parse(
+        JSON.stringify(effectiveLongTermStats)
+      ) as Prisma.InputJsonValue;
 
       const updateData = {
-        longTermStats: effectiveLongTermStats as unknown as object,
+        longTermStats: effectiveLongTermStatsJson,
         ...(ratingUpdate
           ? {
               rating: ratingUpdate.nextRating,
@@ -458,20 +463,16 @@ export async function POST(req: NextRequest) {
       };
 
       const createData = {
-        userId,
         username: user?.username ?? "user",
-        level: 1,
-        xp: 0,
-        achievements: [],
-        avatar: null,
-        longTermStats: effectiveLongTermStats as unknown as object,
+        longTermStats: effectiveLongTermStatsJson,
         rating: ratingUpdate?.nextRating ?? DEFAULT_RATING,
         ratingDeviation: ratingUpdate?.nextDeviation ?? DEFAULT_RATING_DEVIATION,
         ...(ratingUpdate ? { ratingUpdatedAt: now } : {}),
       };
 
-      await prisma.playerProfile.upsert({
-        where: { userId },
+      await syncPlayerProfile({
+        userId,
+        username: user?.username ?? "user",
         update: updateData,
         create: createData,
       });

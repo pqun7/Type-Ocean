@@ -3,8 +3,8 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
-import { getToken } from "next-auth/jwt";
 
+import { authorizeRequest } from "@/app/api/shared.server";
 import { rateLimiter } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { addUserXP, getUserProgress } from "@/features/level/server-utils/userCache";
@@ -33,16 +33,6 @@ function validateCSRF(req: NextRequest): string | null {
   return null;
 }
 
-async function getUserIdFromRequest(req: NextRequest): Promise<string | null> {
-  const token = await getToken({
-    req,
-    secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
-  });
-
-  const userId = (token?.id as string | undefined) ?? token?.sub;
-  return userId ?? null;
-}
-
 export async function GET(req: NextRequest) {
   const requestId = uuidv4();
   const endpoint = "/api/profile/progress";
@@ -55,7 +45,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const userId = await getUserIdFromRequest(req);
+    const userId = await authorizeRequest(req);
     if (!userId) {
       return NextResponse.json(
         { valid: false, reason: "not_authenticated" },
@@ -97,7 +87,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const userId = await getUserIdFromRequest(req);
+    const userId = await authorizeRequest(req);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -133,8 +123,9 @@ export async function POST(req: NextRequest) {
     if (bonusMeta && (bonusMeta.isMythicClaim || bonusMeta.isPBClaim)) {
       try {
         const progress = await getUserProgress(userId);
-        const serverBestWPM: number = typeof (progress as any)?.bestWPM === "number"
-          ? (progress as any).bestWPM
+        const progressRecord = progress as Record<string, unknown>;
+        const serverBestWPM: number = typeof progressRecord.bestWPM === "number"
+          ? progressRecord.bestWPM
           : 0;
 
         const claimedWpm = bonusMeta.claimedWpm ?? 0;

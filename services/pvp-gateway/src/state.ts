@@ -1,6 +1,13 @@
-// Use a fully specified file name so the compiled CJS `require()` includes the extension.
-import { pickLongText } from "./texts.js";
+import { pickFullPageText } from "./texts";
 import { matchStateToLegacyStatus, type MatchLifecycleState } from "./match-fsm";
+import type { MatchmakingPreference } from "./matchmaking/bands";
+
+export type MatchInputEvent = {
+  atMs: number;
+  inputLength: number;
+  deltaChars: number;
+  wpm: number;
+};
 
 export type ConnectionUser = {
   userId: string;
@@ -8,6 +15,9 @@ export type ConnectionUser = {
   avatar: string | null;
   pvpRating: number;
   pvpDeviation: number;
+  rankTier?: string;
+  averageWpm?: number | null;
+  matchmakingPreference?: MatchmakingPreference | null;
 };
 
 export type MatchParticipantState = {
@@ -26,6 +36,7 @@ export type MatchParticipantState = {
   lastInputAtMs?: number;
   lastInputLen?: number;
   strikes?: number;
+  inputEvents?: MatchInputEvent[];
 };
 
 export type MatchState = {
@@ -40,6 +51,8 @@ export type MatchState = {
   lastSnapshotBroadcastAtMs: number;
   status: "COUNTDOWN" | "RUNNING" | "FINISHED" | "ABORTED" | "PENDING";
   textSnapshot: string;
+  textId: string | null;
+  inputNonce: string | null;
   serverStartAtMs: number;
   participants: Map<string, MatchParticipantState>; // userId -> state
   endedReason?: "completed" | "opponent_disconnected" | "aborted" | null;
@@ -52,6 +65,9 @@ export type MatchState = {
 export type QueueEntry = {
   user: ConnectionUser;
   joinedAtMs: number;
+  bucketKey?: string;
+  requestId?: string;
+  connectionId?: string;
 };
 
 export class InMemoryState {
@@ -89,8 +105,10 @@ export class InMemoryState {
     users: Array<ConnectionUser & { slot: number }>;
     serverStartAtMs: number;
     textSnapshot?: string;
+    textId?: string | null;
+    inputNonce?: string | null;
   }): MatchState {
-    const textSnapshot = params.textSnapshot ?? pickLongText();
+    const textSnapshot = params.textSnapshot ?? pickFullPageText();
 
     const participants = new Map<string, MatchParticipantState>();
     for (const u of params.users) {
@@ -109,6 +127,7 @@ export class InMemoryState {
         lastInputAtMs: 0,
         lastInputLen: 0,
         strikes: 0,
+        inputEvents: [],
       });
     }
 
@@ -121,6 +140,8 @@ export class InMemoryState {
       lastSnapshotBroadcastAtMs: 0,
       status: matchStateToLegacyStatus("countdown"),
       textSnapshot,
+      textId: params.textId ?? null,
+      inputNonce: params.inputNonce ?? null,
       serverStartAtMs: params.serverStartAtMs,
       participants,
       endedReason: null,

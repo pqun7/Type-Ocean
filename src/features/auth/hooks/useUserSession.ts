@@ -78,10 +78,13 @@ export const useUserSession = () => {
     username: data?.username,
     email: data?.email,
     emailVerified: data?.emailVerified,
+    role: data?.role,
+    isPrimaryAdmin: data?.isPrimaryAdmin === true,
     session: data?.valid ? data : null,
     isLoading,
     error: error && !error.message?.includes('401') ? error : null,
     isAuthenticated: !!data?.valid,
+    isAdmin: data?.role === 'admin',
     refreshSession: mutate,
   };
 };

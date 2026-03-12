@@ -57,9 +57,23 @@ Notes:
 - `npm run dev` - Next.js dev server
 - `npm run build` - production build
 - `npm run start` - start production server
+- `npm run pvp:gateway:build` - build the PvP WebSocket gateway
+- `npm run pvp:gateway:start` - start the built PvP WebSocket gateway
+- `npm run pvp:gateway:dev` - run the PvP WebSocket gateway in development mode
 - `npm run lint` - lint
 - `npm run test` - jest watch
 - `npm run test:ci` - jest CI run
+- `npm run admin:grant -- --email you@example.com` - grant admin locally through Prisma
+
+Gateway notes:
+- Detailed gateway setup and runtime options are documented in [services/pvp-gateway/README.md](services/pvp-gateway/README.md).
+
+## Auth notes
+- Main app auth currently uses Auth.js JWT sessions.
+- Middleware-protected routes under `/api/protected/*` use explicit `jwt` cookie verification plus DB validation.
+- Deleted users and banned users must never be trusted from JWT payload alone.
+- Short auth conventions and invariants are documented in [docs/auth-conventions.md](docs/auth-conventions.md).
+- Admin access is controlled by `User.role === "admin"` in the database. Prefer local one-off role changes over exposing a public admin-promotion endpoint.
 
 ## Troubleshooting
 - Prisma errors about `DATABASE_URL`: verify `.env.local` is present and the URL is valid.

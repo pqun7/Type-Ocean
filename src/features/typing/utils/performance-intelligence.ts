@@ -71,6 +71,8 @@ export type PerformanceIntelligenceInput = {
   windowDays?: number;
 };
 
+const COLD_START_SCORE_BASELINE = 50;
+
 /**
  * Configuration for trend classification and scoring.
  * All fields are optional – defaults are chosen for a general audience.
@@ -399,6 +401,35 @@ function computeCleanlinessScore(stats: PerformanceIntelligenceInput["stats"]): 
   return clamp(Math.round(cleanFactor * 100), 0, 100);
 }
 
+function computeDataConfidence(input: PerformanceIntelligenceInput): number {
+  const totalSessions = input.dailyActivity.reduce(
+    (sum, row) => sum + Math.max(0, Math.floor(safeNumber(row.sessionsCount, 0))),
+    0
+  );
+  const activeDays = input.dailyActivity.filter((row) => safeNumber(row.sessionsCount, 0) > 0).length;
+  const totalChars = Math.max(0, Math.floor(safeNumber(input.stats.totalCharactersTyped, 0)));
+
+  const sessionsConfidence = clamp(totalSessions / 8, 0, 1);
+  const activeDaysConfidence = clamp(activeDays / 5, 0, 1);
+  const charsConfidence = clamp(totalChars / 2500, 0, 1);
+
+  return Number(
+    (
+      sessionsConfidence * 0.5 +
+      activeDaysConfidence * 0.25 +
+      charsConfidence * 0.25
+    ).toFixed(4)
+  );
+}
+
+function blendTowardColdStartBaseline(score: number, confidence: number): number {
+  return clamp(
+    Math.round(COLD_START_SCORE_BASELINE + (score - COLD_START_SCORE_BASELINE) * confidence),
+    0,
+    100
+  );
+}
+
 /**
  * Compute stability score, optionally adjusted for small sample size.
  */
@@ -624,16 +655,22 @@ export function computePerformanceIntelligence(
 
   const comparison = computeComparison(dailySeries);
   const improvementScore = computeImprovementScore(comparison);
+  const dataConfidence = computeDataConfidence(input);
 
   // Base scores from overall stats
-  const wpmScore = clamp(
+  const rawWpmScore = clamp(
     Math.round((safeNumber(input.stats.averageWPM, 0) / effectiveWpmCeiling) * 100),
     0,
     100
   );
-  const accuracyScore = clamp(Math.round(safeNumber(input.stats.averageAccuracy, 0)), 0, 100);
-  const consistencyScore = clamp(Math.round(safeNumber(input.stats.averageConsistency, 0)), 0, 100);
-  const cleanlinessScore = computeCleanlinessScore(input.stats);
+  const rawAccuracyScore = clamp(Math.round(safeNumber(input.stats.averageAccuracy, 0)), 0, 100);
+  const rawConsistencyScore = clamp(Math.round(safeNumber(input.stats.averageConsistency, 0)), 0, 100);
+  const rawCleanlinessScore = computeCleanlinessScore(input.stats);
+  const wpmScore = blendTowardColdStartBaseline(rawWpmScore, dataConfidence);
+  const accuracyScore = blendTowardColdStartBaseline(rawAccuracyScore, dataConfidence);
+  const consistencyScore = blendTowardColdStartBaseline(rawConsistencyScore, dataConfidence);
+  const cleanlinessScore = blendTowardColdStartBaseline(rawCleanlinessScore, dataConfidence);
+  const adjustedStabilityScore = blendTowardColdStartBaseline(Math.round(stabilityScore), dataConfidence);
 
   const compositeIndex = computeCompositeIndex({
     wpmScore,
@@ -641,7 +678,7 @@ export function computePerformanceIntelligence(
     consistencyScore,
     cleanlinessScore,
     improvementScore,
-    stabilityScore,
+    stabilityScore: adjustedStabilityScore,
   });
 
   const trendCategory = classifyTrend(
@@ -666,7 +703,7 @@ export function computePerformanceIntelligence(
       accelerationPerDay2: Number(acceleration.toFixed(3)),
       r2: Number(reg.r2.toFixed(3)),
       volatilityCv: Number(volatilityCv.toFixed(4)),
-      stabilityScore: Math.round(stabilityScore),
+      stabilityScore: adjustedStabilityScore,
     },
     scores: {
       wpmScore,
@@ -674,7 +711,7 @@ export function computePerformanceIntelligence(
       consistencyScore,
       cleanlinessScore,
       improvementScore,
-      stabilityScore: Math.round(stabilityScore),
+      stabilityScore: adjustedStabilityScore,
       compositeIndex,
     },
   };

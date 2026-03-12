@@ -34,10 +34,11 @@ function slotToColor(slot: number) {
 
 export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const router = useRouter();
-  const { status, error, user, send, addListener } = usePvpSocket();
+  const { status, error, user, send, addListener, getMatchTransport } = usePvpSocket();
   usePvpErrorAlert(error);
 
   const [text, setText] = useState<string>("");
+  const [textId, setTextId] = useState<string | null>(null);
   const [serverStartAt, setServerStartAt] = useState<string | null>(null);
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [matchStatus, setMatchStatus] = useState<string>("COUNTDOWN");
@@ -73,10 +74,12 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const statusRef = useRef(status);
   const matchStatusRef = useRef(matchStatus);
   const resultsRef = useRef(results);
+  const inputNonce = getMatchTransport(matchId)?.inputNonce ?? null;
 
   // Reset per-match state on navigation.
   useEffect(() => {
     setText("");
+    setTextId(null);
     setServerStartAt(null);
     setRoomCode(null);
     setMatchStatus("COUNTDOWN");
@@ -133,6 +136,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         const shouldFocus = revisionRef.current === 0;
         revisionRef.current = m.payload.revision;
         setText(m.payload.textSnapshot);
+        setTextId(m.payload.textId ?? null);
         setServerStartAt(m.payload.serverStartAt);
         setRoomCode(m.payload.roomCode ?? null);
         setMatchStatus(m.payload.status);
@@ -212,7 +216,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     lastSentAtRef.current = now;
 
     seqRef.current += 1;
-    send({ type: "INPUT_UPDATE", payload: { matchId, input: next, seq: seqRef.current, clientTs: now } });
+    send({ type: "INPUT_UPDATE", payload: { matchId, input: next, seq: seqRef.current, clientTs: now, inputNonce: inputNonce ?? undefined } });
 
     if (text && targetGraphemeCount > 0 && typed >= targetGraphemeCount) {
       send({ type: "FINISH", payload: { matchId, clientTs: now } });
@@ -332,6 +336,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
           <div className="text-[#E0E7FF] text-xl font-semibold">Match</div>
           <div className="text-sm text-[#8A8FB5]">
             Status: {status} · {matchStatus}
+            {textId ? ` · Text: ${textId}` : ""}
             {countdown != null ? ` · Starts in: ${countdown}s` : ""}
           </div>
         </div>
@@ -381,6 +386,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
       {results ? (
         <PvpResultsOverlay
           open
+          primaryActionLabel={roomCode ? "Play Again" : "Find new opponent"}
           placements={results.placements}
           ratingChanges={results.ratingChanges}
           chartData={chartData}
@@ -393,7 +399,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
           onRequestRematch={onRequestRematch}
           onAcceptRematch={onAcceptRematch}
           onDeclineRematch={onDeclineRematch}
-          onFindNewOpponent={() => router.push("/pvp/1v1")}
+          onFindNewOpponent={() => router.push(roomCode ? `/pvp/room/${roomCode}` : "/pvp/1v1")}
         />
       ) : null}
     </div>

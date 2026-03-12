@@ -21,7 +21,6 @@ import {
   logRequestSuccess,
   logRequestError,
 } from "@/log/loggingUtils";
-import { getToken } from 'next-auth/jwt';
 import { atomicChallengeUpdate } from "@/features/level/utils/challengeServer"; // Changed import
 import { getLongTermCumulativeStats } from "@/helper/session-stats";
 import { getLastChallengeOutcome } from "@/features/level/server-utils/dailyChallengeOutcome";
@@ -54,12 +53,7 @@ function sanitizeSessionForChallenge(session: SessionData): SessionData {
 
 export async function authenticateRequest(req: NextRequest) {
   try {
-    const token = await getToken({ 
-      req,
-      secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET
-    });
-    
-    const userId = (token?.id as string | undefined) ?? token?.sub;
+    const userId = await authorizeRequest(req);
     if (!userId) {
       return { error: 'Unauthorized', status: 401 };
     }

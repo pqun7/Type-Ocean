@@ -2,8 +2,8 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { getToken } from "next-auth/jwt";
 
+import { authorizeRequest } from "@/app/api/shared.server";
 import { rateLimiter } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { getUserProgress } from "@/features/level/server-utils/userCache";
@@ -23,16 +23,6 @@ function buildServerTiming(timing: Record<string, number | undefined>): string {
     .map(([k, v]) => `${k};dur=${Math.round(v as number)}`);
 
   return entries.join(", ");
-}
-
-async function getUserIdFromRequest(req: NextRequest): Promise<string | null> {
-  const token = await getToken({
-    req,
-    secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
-  });
-
-  const userId = (token?.id as string | undefined) ?? token?.sub;
-  return userId ?? null;
 }
 
 export async function GET(req: NextRequest) {
@@ -55,7 +45,7 @@ export async function GET(req: NextRequest) {
     const tokenStart = nowMs();
     const [rl, userId] = await Promise.all([
       rateLimiter.applyRateLimit(req, `${endpoint}:GET`),
-      getUserIdFromRequest(req),
+      authorizeRequest(req),
     ]);
     timing.rateLimit = nowMs() - rlStart;
     timing.token = nowMs() - tokenStart;

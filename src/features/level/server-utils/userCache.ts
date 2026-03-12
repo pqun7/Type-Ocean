@@ -16,6 +16,21 @@ type CachedProgressPayload = {
   cachedAt: number;
 };
 
+async function getExistingUserSeed(userId: string): Promise<{ username: string }> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { username: true },
+  });
+
+  if (!user) {
+    throw new Error("USER_NOT_FOUND");
+  }
+
+  return {
+    username: user.username ?? "user",
+  };
+}
+
 async function cacheProgress(userId: string, payload: { level: number; xp: number; achievements: unknown }): Promise<void> {
   try {
     await connectIfNeeded();
@@ -155,15 +170,12 @@ export async function getCachedProfile(
     if (!profile) {
       logging.warn(`[CACHE] Profile not found for ${userId}, creating default profile`);
 
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { username: true },
-      });
+      const user = await getExistingUserSeed(userId);
 
       const created = await prisma.playerProfile.create({
         data: {
           userId,
-          username: user?.username ?? "user",
+          username: user.username,
           level: 1,
           xp: 0,
           achievements: [],
@@ -221,15 +233,12 @@ async function ensurePlayerProfile(userId: string): Promise<PlayerProfile> {
   const existing = await prisma.playerProfile.findUnique({ where: { userId } });
   if (existing) return existing;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { username: true },
-  });
+  const user = await getExistingUserSeed(userId);
 
   return prisma.playerProfile.create({
     data: {
       userId,
-      username: user?.username ?? "user",
+      username: user.username,
       level: 1,
       xp: 0,
       achievements: [],

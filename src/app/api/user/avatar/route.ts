@@ -5,6 +5,7 @@ import { del, put } from "@vercel/blob";
 import { env } from "@/env.mjs";
 import { auth } from "@/features/auth/lib/auth";
 import prisma from "@/features/auth/lib/db";
+import { syncPlayerProfile } from "@/features/auth/server/player-profile";
 import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 import { rateLimiter } from "@/lib/rate-limiter";
 
@@ -121,15 +122,12 @@ export async function POST(req: NextRequest) {
       select: { username: true },
     });
 
-    await prisma.playerProfile.upsert({
-      where: { userId: session.user.id },
+    await syncPlayerProfile({
+      userId: session.user.id,
+      username: updatedUser.username,
       update: { avatar: blob.url },
       create: {
-        userId: session.user.id,
         username: updatedUser.username,
-        level: 1,
-        xp: 0,
-        achievements: [],
         avatar: blob.url,
       },
     });

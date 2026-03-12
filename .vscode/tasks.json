@@ -12,6 +12,18 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "clean build",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/d",
+				"/c",
+				"if exist .next rmdir /s /q .next & npm run build"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }

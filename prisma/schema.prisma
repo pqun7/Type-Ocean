@@ -67,6 +67,36 @@ model PlayerProfile {
   @@map("player_profile")
 }
 
+model LeaderboardSnapshot {
+  id          String   @id @default(uuid())
+  snapshotKey String   @default("global")
+  userId      String
+  position    Int
+  username    String
+  avatar      String?
+  rating      Int
+  updatedAt   DateTime
+  refreshedAt DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([snapshotKey, userId])
+  @@unique([snapshotKey, position])
+  @@index([snapshotKey, position])
+  @@index([snapshotKey, refreshedAt])
+  @@map("leaderboard_snapshot")
+}
+
+model LeaderboardSnapshotMeta {
+  snapshotKey String   @id
+  refreshedAt DateTime?
+  rowCount    Int      @default(0)
+  stale       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("leaderboard_snapshot_meta")
+}
+
 model User {
   id            String         @id @default(uuid())
   username      String        @unique
@@ -78,7 +108,9 @@ model User {
   emailVerified DateTime?
   verificationReminderShownAt DateTime?
   image         String?
-  // role          String         @default("user") // e.g., "user", "admin", "moderator"
+  role          String         @default("user")
+  banned        Boolean        @default(false)
+  isPrimaryAdmin Boolean       @default(false)
 
   accounts      Account[]
   sessions      Session[]
@@ -87,10 +119,17 @@ model User {
   profile PlayerProfile? @relation(name: "UserProfile")
 
   pvpRoomsCreated PvpRoom[] @relation("PvpRoomCreated")
+  pvpRoomsHosted PvpRoom[] @relation("PvpRoomHost")
   pvpRoomMemberships PvpRoomMember[]
   pvpMatchParticipants PvpParticipant[]
   pvpRating PvpRating?
   pvpRatingChanges PvpRatingChange[]
+  pvpMatchmakingPreference PvpMatchmakingPreference?
+  cheatFlags    CheatFlag[]
+  adminActions  AdminActionLog[] @relation("AdminActionActor")
+  adminTargets  AdminActionLog[] @relation("AdminActionTarget")
+  submittedFeedback UserFeedback[] @relation("UserFeedbackAuthor")
+  respondedFeedback UserFeedback[] @relation("UserFeedbackResponder")
 
   // Optional for WebAuthn support
   Authenticator Authenticator[]
@@ -114,18 +153,65 @@ model User {
   updatedAt DateTime @updatedAt
 }
 
+model UserFeedback {
+  id                String   @id @default(uuid())
+  userId            String
+  category          String
+  status            String   @default("OPEN")
+  subject           String
+  body              String
+  rating            Int?
+  imageUrl          String?
+  adminReplyTitle   String?
+  adminReplyBody    String?
+  respondedByUserId String?
+  respondedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user        User  @relation("UserFeedbackAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  respondedBy User? @relation("UserFeedbackResponder", fields: [respondedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([category, createdAt])
+  @@index([userId, createdAt])
+}
+
+model AdminActionLog {
+  id           String   @id @default(uuid())
+  actorUserId  String
+  targetUserId String?
+  action       String
+  entityType   String
+  entityId     String?
+  summary      String
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  actorUser  User  @relation("AdminActionActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  targetUser User? @relation("AdminActionTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([entityType, createdAt])
+}
+
 model PvpRoom {
   id              String   @id @default(uuid())
   code            String   @unique
   status          String   @default("OPEN")
+  visibility      String   @default("PRIVATE")
   createdByUserId String
+  hostUserId      String
   minPlayers      Int      @default(2)
   maxPlayers      Int      @default(6)
   /// Optional pre-selected text snapshot for the next match in this room.
   textSnapshot    String?
+  autoStartAt     DateTime?
   expiresAt       DateTime?
 
   createdBy User @relation("PvpRoomCreated", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  host      User @relation("PvpRoomHost", fields: [hostUserId], references: [id], onDelete: Cascade)
   members   PvpRoomMember[]
   matches   PvpMatch[]
 
@@ -133,7 +219,21 @@ model PvpRoom {
   updatedAt DateTime @updatedAt
 
   @@index([status, createdAt])
+  @@index([visibility, status, createdAt])
   @@map("pvp_room")
+}
+
+model PvpMatchmakingPreference {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  preferredMode  String   @default("ranked_1v1")
+  textDifficulty String   @default("normal")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("pvp_matchmaking_preference")
 }
 
 model PvpRoomMember {
@@ -159,6 +259,8 @@ model PvpMatch {
   roomId          String?
   /// The canonical text used by all participants in the match.
   textSnapshot    String
+  textId          String?
+  inputNonce      String?
   serverStartAt   DateTime?
   startedAt       DateTime?
   endedAt         DateTime?
@@ -167,6 +269,7 @@ model PvpMatch {
   participants PvpParticipant[]
   events       PvpEvent[]
   ratingChanges PvpRatingChange[]
+  cheatFlags   CheatFlag[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -243,6 +346,27 @@ model PvpRatingChange {
   @@unique([matchId, userId])
   @@index([userId, createdAt])
   @@map("pvp_rating_change")
+}
+
+model CheatFlag {
+  id            String   @id @default(uuid())
+  userId        String
+  matchId       String
+  confidence    Float
+  flags         String[]
+  reviewed      Boolean  @default(false)
+  wouldSanction Boolean  @default(false)
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match PvpMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, matchId])
+  @@index([userId, createdAt])
+  @@index([reviewed, createdAt])
+  @@map("cheat_flag")
 }
 
 model PendingSignup {

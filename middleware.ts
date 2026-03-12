@@ -1,9 +1,36 @@
 // middleware.ts
+import jwt, {
+  JsonWebTokenError,
+  NotBeforeError,
+  TokenExpiredError,
+  type JwtPayload,
+} from "jsonwebtoken"
 import { auth } from "@/features/auth/lib/auth"
+import prisma from "@/features/auth/lib/db"
+import {
+  buildProtectedRequestUserHeaders,
+  type ProtectedRequestUser,
+} from "@/features/auth/server/protected-request-user"
+import { connectIfNeeded, redis } from "@/lib/redis"
 import { NextResponse, type NextRequest } from "next/server"
 import { rateLimiter } from "@/lib/rate-limiter"
 import { securityHeaders } from "@/lib/security-headers"
 import { logger } from "@/log/ServerLogger"
+
+export const runtime = "nodejs"
+
+const AUTH_COOKIE_NAME = "jwt"
+const PROTECTED_API_PREFIX = "/api/protected"
+const MISSING_USER_CACHE_PREFIX = "auth:missing-user"
+const MISSING_USER_CACHE_TTL_SECONDS = 60
+
+type AuthTokenPayload = JwtPayload & {
+  userId: string
+}
+
+type AuthenticatedUser = ProtectedRequestUser & {
+  banned: boolean
+}
 
 // 1. Rate limited endpoints (NON-API only since APIs are skipped)
 const RATE_LIMITED_ENDPOINTS = [
@@ -13,6 +40,7 @@ const RATE_LIMITED_ENDPOINTS = [
 // 2. Protected routes (page routes only)
 const PROTECTED_ROUTES = [
   "/dashboard",
+  "/admin",
   "/profile",
   "/settings"
 ]
@@ -37,9 +65,13 @@ export default auth(async (req) => {
   // session is available as req.auth
   const session = req.auth
 
-  // CRITICAL FIX: Skip middleware for ALL API routes entirely
+  if (isProtectedApiPath(pathname)) {
+    return handleProtectedApiRequest(req, { pathname, ip, userAgent })
+  }
+
+  // Non-protected API routes are intentionally left alone.
   if (pathname.startsWith('/api/')) {
-    return NextResponse.next();
+    return NextResponse.next()
   }
 
   if (process.env.NODE_ENV === 'production' && !isSecureRequest(req)) {
@@ -199,6 +231,252 @@ export default auth(async (req) => {
   }
 })
 
+async function handleProtectedApiRequest(
+  req: NextRequest,
+  context: { pathname: string; ip: string; userAgent: string }
+): Promise<NextResponse> {
+  const token = req.cookies.get(AUTH_COOKIE_NAME)?.value
+
+  if (!token) {
+    logger.warn('Protected API request missing auth cookie', {
+      pathname: context.pathname,
+      ip: context.ip,
+      userAgent: context.userAgent,
+    })
+
+    return createAuthFailureResponse(req, 401, 'UNAUTHORIZED')
+  }
+
+  const jwtSecret = process.env.JWT_SECRET
+  if (!jwtSecret) {
+    logger.error('Protected API middleware is missing JWT_SECRET', new Error('JWT_SECRET is not configured'), {
+      pathname: context.pathname,
+    })
+
+    return createServerErrorResponse()
+  }
+
+  let payload: AuthTokenPayload
+
+  try {
+    payload = verifyToken(token, jwtSecret)
+  } catch (error) {
+    if (
+      error instanceof TokenExpiredError ||
+      error instanceof JsonWebTokenError ||
+      error instanceof NotBeforeError
+    ) {
+      logger.warn('Protected API request presented an invalid JWT cookie', {
+        pathname: context.pathname,
+        ip: context.ip,
+        userAgent: context.userAgent,
+        error: error.message,
+      })
+
+      return createAuthFailureResponse(req, 401, 'INVALID_TOKEN')
+    }
+
+    logger.error('Protected API JWT verification failed unexpectedly', error, {
+      pathname: context.pathname,
+    })
+
+    return createServerErrorResponse()
+  }
+
+  const user = await findAuthenticatedUser(payload.userId, context)
+
+  if (!user) {
+    await writeMissingUserCache(payload.userId)
+
+    logger.warn('Protected API request used a valid JWT for a user that no longer exists', {
+      pathname: context.pathname,
+      userId: payload.userId,
+      ip: context.ip,
+      userAgent: context.userAgent,
+    })
+
+    return createAuthFailureResponse(req, 401, 'USER_NOT_FOUND')
+  }
+
+  if (user.banned) {
+    logger.warn('Protected API request blocked for banned user', {
+      pathname: context.pathname,
+      userId: user.id,
+      ip: context.ip,
+      userAgent: context.userAgent,
+    })
+
+    return createForbiddenResponse(req)
+  }
+
+  const response = NextResponse.next({
+    request: {
+      headers: buildProtectedRequestUserHeaders(user, req.headers),
+    },
+  })
+
+  applySecurityHeaders(response)
+  return response
+}
+
+function verifyToken(token: string, secret: string): AuthTokenPayload {
+  const payload = jwt.verify(token, secret)
+
+  if (!isAuthTokenPayload(payload)) {
+    throw new JsonWebTokenError('JWT payload is missing a valid userId')
+  }
+
+  return payload
+}
+
+function isAuthTokenPayload(payload: string | JwtPayload): payload is AuthTokenPayload {
+  return typeof payload !== 'string' && typeof payload.userId === 'string' && payload.userId.length > 0
+}
+
+async function findAuthenticatedUser(
+  userId: string,
+  context: { pathname: string; ip: string; userAgent: string }
+): Promise<AuthenticatedUser | null> {
+  const isKnownMissingUser = await readMissingUserCache(userId)
+  if (isKnownMissingUser) {
+    logger.warn('Protected API request hit missing-user negative cache', {
+      pathname: context.pathname,
+      userId,
+      ip: context.ip,
+      userAgent: context.userAgent,
+    })
+
+    return null
+  }
+
+  try {
+    // We verify the JWT signature and still hit the database on every protected request.
+    // A valid JWT only proves the token was minted by us; it does not prove the user still
+    // exists or is still allowed to act. This fail-fast lookup blocks stale sessions for
+    // deleted accounts, honors the banned flag, and keeps auth revocation server-controlled.
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        banned: true,
+      },
+    })
+
+    if (user) {
+      await deleteMissingUserCache(userId)
+    }
+
+    return user
+  } catch (error) {
+    logger.error('Protected API user lookup failed', error, {
+      pathname: context.pathname,
+      userId,
+      ip: context.ip,
+      userAgent: context.userAgent,
+    })
+
+    throw error
+  }
+}
+
+function createAuthFailureResponse(
+  req: NextRequest,
+  status: number,
+  error: 'UNAUTHORIZED' | 'USER_NOT_FOUND' | 'INVALID_TOKEN'
+): NextResponse {
+  const response = NextResponse.json({ error }, { status })
+
+  clearAuthCookie(response, req)
+  applySecurityHeaders(response)
+
+  return response
+}
+
+function createForbiddenResponse(req: NextRequest): NextResponse {
+  const response = NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 })
+
+  clearAuthCookie(response, req)
+  applySecurityHeaders(response)
+
+  return response
+}
+
+function createServerErrorResponse(): NextResponse {
+  const response = NextResponse.json(
+    { error: 'INTERNAL_SERVER_ERROR' },
+    { status: 500 }
+  )
+
+  applySecurityHeaders(response)
+  return response
+}
+
+function clearAuthCookie(response: NextResponse, req: NextRequest) {
+  response.cookies.set({
+    name: AUTH_COOKIE_NAME,
+    value: '',
+    httpOnly: true,
+    secure: shouldUseSecureCookies(req),
+    sameSite: 'strict',
+    path: '/',
+    expires: new Date(0),
+    maxAge: 0,
+  })
+}
+
+function applySecurityHeaders(response: NextResponse) {
+  Object.entries(securityHeaders).forEach(([key, value]) => {
+    response.headers.set(key, value)
+  })
+}
+
+function shouldUseSecureCookies(req: NextRequest): boolean {
+  const forwardedProto = req.headers.get('x-forwarded-proto')
+  if (forwardedProto) {
+    return forwardedProto.split(',')[0]?.trim().toLowerCase() === 'https'
+  }
+
+  return process.env.NODE_ENV === 'production'
+}
+
+function isProtectedApiPath(pathname: string): boolean {
+  return pathname === PROTECTED_API_PREFIX || pathname.startsWith(`${PROTECTED_API_PREFIX}/`)
+}
+
+function getMissingUserCacheKey(userId: string): string {
+  return `${MISSING_USER_CACHE_PREFIX}:${userId}`
+}
+
+async function readMissingUserCache(userId: string): Promise<boolean> {
+  try {
+    await connectIfNeeded()
+    const value = await redis.get(getMissingUserCacheKey(userId))
+    return value === '1'
+  } catch {
+    return false
+  }
+}
+
+async function writeMissingUserCache(userId: string): Promise<void> {
+  try {
+    await connectIfNeeded()
+    await redis.setex(getMissingUserCacheKey(userId), MISSING_USER_CACHE_TTL_SECONDS, '1')
+  } catch {
+    // Ignore Redis failures and fall back to DB validation.
+  }
+}
+
+async function deleteMissingUserCache(userId: string): Promise<void> {
+  try {
+    await connectIfNeeded()
+    await redis.del(getMissingUserCacheKey(userId))
+  } catch {
+    // Ignore Redis failures and leave cache cleanup best-effort.
+  }
+}
+
 // 10. Helper function to get client IP
 function getClientIP(req: NextRequest): string {
   return (
@@ -232,6 +510,7 @@ function isSecureRequest(req: NextRequest): boolean {
 // 12. Middleware configuration - UPDATED to exclude ALL API routes
 export const config = {
   matcher: [
+    '/api/protected/:path*',
     /*
      * Match all request paths except for the ones starting with:
      * - api/ (all API routes)
@@ -244,3 +523,26 @@ export const config = {
     "/((?!api/|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|@prisma).*)"
   ]
 }
+
+/**
+ * Example usage inside a protected route handler:
+ *
+ * export const runtime = "nodejs";
+ *
+ * import { NextRequest, NextResponse } from "next/server";
+ * import { readProtectedRequestUser } from "@/features/auth/server/protected-request-user";
+ *
+ * export async function GET(req: NextRequest) {
+ *   const user = readProtectedRequestUser(req);
+ *
+ *   if (!user) {
+ *     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+ *   }
+ *
+ *   return NextResponse.json({ user });
+ * }
+ *
+ * Next.js middleware cannot safely attach a runtime req.user property to NextRequest.
+ * Forwarded internal request headers plus the shared helper are the supported way to pass
+ * authenticated context from middleware to App Router route handlers.
+ */

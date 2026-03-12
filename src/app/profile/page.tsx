@@ -12,6 +12,7 @@ import {
 import { getOverallKeyboardPerformance } from "@/helper/overall-keyboard-performance";
 import { Prisma } from "@prisma/client";
 import { getRankInfo } from "@/features/ranking/rating";
+import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
 
 import ProfileClient from "./profile-client";
 
@@ -144,17 +145,9 @@ export default async function ProfilePage() {
   let { profile } = user;
   if (!profile) {
     try {
-      profile = await prisma.playerProfile.upsert({
-        where: { userId: user.id },
-        update: {},
-        create: {
-          userId: user.id,
-          username: user.username,
-          level: 1,
-          xp: 0,
-          achievements: [],
-          avatar: null,
-        },
+      profile = await ensurePlayerProfile({
+        userId: user.id,
+        username: user.username,
         select: {
           level: true,
           xp: true,
