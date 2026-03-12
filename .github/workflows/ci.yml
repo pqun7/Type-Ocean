@@ -8,22 +8,95 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       NODE_ENV: test
       NEXT_TELEMETRY_DISABLED: '1'
-      # Required envs for src/env.mjs (and some API routes)
-      AUTH_SECRET: 'ci_dummy_auth_secret_32_chars_minimum__1234'
-      DATABASE_URL: 'postgresql://user:password@localhost:5432/mydb'
+      # Core auth + app envs
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET != '' && secrets.AUTH_SECRET || 'ci_dummy_auth_secret_32_chars_minimum__1234' }}
+      NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET != '' && secrets.NEXTAUTH_SECRET || secrets.AUTH_SECRET != '' && secrets.AUTH_SECRET || 'ci_dummy_auth_secret_32_chars_minimum__1234' }}
+      NEXTAUTH_URL: 'http://localhost:3000'
+      DATABASE_URL: ${{ secrets.DATABASE_URL != '' && secrets.DATABASE_URL || 'postgresql://user:password@localhost:5432/mydb' }}
       AUTH_GITHUB_ID: 'dummy'
-      AUTH_GITHUB_SECRET: 'dummy'
+      AUTH_GITHUB_SECRET: ${{ secrets.AUTH_GITHUB_SECRET != '' && secrets.AUTH_GITHUB_SECRET || 'dummy' }}
+      AUTH_GOOGLE_ID: 'dummy'
+      AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET != '' && secrets.AUTH_GOOGLE_SECRET || 'dummy' }}
       SESSION_MAX_AGE: '2592000'
+      AUTH_ALLOW_DANGEROUS_EMAIL_ACCOUNT_LINKING: 'false'
+      API_INTERNAL_SECRET: ${{ secrets.API_INTERNAL_SECRET != '' && secrets.API_INTERNAL_SECRET || 'ci_internal_secret_change_me' }}
+
+      # Logging / service identity
+      LOG_LEVEL: 'info'
+      DEBUG_SENSITIVE: 'false'
+      SERVICE_NAME: 'type-ocean-ci'
+
+      # Redis
+      REDIS_URL: 'redis://127.0.0.1:6379'
+      REDIS_HOST: '127.0.0.1'
+      REDIS_PORT: '6379'
+      REDIS_PASSWORD: ''
+      REDIS_TLS: 'false'
+      REDIS_PARALLEL: 'false'
+
+      # Email + provider setup (safe placeholders for CI)
+      APP_NAME: 'Type Ocean CI'
+      EMAIL_FROM_NAME: 'Type Ocean CI'
+      EMAIL_FROM_ADDRESS: 'ci@example.com'
+      EMAIL_SUPPORT: 'support@example.com'
+      EMAIL_ADDRESS: 'ci@example.com'
+      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD != '' && secrets.EMAIL_PASSWORD || 'ci_dummy_password' }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY != '' && secrets.RESEND_API_KEY || 're_ci_dummy_key' }}
+
+      SMTP_HOST: 'smtp.example.com'
+      SMTP_PORT: '587'
+      SMTP_SECURE: 'false'
+      SMTP_USER: 'ci@example.com'
+      SMTP_PASS: ${{ secrets.SMTP_PASS != '' && secrets.SMTP_PASS || 'ci_dummy_password' }}
+      SMTP_MAX_CONNECTIONS: '2'
+      SMTP_MAX_MESSAGES: '50'
+      SMTP_RATE_DELTA_MS: '1000'
+      SMTP_RATE_LIMIT: '5'
+      SMTP_TLS_REJECT_UNAUTHORIZED: 'true'
+      EMAIL_SEND_MAX_ATTEMPTS: '3'
+      EMAIL_SEND_RETRY_BASE_DELAY_MS: '250'
+      EMAIL_DAILY_LIMIT: '500'
+      EMAIL_OTP_PEPPER: ${{ secrets.EMAIL_OTP_PEPPER != '' && secrets.EMAIL_OTP_PEPPER || 'ci_dummy_email_otp_pepper' }}
+
+      # Optional platform integrations
+      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN != '' && secrets.BLOB_READ_WRITE_TOKEN || 'vercel_blob_rw_ci_dummy_token' }}
+
+      # PvP / websocket related envs used by API helpers
+      PVP_GATEWAY_JWT_SECRET: ${{ secrets.PVP_GATEWAY_JWT_SECRET != '' && secrets.PVP_GATEWAY_JWT_SECRET || 'ci_dummy_pvp_gateway_jwt_secret_min_length' }}
+      NEXT_PUBLIC_PVP_WS_URL: 'ws://localhost:8787'
+      PVP_ALLOWED_ORIGINS: 'http://localhost:3000'
+      PVP_WS_TOKEN_TTL_SECONDS: '900'
+      PVP_WS_TOKEN_REFRESH_WINDOW_SECONDS: '120'
+      PVP_API_WS_TOKEN_LIMIT: '30'
+      PVP_API_WS_TOKEN_WINDOW_MS: '60000'
+      PVP_API_ME_LIMIT: '60'
+      PVP_API_ME_WINDOW_MS: '60000'
+      PVP_ROOM_CREATE_LIMIT: '1'
+      PVP_ROOM_CREATE_WINDOW_MS: '2000'
+      PVP_WS_MAX_CONNECTIONS_PER_IP: '5'
+      PVP_WS_CONNECTION_ATTEMPTS_PER_MIN: '20'
+      PVP_WS_CONNECTION_ATTEMPTS_BURST: '10'
+      PVP_ROOM_ACTION_COOLDOWN_MS: '2000'
+      PVP_WS_CONNECTION_SPIKE_ALERT_THRESHOLD: '30'
+      PVP_TLS_KEY_PATH: ''
+      PVP_TLS_CERT_PATH: ''
+      PVP_TLS_CA_PATH: ''
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
+
+      - name: Validate required CI env
+        run: |
+          node -e "const req=['AUTH_SECRET','DATABASE_URL','SESSION_MAX_AGE','API_INTERNAL_SECRET','PVP_GATEWAY_JWT_SECRET']; const missing=req.filter(k=>!process.env[k]||!String(process.env[k]).trim()); if(missing.length){console.error('Missing required env: '+missing.join(', ')); process.exit(1)}; console.log('CI env validation passed for: '+req.join(', '));"
 
       - name: Install
         run: npm ci

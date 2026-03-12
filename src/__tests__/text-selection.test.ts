@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 jest.mock("../../services/pvp-gateway/src/texts", () => ({
-  loadLongTexts: () => [
+  loadRankedTexts: () => [
     "A".repeat(200),
     "B".repeat(200),
     "C".repeat(200),

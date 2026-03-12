@@ -369,7 +369,7 @@ describe("new achievements", () => {
     };
     const names: string[] = [];
     calculateSessionXP(make({ consistency: 90 }), progressState, undefined, (t) => names.push(t));
-    expect(names).toContain("Tempo");
+    expect(names).toContain("Consistent Edge");
   });
 
   it("consistent_edge does NOT fire when consistency < 85", () => {
