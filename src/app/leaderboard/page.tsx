@@ -1,22 +1,12 @@
 import Image from "next/image";
-import prisma from "@/features/auth/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getRankInfo } from "@/features/ranking/rating";
 import { getRankImageSrc } from "@/features/ranking/rank-visuals";
+import { getLeaderboardPage } from "@/features/pvp/server/leaderboard-cache";
 
 export const revalidate = 30;
 
 export default async function LeaderboardPage() {
-  const top = await prisma.playerProfile.findMany({
-    orderBy: [{ rating: "desc" }, { updatedAt: "desc" }],
-    take: 50,
-    select: {
-      userId: true,
-      username: true,
-      avatar: true,
-      rating: true,
-    },
-  });
+  const top = await getLeaderboardPage({ limit: 50, offset: 0 });
 
   return (
     <div className="min-h-svh p-6 md:p-10">
@@ -26,19 +16,19 @@ export default async function LeaderboardPage() {
             <CardTitle className="text-[#E0E7FF]">Leaderboard</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {top.length === 0 ? (
+            {top.entries.length === 0 ? (
               <div className="text-sm text-[#8A8FB5]">No ranked players yet.</div>
             ) : (
               <div className="divide-y divide-white/10 rounded-xl border border-white/10">
-                {top.map((p, idx) => {
-                  const rank = getRankInfo(p.rating);
+                {top.entries.map((p) => {
+                  const rankSrc = getRankImageSrc(p.tier);
                   return (
                     <div
                       key={p.userId}
                       className="flex items-center justify-between gap-3 px-4 py-3"
                     >
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="w-10 text-sm font-semibold text-[#E0E7FF]">#{idx + 1}</div>
+                        <div className="w-10 text-sm font-semibold text-[#E0E7FF]">#{p.position}</div>
                         <div className="h-9 w-9 overflow-hidden rounded-full border border-white/10 bg-white/5">
                           {p.avatar ? (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -55,15 +45,8 @@ export default async function LeaderboardPage() {
                             {p.username}
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            {(() => {
-                              const rankSrc = getRankImageSrc(rank.tier);
-                              return (
-                                <>
-                                  <Image src={rankSrc} alt={rank.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_10px_rgba(100,200,255,0.5)]" />
-                                  <span className="text-xs text-[#8A8FB5]">{rank.tier}</span>
-                                </>
-                              );
-                            })()}
+                            <Image src={rankSrc} alt={p.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_10px_rgba(100,200,255,0.5)]" />
+                            <span className="text-xs text-[#8A8FB5]">{p.tier}</span>
                           </div>
                         </div>
                       </div>

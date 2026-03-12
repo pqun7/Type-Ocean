@@ -1,0 +1,3 @@
+-- Phase 3 performance indexes were already reflected in the schema/workspace.
+-- This placeholder migration restores Prisma migration integrity so pending
+-- migrations can be applied consistently in development environments.

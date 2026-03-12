@@ -122,7 +122,7 @@ describe("email verification OTP actions", () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toBe("OTP_COOLDOWN");
-        expect(result.retryAfterSeconds).toBeGreaterThan(0);
+        expect("retryAfterSeconds" in result ? result.retryAfterSeconds : 0).toBeGreaterThan(0);
       }
       expect(prismaMock.user.update).not.toHaveBeenCalled();
       expect(sendVerificationOtpEmail).not.toHaveBeenCalled();

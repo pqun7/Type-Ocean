@@ -6,6 +6,7 @@ import prisma from "@/features/auth/lib/db";
 import { authorizeRequest } from "@/app/api/shared.server";
 import { getPvpRankInfo } from "@/features/pvp/rank";
 import { rateLimiter } from "@/lib/rate-limiter";
+import { readCachedPvpSelf, writeCachedPvpSelf } from "@/features/pvp/server/pvp-self-cache";
 
 export async function GET(req: NextRequest) {
   const rateLimit = await rateLimiter.applyRateLimit(req, "/api/pvp/me:GET");
@@ -16,6 +17,11 @@ export async function GET(req: NextRequest) {
   const userId = await authorizeRequest(req);
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: rateLimit.headers });
+  }
+
+  const cached = await readCachedPvpSelf(userId);
+  if (cached) {
+    return NextResponse.json(cached, { headers: rateLimit.headers });
   }
 
   const rating = await prisma.pvpRating.upsert({
@@ -57,15 +63,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json(
-    {
-      rating: rating.rating,
-      deviation: rating.deviation,
-      gamesPlayed: rating.gamesPlayed,
-      updatedAt: rating.updatedAt.toISOString(),
-      rank,
-      classified,
-    },
-    { headers: rateLimit.headers }
-  );
+  const payload = {
+    rating: rating.rating,
+    deviation: rating.deviation,
+    gamesPlayed: rating.gamesPlayed,
+    updatedAt: rating.updatedAt.toISOString(),
+    rank,
+    classified,
+  };
+
+  await writeCachedPvpSelf(userId, payload);
+
+  return NextResponse.json(payload, { headers: rateLimit.headers });
 }

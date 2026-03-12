@@ -39,6 +39,8 @@ export function generateEmergencyProfile(userId: string): PlayerProfile & { user
       emailVerifyOtpExpiry: null,
       emailVerifyOtpSentAt: null,
       emailVerifyOtpFailedAttempts: 0,
+      pvpWsTokenVersion: 0,
+      pvpWsTokensValidAfter: new Date(),
       verificationReminderShownAt: null,
     },
   };

@@ -13,6 +13,7 @@ import Caret from "@/components/TypingTest/Caret";
 import useCaret, { getCaretPositionForIndex } from "@/features/typing/hooks/useCaret";
 import PvpResultsOverlay from "@/components/pvp/PvpResultsOverlay";
 import { segmentGraphemes } from "@/features/typing/utils/graphemes";
+import { usePvpErrorAlert } from "@/features/pvp/client/pvp-error-utils";
 
 function slotToColor(slot: number) {
   switch (slot % 6) {
@@ -34,6 +35,7 @@ function slotToColor(slot: number) {
 export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const router = useRouter();
   const { status, error, user, send, addListener } = usePvpSocket();
+  usePvpErrorAlert(error);
 
   const [text, setText] = useState<string>("");
   const [serverStartAt, setServerStartAt] = useState<string | null>(null);
@@ -47,6 +49,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
 
   const [userInput, setUserInput] = useState<string>("");
   const seqRef = useRef(0);
+  const revisionRef = useRef(0);
   const lastSentAtRef = useRef(0);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -61,11 +64,15 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const [rematchOfferFromUserId, setRematchOfferFromUserId] = useState<string | null>(null);
   const [rematchAcceptedUserIds, setRematchAcceptedUserIds] = useState<string[]>([]);
   const [rematchDeclinedReason, setRematchDeclinedReason] = useState<string | null>(null);
+  const [matchEndingNotice, setMatchEndingNotice] = useState<string | null>(null);
 
   const [results, setResults] = useState<null | {
     placements: Array<{ position: number; userId: string; username: string; wpm: number; accuracy: number; errors: number; timeMs: number }>;
     ratingChanges: Array<{ userId: string; before: number; after: number; delta: number }>;
   }>(null);
+  const statusRef = useRef(status);
+  const matchStatusRef = useRef(matchStatus);
+  const resultsRef = useRef(results);
 
   // Reset per-match state on navigation.
   useEffect(() => {
@@ -78,6 +85,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     setRemoteCaretPositions({});
     setUserInput("");
     seqRef.current = 0;
+    revisionRef.current = 0;
     lastSentAtRef.current = 0;
     wpmHistoryRef.current = {};
     lastSampleAtRef.current = {};
@@ -85,6 +93,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     setRematchOfferFromUserId(null);
     setRematchAcceptedUserIds([]);
     setRematchDeclinedReason(null);
+    setMatchEndingNotice(null);
   }, [matchId]);
 
   useEffect(() => {
@@ -93,12 +102,36 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   }, [status, send, matchId]);
 
   useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    matchStatusRef.current = matchStatus;
+  }, [matchStatus]);
+
+  useEffect(() => {
+    resultsRef.current = results;
+  }, [results]);
+
+  useEffect(() => {
+    return () => {
+      if (statusRef.current !== "ready") return;
+      if (resultsRef.current) return;
+      if (matchStatusRef.current === "FINISHED" || matchStatusRef.current === "ENDING") return;
+      send({ type: "MATCH_LEAVE", payload: { matchId } });
+    };
+  }, [matchId, send]);
+
+  useEffect(() => {
     return addListener((m) => {
       if (m.type === "MATCH_FOUND" && m.payload.matchId !== matchId) {
         router.push(`/pvp/match/${m.payload.matchId}`);
         return;
       }
       if (m.type === "MATCH_STATE" && m.payload.matchId === matchId) {
+        if (m.payload.revision < revisionRef.current) return;
+        const shouldFocus = revisionRef.current === 0;
+        revisionRef.current = m.payload.revision;
         setText(m.payload.textSnapshot);
         setServerStartAt(m.payload.serverStartAt);
         setRoomCode(m.payload.roomCode ?? null);
@@ -108,19 +141,23 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         for (const p of m.payload.players) next[p.userId] = p.caretIndex;
         setCarets(next);
 
-        // reset history buckets
-        const hist: Record<string, Array<{ tMs: number; wpm: number }>> = {};
-        const last: Record<string, number> = {};
+        const hist = { ...wpmHistoryRef.current };
+        const last = { ...lastSampleAtRef.current };
         for (const p of m.payload.players) {
-          hist[p.userId] = [];
-          last[p.userId] = 0;
+          hist[p.userId] = hist[p.userId] ?? [];
+          last[p.userId] = last[p.userId] ?? 0;
         }
         wpmHistoryRef.current = hist;
         lastSampleAtRef.current = last;
 
-        setTimeout(() => inputRef.current?.focus(), 50);
+        if (shouldFocus) {
+          setTimeout(() => inputRef.current?.focus(), 50);
+        }
       }
       if (m.type === "PROGRESS" && m.payload.matchId === matchId) {
+        if (m.payload.revision <= revisionRef.current) return;
+        revisionRef.current = m.payload.revision;
+        setMatchStatus(m.payload.status);
         setCarets((prev) => ({ ...prev, [m.payload.userId]: m.payload.caretIndex }));
 
         const tMs = typeof m.payload.serverNowMs === "number" ? m.payload.serverNowMs : Date.now();
@@ -132,7 +169,12 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
           wpmHistoryRef.current[m.payload.userId] = bucket;
         }
       }
+      if (m.type === "MATCH_ENDED" && m.payload.matchId === matchId) {
+        setMatchStatus("ENDING");
+        setMatchEndingNotice(m.payload.message);
+      }
       if (m.type === "RESULTS" && m.payload.matchId === matchId) {
+        setMatchEndingNotice(null);
         setResults({ placements: m.payload.placements, ratingChanges: m.payload.ratingChanges });
       }
 
@@ -158,6 +200,8 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   }, [text, userInput]);
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (matchEndingNotice || results) return;
+
     const next = e.target.value;
     setUserInput(next);
 
@@ -298,7 +342,8 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         </div>
       </div>
 
-      {error ? <div className="text-sm text-red-400">{error}</div> : null}
+      {error ? <div className="text-sm text-amber-300">A match connection issue occurred. Please try again.</div> : null}
+      {matchEndingNotice ? <div className="text-sm text-amber-300">{matchEndingNotice}</div> : null}
 
       <div className="relative w-full p-4">
         <TextDisplay

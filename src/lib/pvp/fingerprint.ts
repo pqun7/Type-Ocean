@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-import { sanitizeOpaqueHeaderValue, sanitizeUserAgent } from "@/lib/sanitize";
+import { sanitizeOpaqueHeaderValue, sanitizeUserAgent } from "../sanitize";
 
 export const PVP_CLIENT_SECRET_REGEX = /^[A-Za-z0-9_-]{32,128}$/;
 

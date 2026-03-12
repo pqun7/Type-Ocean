@@ -26,6 +26,7 @@ export type ServerMessage = {
     | "ROOM_STATE"
     | "MATCH_FOUND"
     | "MATCH_STATE"
+    | "MATCH_ENDED"
     | "PROGRESS"
     | "RESULTS"
     | "REMATCH_OFFER"

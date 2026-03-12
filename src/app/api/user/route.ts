@@ -12,6 +12,7 @@ import { normalizeUsernameForStorage } from "@/features/auth/utils/username";
 import { createHash, randomInt } from "crypto";
 import { sendVerificationOtpEmail } from "@/features/auth/providers/nodemailer";
 import { sanitizeAvatarUrl, sanitizeDisplayName } from "@/lib/sanitize";
+import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 
 const OTP_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -523,6 +524,9 @@ export async function PATCH(req: NextRequest) {
             hideFromLeaderboard: hideFromLeaderboardPatch,
           }),
         },
+      });
+      void refreshLeaderboardProfileCache(session.user.id).catch(() => {
+        // ignore
       });
     }
 

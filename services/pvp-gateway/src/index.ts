@@ -14,22 +14,74 @@ import { updateElo1v1 } from "./mmr";
 import { createAiProfile, estimatePlayerSkill, mulberry32, ratingFromWpm } from "./ai";
 import { createTokenBucket, tryConsume, type TokenBucket } from "./rate-limit";
 import { createRedisBus, matchChannel, roomChannel, userChannel, type RedisBus } from "./redis-bus";
-import { incrementGatewayMetric } from "./metrics";
+import { incrementGatewayMetric, observeGatewayHistogram, renderGatewayMetrics, setGatewayGauge } from "./metrics";
+import { createGatewayEventBus } from "./events";
+import { buildIdempotencyKey, getIdempotencyRecord, getIdempotencyTtlSeconds, InMemoryIdempotencyStore, setIdempotencyRecord, type IdempotencyRecord } from "./idempotency";
+import { buildDisconnectForfeitOutcome, runDisconnectForfeitSequence } from "./disconnect-forfeit";
+import { enqueueOrMatchInMemory } from "./in-memory-queue";
+import { shouldAcceptInputUpdate } from "./input-update";
+import { createLocalLock } from "./local-lock";
+import { matchStateFromDbStatus, matchStateToDbStatus, matchStateToLegacyStatus, transitionMatchState, type MatchLifecycleState } from "./match-fsm";
+import { buildMatchStatePayload, buildProgressPayload, bumpMatchRevision, markMatchSnapshotBroadcast, shouldBroadcastPeriodicMatchSnapshot } from "./match-sync";
+import { createMessageBatcher, isBatchableServerMessage } from "./message-batcher";
+import { invalidatePvpSelfCaches } from "./pvp-rating-cache";
+import { getDisconnectForfeitPolicy, getStaleMatchAbortReason, shouldRejectDuplicateMatchTab, shouldScheduleDisconnectForfeit } from "./match-session-guards";
 import { sanitizeAvatarUrl, sanitizeDisplayName, sanitizeRoomCode, sanitizeUserAgent } from "../../../src/lib/sanitize";
+import { gatewayLogger } from "../../../src/log/gatewayLogger";
+import { canJoinPvpMatchSocket, isTerminalPvpMatchStatus } from "../../../src/features/pvp/server/match-access";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 const INSTANCE_ID = process.env.PVP_INSTANCE_ID ?? crypto.randomUUID();
 
 let redisBus: RedisBus | null = null;
+let messageBatcher: ReturnType<typeof createMessageBatcher<WsConn>> | null = null;
+const WS_BATCH_FLUSH_SIZE_BUCKETS = [1, 2, 4, 8, 16, 32, 64];
+const WS_MESSAGE_SIZE_BUCKETS = [64, 128, 256, 512, 1024, 2048, 4096, 8192];
+const DISCONNECT_FORFEIT_GRACE_MS = envInt("PVP_DISCONNECT_FORFEIT_GRACE_MS", 10_000);
+const MATCH_RESULT_RETENTION_MS = envMs("PVP_MATCH_RESULT_RETENTION_MS", 5 * 60 * 1000);
+const MATCH_SWEEP_INTERVAL_MS = envMs("PVP_MATCH_SWEEP_INTERVAL_MS", 30_000);
+const MATCH_MAX_COUNTDOWN_AGE_MS = envMs("PVP_MATCH_MAX_COUNTDOWN_AGE_MS", 2 * 60 * 1000);
+const MATCH_MAX_LIVE_AGE_MS = envMs("PVP_MATCH_MAX_LIVE_AGE_MS", 30 * 60 * 1000);
+const matchFinalizationLocks = new Set<string>();
+const matchCleanupTimers = new Map<string, NodeJS.Timeout>();
+
+function gatewayLogDebug(message: string, meta?: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "development") return;
+  gatewayLogger.debug(`[PVP-GATEWAY] ${message}`, meta);
+}
+
+function gatewayLogInfo(message: string, meta?: Record<string, unknown>) {
+  gatewayLogger.info(`[PVP-GATEWAY] ${message}`, meta);
+}
+
+function gatewayLogWarn(message: string, meta?: Record<string, unknown>) {
+  gatewayLogger.warn(`[PVP-GATEWAY] ${message}`, meta);
+}
+
+function gatewayLogError(message: string, error: unknown, meta?: Record<string, unknown>) {
+  gatewayLogger.error(`[PVP-GATEWAY] ${message}`, error, meta);
+}
 
 type WsConn = WebSocket & {
+  connectionId?: string;
   user?: AuthedUser;
   matchId?: string;
+  matchSessionKey?: string;
   roomCode?: string;
   ip?: string;
   rl?: { general: TokenBucket; input: TokenBucket; roomAction: TokenBucket };
   rawMsgStrikes?: number;
   presenceInterval?: NodeJS.Timeout | null;
+};
+
+type Placement = {
+  position: number;
+  userId: string;
+  username: string;
+  wpm: number;
+  accuracy: number;
+  errors: number;
+  timeMs: number;
 };
 
 function envInt(name: string, fallback: number) {
@@ -82,9 +134,25 @@ function getClientIp(req: http.IncomingMessage) {
 }
 
 function createGatewayServer() {
-  const healthHandler: http.RequestListener = (_, res) => {
-    res.writeHead(200);
-    res.end("pvp-gateway ok");
+  const healthHandler: http.RequestListener = (req, res) => {
+    const path = req.url?.split("?")[0] ?? "/";
+
+    if (path === "/metrics") {
+      setGatewayGauge("pvp_gateway_uptime_seconds", Number(process.uptime().toFixed(3)));
+      setGatewayGauge("pvp_gateway_heap_used_bytes", process.memoryUsage().heapUsed);
+      res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" });
+      res.end(renderGatewayMetrics());
+      return;
+    }
+
+    if (path === "/healthz" || path === "/") {
+      res.writeHead(200);
+      res.end("pvp-gateway ok");
+      return;
+    }
+
+    res.writeHead(404);
+    res.end("not found");
   };
 
   if (!IS_PROD) {
@@ -120,12 +188,38 @@ function isSecureGatewayRequest(req: http.IncomingMessage) {
   return false;
 }
 
-function send(ws: WsConn, type: ServerMessage["type"], payload: unknown) {
+function sendImmediate(ws: WsConn, type: ServerMessage["type"], payload: unknown) {
   try {
-    ws.send(toJson({ type, payload }));
+    const serialized = toJson({ type, payload });
+    incrementGatewayMetric("pvp_ws_outbound_messages_total", { type, batching: "immediate" });
+    observeGatewayHistogram("pvp_ws_outbound_message_bytes", Buffer.byteLength(serialized, "utf8"), WS_MESSAGE_SIZE_BUCKETS, {
+      type,
+      batching: "immediate",
+    });
+    ws.send(serialized);
   } catch {
     // ignore
   }
+}
+
+function send(ws: WsConn, type: ServerMessage["type"], payload: unknown) {
+  if (messageBatcher && isBatchableServerMessage(type)) {
+    if (type === "PROGRESS") {
+      messageBatcher.enqueue(ws, {
+        type,
+        payload: payload as { matchId: string; userId: string } & Record<string, unknown>,
+      });
+      return;
+    }
+
+    messageBatcher.enqueue(ws, {
+      type,
+      payload: payload as { room: { code: string } } & Record<string, unknown>,
+    });
+    return;
+  }
+
+  sendImmediate(ws, type, payload);
 }
 
 function getAuthedSocketsForUser(wss: WebSocketServer, userId: string) {
@@ -172,6 +266,54 @@ function broadcastMatch(wss: WebSocketServer, matchId: string, type: ServerMessa
     if (c.matchId !== matchId) return;
     send(c, type, payload);
   });
+}
+
+function getDisconnectForfeitKey(matchId: string, userId: string) {
+  return `${matchId}:${userId}`;
+}
+
+function tryBeginMatchFinalization(matchId: string) {
+  if (matchFinalizationLocks.has(matchId)) return false;
+  matchFinalizationLocks.add(matchId);
+  return true;
+}
+
+function endMatchFinalization(matchId: string) {
+  matchFinalizationLocks.delete(matchId);
+}
+
+function clearScheduledMatchCleanup(matchId: string) {
+  const existing = matchCleanupTimers.get(matchId);
+  if (!existing) return;
+  clearTimeout(existing);
+  matchCleanupTimers.delete(matchId);
+}
+
+function scheduleMatchCleanup(state: InMemoryState, matchId: string, delayMs = MATCH_RESULT_RETENTION_MS) {
+  clearScheduledMatchCleanup(matchId);
+  const match = state.matches.get(matchId);
+  if (!match) return;
+
+  match.cleanupScheduledAtMs = Date.now() + delayMs;
+  const timer = setTimeout(() => {
+    clearScheduledMatchCleanup(matchId);
+    state.clearAiInterval(matchId);
+    state.matches.delete(matchId);
+  }, delayMs);
+
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+
+  matchCleanupTimers.set(matchId, timer);
+}
+
+function maybeBroadcastMatchSnapshot(wss: WebSocketServer, match: InMemoryState["matches"] extends Map<string, infer T> ? T : never, nowMs: number, intervalMs: number) {
+  if (!shouldBroadcastPeriodicMatchSnapshot(match, nowMs, intervalMs)) return false;
+  markMatchSnapshotBroadcast(match, nowMs);
+  incrementGatewayMetric("pvp_match_snapshots_total", { state: match.state });
+  broadcastMatch(wss, match.matchId, "MATCH_STATE", buildMatchStatePayload(match, nowMs));
+  return true;
 }
 
 function countErrors(text: string, input: string) {
@@ -221,54 +363,222 @@ function isAiUserId(userId: string) {
   return userId.startsWith("ai:");
 }
 
-async function finalizeMatchIfComplete(params: {
+function findActiveMatchByUserId(state: InMemoryState, userId: string) {
+  for (const match of state.matches.values()) {
+    if (!match.participants.has(userId)) continue;
+    if (match.state === "finished" || match.state === "aborted") continue;
+    return match;
+  }
+  return null;
+}
+
+function applyMatchTransition(params: {
+  match: InMemoryState["matches"] extends Map<string, infer T> ? T : never;
+  nextState: MatchLifecycleState;
+  eventBus: ReturnType<typeof createGatewayEventBus>;
+  reason?: "completed" | "opponent_disconnected" | "aborted";
+}) {
+  const { match, nextState, eventBus } = params;
+  const from = match.state;
+
+  try {
+    const transitioned = transitionMatchState(match, nextState);
+    match.state = transitioned.state;
+    match.stateChangedAt = transitioned.stateChangedAt;
+    match.status = matchStateToLegacyStatus(transitioned.state);
+  } catch {
+    eventBus.emit("match:invalid-transition", {
+      matchId: match.matchId,
+      from,
+      to: nextState,
+      roomCode: match.roomCode,
+      atMs: Date.now(),
+    });
+    return false;
+  }
+
+  const event = {
+    matchId: match.matchId,
+    from,
+    to: nextState,
+    roomCode: match.roomCode,
+    atMs: match.stateChangedAt,
+  };
+
+  if (nextState === "countdown") {
+    eventBus.emit("match:countdown", event);
+  } else if (nextState === "live") {
+    eventBus.emit("match:live", event);
+  } else if (nextState === "finished") {
+    eventBus.emit("match:ended", {
+      ...event,
+      reason: params.reason ?? "completed",
+    });
+    eventBus.emit("match:finished", {
+      ...event,
+      reason: params.reason ?? "completed",
+    });
+  }
+
+  return true;
+}
+
+async function loadIdempotencyHit(params: {
+  redis: RedisBus["redis"] | null;
+  store: InMemoryIdempotencyStore;
+  eventBus: ReturnType<typeof createGatewayEventBus>;
+  userId: string;
+  messageType: string;
+  requestId?: string;
+}) {
+  if (!params.requestId) return null;
+  const key = buildIdempotencyKey(params.userId, params.messageType, params.requestId);
+  const record = await getIdempotencyRecord({
+    redis: params.redis,
+    store: params.store,
+    key,
+  });
+  params.eventBus.emit(record ? "idempotency:hit" : "idempotency:miss", {
+    scope: params.messageType.toLowerCase(),
+    userId: params.userId,
+  });
+  return { key, record };
+}
+
+async function storeIdempotencyHit(params: {
+  redis: RedisBus["redis"] | null;
+  store: InMemoryIdempotencyStore;
+  key?: string;
+  messageType: string;
+  value: IdempotencyRecord;
+}) {
+  if (!params.key) return;
+  await setIdempotencyRecord({
+    redis: params.redis,
+    store: params.store,
+    key: params.key,
+    value: params.value,
+    ttlSeconds: getIdempotencyTtlSeconds(params.messageType),
+  });
+}
+
+async function restoreRoomAfterMatch(prisma: PrismaClient, wss: WebSocketServer, roomCode: string) {
+  const room = await prisma.pvpRoom.findUnique({
+    where: { code: roomCode },
+    select: { id: true, code: true, status: true, maxPlayers: true },
+  });
+  if (!room) return;
+
+  await prisma.$transaction([
+    prisma.pvpRoom.update({
+      where: { id: room.id },
+      data: { status: "OPEN" },
+    }),
+    prisma.pvpRoomMember.updateMany({
+      where: { roomId: room.id, leftAt: null },
+      data: { readyAt: null },
+    }),
+  ]);
+
+  const members = await prisma.pvpRoomMember.findMany({
+    where: { roomId: room.id, leftAt: null },
+    orderBy: { joinedAt: "asc" },
+    select: {
+      userId: true,
+      colorSlot: true,
+      readyAt: true,
+      user: { select: { username: true, profile: { select: { avatar: true } } } },
+    },
+  });
+
+  broadcastRoom(wss, roomCode, "ROOM_STATE", {
+    room: {
+      code: room.code,
+      status: "OPEN",
+      maxPlayers: room.maxPlayers,
+      members: members.map((member) => ({
+        userId: member.userId,
+        username: sanitizeDisplayName(member.user.username, 32) || "user",
+        avatar: sanitizeAvatarUrl(member.user.profile?.avatar ?? null),
+        slot: member.colorSlot,
+        ready: false,
+      })),
+    },
+  });
+}
+
+async function finalizeMatchResults(params: {
   prisma: PrismaClient;
   wss: WebSocketServer;
   state: InMemoryState;
+  eventBus: ReturnType<typeof createGatewayEventBus>;
   matchId: string;
+  placements: Placement[];
+  reason: "completed" | "opponent_disconnected" | "aborted";
 }) {
   const match = params.state.matches.get(params.matchId);
   if (!match) return;
-  if (match.status === "FINISHED") return;
+  if (match.state === "finished" || match.state === "aborted") return;
 
-  const all = Array.from(match.participants.values());
-  const finished = all.filter((p0) => p0.finishedAt != null);
-  if (finished.length < Math.max(2, all.length)) return;
+  gatewayLogInfo("Finalizing match results", {
+    matchId: params.matchId,
+    reason: params.reason,
+    participants: params.placements.length,
+  });
 
-  match.status = "FINISHED";
+  match.endedReason = params.reason;
+  applyMatchTransition({
+    match,
+    nextState: "finished",
+    eventBus: params.eventBus,
+    reason: params.reason,
+  });
   params.state.clearAiInterval(match.matchId);
 
   await params.prisma.pvpMatch.update({
     where: { id: match.matchId },
     data: {
-      status: "FINISHED",
+      status: matchStateToDbStatus("finished"),
       startedAt: new Date(match.serverStartAtMs),
       endedAt: new Date(),
     },
   });
 
-  const placements = [...all]
-    .sort((a, b) => (a.finishedAt! - b.finishedAt!))
-    .map((p0, idx) => ({
-      position: idx + 1,
-      userId: p0.userId,
-      username: p0.username,
-      wpm: p0.wpm,
-      accuracy: p0.accuracy,
-      errors: p0.errors,
-      timeMs: (p0.finishedAt ?? Date.now()) - match.serverStartAtMs,
-    }));
+  await Promise.all(
+    params.placements
+      .filter((placement) => !isAiUserId(placement.userId))
+      .map((placement) =>
+        params.prisma.pvpParticipant
+          .update({
+            where: {
+              matchId_userId: {
+                matchId: match.matchId,
+                userId: placement.userId,
+              },
+            },
+            data: {
+              finalWpm: placement.wpm,
+              finalAccuracy: placement.accuracy,
+              finalErrors: placement.errors,
+              timeSpentSec: Math.max(0, Math.floor(placement.timeMs / 1000)),
+              completedAt: new Date(match.serverStartAtMs + placement.timeMs),
+              ...(params.reason === "opponent_disconnected" && match.forfeitedUserId === placement.userId
+                ? { disconnectCount: { increment: 1 } }
+                : {}),
+            },
+          })
+          .catch(() => null)
+      )
+  );
 
-  // Rating changes
   let ratingChanges: Array<{ userId: string; before: number; after: number; delta: number }> = [];
 
-  const ai = placements.find((p) => isAiUserId(p.userId)) ?? null;
-  const humans = placements.filter((p) => !isAiUserId(p.userId));
+  const ai = params.placements.find((p) => isAiUserId(p.userId)) ?? null;
+  const humans = params.placements.filter((p) => !isAiUserId(p.userId));
 
-  // Only ranked when roomCode is null
-  if (match.roomCode === null && placements.length === 2 && humans.length === 1 && ai) {
+  if (match.roomCode === null && params.placements.length === 2 && humans.length === 1 && ai) {
     const humanId = humans[0]!.userId;
-    const humanWon = placements[0]!.userId === humanId;
+    const humanWon = params.placements[0]!.userId === humanId;
 
     const humanRow = await params.prisma.pvpRating.upsert({
       where: { userId: humanId },
@@ -276,7 +586,6 @@ async function finalizeMatchIfComplete(params: {
       create: { userId: humanId },
     });
 
-    // Derive AI rating from its effective WPM.
     const aiRating = ratingFromWpm(ai.wpm);
     const upd = updateElo1v1({
       a: { rating: humanRow.rating, deviation: humanRow.deviation },
@@ -305,10 +614,9 @@ async function finalizeMatchIfComplete(params: {
     ]);
 
     ratingChanges = [{ userId: humanId, before: humanRow.rating, after: upd.nextA.rating, delta: upd.deltaA }];
-  } else if (match.roomCode === null && placements.length === 2 && humans.length === 2) {
-    // Human vs human (existing logic)
-    const winnerId = placements[0]!.userId;
-    const loserId = placements[1]!.userId;
+  } else if (match.roomCode === null && params.placements.length === 2 && humans.length === 2) {
+    const winnerId = params.placements[0]!.userId;
+    const loserId = params.placements[1]!.userId;
 
     const [winnerRow, loserRow] = await Promise.all([
       params.prisma.pvpRating.upsert({ where: { userId: winnerId }, update: {}, create: { userId: winnerId } }),
@@ -347,18 +655,185 @@ async function finalizeMatchIfComplete(params: {
 
   broadcastMatch(params.wss, match.matchId, "RESULTS", {
     matchId: match.matchId,
-    placements,
+    placements: params.placements,
     ratingChanges,
   });
+
+  await invalidatePvpSelfCaches(
+    redisBus?.redis ?? null,
+    ratingChanges.map((change) => change.userId)
+  );
+
+  match.finalizedAtMs = Date.now();
+  scheduleMatchCleanup(params.state, match.matchId);
+
+  if (match.roomCode) {
+    await restoreRoomAfterMatch(params.prisma, params.wss, match.roomCode);
+  }
+}
+
+async function finalizeMatchIfComplete(params: {
+  prisma: PrismaClient;
+  wss: WebSocketServer;
+  state: InMemoryState;
+  eventBus: ReturnType<typeof createGatewayEventBus>;
+  matchId: string;
+}) {
+  const match = params.state.matches.get(params.matchId);
+  if (!match) return;
+  if (match.state === "finished" || match.state === "aborted") return;
+
+  const all = Array.from(match.participants.values());
+  const finished = all.filter((p0) => p0.finishedAt != null);
+  if (finished.length < Math.max(2, all.length)) return;
+
+  const placements: Placement[] = [...all]
+    .sort((a, b) => (a.finishedAt! - b.finishedAt!))
+    .map((p0, idx) => ({
+      position: idx + 1,
+      userId: p0.userId,
+      username: p0.username,
+      wpm: p0.wpm,
+      accuracy: p0.accuracy,
+      errors: p0.errors,
+      timeMs: (p0.finishedAt ?? Date.now()) - match.serverStartAtMs,
+    }));
+
+  if (!tryBeginMatchFinalization(params.matchId)) return;
+
+  try {
+    await finalizeMatchResults({
+      prisma: params.prisma,
+      wss: params.wss,
+      state: params.state,
+      eventBus: params.eventBus,
+      matchId: params.matchId,
+      placements,
+      reason: "completed",
+    });
+  } finally {
+    endMatchFinalization(params.matchId);
+  }
+}
+
+async function finalizeMatchByDisconnectForfeit(params: {
+  prisma: PrismaClient;
+  wss: WebSocketServer;
+  state: InMemoryState;
+  eventBus: ReturnType<typeof createGatewayEventBus>;
+  matchId: string;
+  forfeitedUserId: string;
+}) {
+  const match = params.state.matches.get(params.matchId);
+  if (!match) return;
+  if (match.state === "finished" || match.state === "aborted") return;
+  if (!tryBeginMatchFinalization(params.matchId)) return;
+
+  try {
+    const outcome = buildDisconnectForfeitOutcome({
+      match,
+      forfeitedUserId: params.forfeitedUserId,
+    });
+    if (!outcome) return;
+
+    gatewayLogWarn("Applying disconnect forfeit", {
+      matchId: params.matchId,
+      forfeitedUserId: params.forfeitedUserId,
+    });
+
+    const nowMs = Date.now();
+    if (outcome.winner.finishedAt == null) outcome.winner.finishedAt = nowMs;
+    if (outcome.loser.finishedAt == null) outcome.loser.finishedAt = nowMs + 1;
+    match.forfeitedUserId = outcome.loser.userId;
+    match.endedReason = "opponent_disconnected";
+
+    await runDisconnectForfeitSequence({
+      sendMatchEnded: () => {
+        sendToUser(params.wss, outcome.winner.userId, "MATCH_ENDED", {
+          matchId: match.matchId,
+          ...outcome.message,
+        });
+      },
+      finalizeResults: () =>
+        finalizeMatchResults({
+          prisma: params.prisma,
+          wss: params.wss,
+          state: params.state,
+          eventBus: params.eventBus,
+          matchId: match.matchId,
+          placements: outcome.placements,
+          reason: "opponent_disconnected",
+        }),
+    });
+  } finally {
+    endMatchFinalization(params.matchId);
+  }
+}
+
+async function abortMatchLifecycle(params: {
+  prisma: PrismaClient;
+  wss: WebSocketServer;
+  state: InMemoryState;
+  eventBus: ReturnType<typeof createGatewayEventBus>;
+  matchId: string;
+  reasonMessage: string;
+}) {
+  const match = params.state.matches.get(params.matchId);
+  if (!match) return;
+  if (match.state === "finished" || match.state === "aborted") return;
+  if (!tryBeginMatchFinalization(params.matchId)) return;
+
+  try {
+    match.endedReason = "aborted";
+    const transitioned = applyMatchTransition({
+      match,
+      nextState: "aborted",
+      eventBus: params.eventBus,
+      reason: "aborted",
+    });
+    if (!transitioned) return;
+
+    params.state.clearAiInterval(match.matchId);
+
+    await params.prisma.pvpMatch.update({
+      where: { id: match.matchId },
+      data: {
+        status: matchStateToDbStatus("aborted"),
+        startedAt: new Date(match.serverStartAtMs),
+        endedAt: new Date(),
+      },
+    });
+
+    for (const participant of match.participants.values()) {
+      if (isAiUserId(participant.userId)) continue;
+      sendToUser(params.wss, participant.userId, "MATCH_ENDED", {
+        matchId: match.matchId,
+        reason: "aborted",
+        message: params.reasonMessage,
+        finalResultsPending: false,
+      });
+    }
+
+    match.finalizedAtMs = Date.now();
+    scheduleMatchCleanup(params.state, match.matchId);
+
+    if (match.roomCode) {
+      await restoreRoomAfterMatch(params.prisma, params.wss, match.roomCode);
+    }
+  } finally {
+    endMatchFinalization(params.matchId);
+  }
 }
 
 async function startAiSimulation(params: {
   prisma: PrismaClient;
   wss: WebSocketServer;
   state: InMemoryState;
+  eventBus: ReturnType<typeof createGatewayEventBus>;
   matchId: string;
   humanId: string;
   aiUserId: string;
+  snapshotIntervalMs: number;
   persistSimUserToDb?: boolean;
   forceFinishHumanAfterMs?: number;
 }) {
@@ -392,8 +867,10 @@ async function startAiSimulation(params: {
 
     const nowMs = Date.now();
     if (nowMs < current.serverStartAtMs) return;
-    if (current.status === "COUNTDOWN") current.status = "RUNNING";
-    if (current.status === "FINISHED") {
+    if (current.state === "countdown") {
+      applyMatchTransition({ match: current, nextState: "live", eventBus: params.eventBus, reason: "completed" });
+    }
+    if (current.state === "finished") {
       params.state.clearAiInterval(params.matchId);
       return;
     }
@@ -460,7 +937,7 @@ async function startAiSimulation(params: {
         const h = mm.participants.get(params.humanId);
         const a = mm.participants.get(params.aiUserId);
         if (!h || !a) return;
-        if (mm.status === "FINISHED") return;
+        if (mm.state === "finished") return;
         if (h.finishedAt != null) return;
 
         h.finishedAt = Date.now();
@@ -475,7 +952,15 @@ async function startAiSimulation(params: {
               completedAt: new Date(h.finishedAt),
             },
           })
-          .then(() => finalizeMatchIfComplete({ prisma: params.prisma, wss: params.wss, state: params.state, matchId: mm.matchId }))
+          .then(() =>
+            finalizeMatchIfComplete({
+              prisma: params.prisma,
+              wss: params.wss,
+              state: params.state,
+              eventBus: params.eventBus,
+              matchId: mm.matchId,
+            })
+          )
           .catch(() => {
             // ignore
           });
@@ -483,18 +968,21 @@ async function startAiSimulation(params: {
     }
 
     // Broadcast AI progress
+    bumpMatchRevision(current);
     broadcastMatch(params.wss, current.matchId, "PROGRESS", {
-      matchId: current.matchId,
-      userId: aiNow.userId,
-      caretIndex: aiNow.input.length,
-      wpm: aiNow.wpm,
-      accuracy: aiNow.accuracy,
-      errors: aiNow.errors,
-      serverNowMs: nowMs,
+      ...buildProgressPayload(current, aiNow, nowMs),
     });
 
+    maybeBroadcastMatchSnapshot(params.wss, current, nowMs, params.snapshotIntervalMs);
+
     if (aiNow.finishedAt != null) {
-      await finalizeMatchIfComplete({ prisma: params.prisma, wss: params.wss, state: params.state, matchId: current.matchId });
+      await finalizeMatchIfComplete({
+        prisma: params.prisma,
+        wss: params.wss,
+        state: params.state,
+        eventBus: params.eventBus,
+        matchId: current.matchId,
+      });
     }
   }, tickMs);
 
@@ -505,6 +993,17 @@ async function main() {
   const PORT = envInt("PORT", 8787);
   const prisma = new PrismaClient();
   const state = new InMemoryState();
+  const eventBus = createGatewayEventBus();
+  const localQueueLock = createLocalLock();
+  const idempotencyStore = new InMemoryIdempotencyStore();
+  const disconnectForfeitTimers = new Map<string, NodeJS.Timeout>();
+  const rematchStartedByMatchId = new Set<string>();
+
+  gatewayLogInfo("Starting PvP gateway", {
+    port: PORT,
+    environment: process.env.NODE_ENV ?? "development",
+    instanceId: INSTANCE_ID,
+  });
 
   const AI_QUEUE_TIMEOUT_MS = envMs("PVP_AI_QUEUE_TIMEOUT_MS", 25_000);
   const WS_PING_INTERVAL_MS = envInt("PVP_WS_PING_INTERVAL_MS", 15_000);
@@ -555,13 +1054,202 @@ async function main() {
   const WS_MAX_CONNECTIONS_PER_IP = envInt("PVP_WS_MAX_CONNECTIONS_PER_IP", 5);
   const WS_CONNECTION_ATTEMPTS_PER_MIN = envInt("PVP_WS_CONNECTION_ATTEMPTS_PER_MIN", 20);
   const WS_CONNECTION_ATTEMPTS_BURST = envInt("PVP_WS_CONNECTION_ATTEMPTS_BURST", 10);
+  const WS_TICK_MS = envMs("PVP_WS_TICK_MS", 60);
+  const MATCH_SNAPSHOT_INTERVAL_MS = envMs("PVP_MATCH_SNAPSHOT_INTERVAL_MS", 2_000);
   const ROOM_ACTION_COOLDOWN_MS = envMs("PVP_ROOM_ACTION_COOLDOWN_MS", 2_000);
   const CONNECTION_SPIKE_ALERT_THRESHOLD = envInt("PVP_WS_CONNECTION_SPIKE_ALERT_THRESHOLD", 30);
+  const METRIC_SNAPSHOT_INTERVAL_MS = envMs("PVP_METRIC_SNAPSHOT_INTERVAL_MS", 5_000);
 
   const wss = new WebSocketServer({ server, maxPayload: WS_MAX_PAYLOAD_BYTES });
+  messageBatcher = createMessageBatcher<WsConn>({
+    tickMs: WS_TICK_MS,
+    isOpen: (socket) => socket.readyState === WebSocket.OPEN,
+    onFlush: ({ messages }) => {
+      observeGatewayHistogram("pvp_ws_batch_flush_size", messages.length, WS_BATCH_FLUSH_SIZE_BUCKETS);
+      for (const message of messages) {
+        incrementGatewayMetric("pvp_ws_outbound_messages_total", { type: message.type, batching: "batched" });
+      }
+    },
+  });
   const activeConnectionsByIp = new Map<string, number>();
   const connectionAttemptBuckets = new Map<string, TokenBucket>();
   const roomActionLastSeen = new Map<string, number>();
+  const activeMatchSessions = new Map<string, WsConn>();
+
+  const clearDisconnectForfeitTimer = (matchId: string, userId: string) => {
+    const key = getDisconnectForfeitKey(matchId, userId);
+    const existing = disconnectForfeitTimers.get(key);
+    if (!existing) return;
+    clearTimeout(existing);
+    disconnectForfeitTimers.delete(key);
+  };
+
+  const scheduleDisconnectForfeit = (matchId: string, userId: string) => {
+    clearDisconnectForfeitTimer(matchId, userId);
+    const timer = setTimeout(() => {
+      disconnectForfeitTimers.delete(getDisconnectForfeitKey(matchId, userId));
+      const activeMatch = state.matches.get(matchId);
+      if (!activeMatch) return;
+      if (
+        !shouldScheduleDisconnectForfeit({
+          policy: getDisconnectForfeitPolicy({
+            roomCode: activeMatch.roomCode,
+            participantCount: activeMatch.participants.size,
+          }),
+          participantCount: activeMatch.participants.size,
+          otherActiveSocketsForUser: getAuthedSocketsForUser(wss, userId).length,
+          matchStatus: activeMatch.status,
+        })
+      ) {
+        return;
+      }
+
+      void finalizeMatchByDisconnectForfeit({
+        prisma,
+        wss,
+        state,
+        eventBus,
+        matchId,
+        forfeitedUserId: userId,
+      }).catch(() => {
+        // ignore
+      });
+    }, DISCONNECT_FORFEIT_GRACE_MS);
+
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+
+    disconnectForfeitTimers.set(getDisconnectForfeitKey(matchId, userId), timer);
+  };
+
+  const createLockedHumanRematch = async (params: {
+    sourceMatchId: string;
+    users: Array<ConnectionUser & { slot: number }>;
+    persistUserIds: string[];
+  }) => {
+    if (rematchStartedByMatchId.has(params.sourceMatchId)) {
+      return false;
+    }
+
+    rematchStartedByMatchId.add(params.sourceMatchId);
+    const created = await createRanked1v1Match({
+      users: params.users,
+      persistUserIds: params.persistUserIds,
+      startDelayMs: 3500,
+    });
+
+    const sourceMatch = state.matches.get(params.sourceMatchId);
+    if (sourceMatch) {
+      sourceMatch.rematchMatchId = created.matchId;
+    }
+
+    return true;
+  };
+
+  const releaseMatchSession = (ws: WsConn) => {
+    const key = ws.matchSessionKey;
+    if (!key) return;
+    const current = activeMatchSessions.get(key);
+    if (current === ws) {
+      activeMatchSessions.delete(key);
+    }
+    ws.matchSessionKey = undefined;
+  };
+
+  const claimMatchSession = (matchId: string, userId: string, ws: WsConn) => {
+    const key = `${matchId}:${userId}`;
+    const existing = activeMatchSessions.get(key);
+    const hasOpenExistingSession = Boolean(existing && existing !== ws && existing.readyState === WebSocket.OPEN);
+
+    if (existing && shouldRejectDuplicateMatchTab(hasOpenExistingSession ? 1 : 0)) {
+      send(existing, "ERROR", { message: "This match was opened in another tab" });
+      existing.close(4001, "Superseded by a newer match session");
+    }
+
+    if (ws.matchSessionKey && ws.matchSessionKey !== key) {
+      releaseMatchSession(ws);
+    }
+
+    activeMatchSessions.set(key, ws);
+    ws.matchSessionKey = key;
+  };
+
+  const sweepStaleMatches = async () => {
+    const now = Date.now();
+
+    for (const [matchId, match] of state.matches.entries()) {
+      if ((match.state === "finished" || match.state === "aborted") && match.finalizedAtMs && now - match.finalizedAtMs >= MATCH_RESULT_RETENTION_MS) {
+        clearScheduledMatchCleanup(matchId);
+        state.clearAiInterval(matchId);
+        state.matches.delete(matchId);
+        continue;
+      }
+
+      const staleReason = getStaleMatchAbortReason({
+        state: match.state,
+        stateAgeMs: now - match.stateChangedAt,
+        maxCountdownAgeMs: MATCH_MAX_COUNTDOWN_AGE_MS,
+        maxLiveAgeMs: MATCH_MAX_LIVE_AGE_MS,
+      });
+
+      if (staleReason) {
+        gatewayLogWarn("Sweeping stale active match", { matchId, staleReason, state: match.state });
+        for (const userId of match.participants.keys()) {
+          clearDisconnectForfeitTimer(matchId, userId);
+        }
+        await abortMatchLifecycle({
+          prisma,
+          wss,
+          state,
+          eventBus,
+          matchId,
+          reasonMessage: staleReason === "stale_countdown" ? "This match expired before it could start." : "This match was closed because the session became stale.",
+        });
+      }
+    }
+
+    for (const [key, socket] of activeMatchSessions.entries()) {
+      if (socket.readyState !== WebSocket.OPEN || !socket.user) {
+        activeMatchSessions.delete(key);
+      }
+    }
+
+    for (const matchId of rematchAcceptedByMatchId.keys()) {
+      if (!state.matches.has(matchId)) {
+        rematchAcceptedByMatchId.delete(matchId);
+      }
+    }
+  };
+
+  const staleMatchSweepInterval = setInterval(() => {
+    void sweepStaleMatches().catch((error) => {
+      gatewayLogError("Failed to sweep stale matches", error);
+    });
+  }, MATCH_SWEEP_INTERVAL_MS);
+  if (typeof staleMatchSweepInterval.unref === "function") {
+    staleMatchSweepInterval.unref();
+  }
+
+  const snapshotGatewayMetrics = () => {
+    let activeMatches = 0;
+    for (const match of state.matches.values()) {
+      if (match.state === "finished" || match.state === "aborted") continue;
+      activeMatches += 1;
+    }
+
+    setGatewayGauge("pvp_active_connections", wss.clients.size);
+    setGatewayGauge("pvp_queue_depth", state.queue.length);
+    setGatewayGauge("pvp_active_matches", activeMatches);
+    setGatewayGauge("pvp_gateway_uptime_seconds", Number(process.uptime().toFixed(3)));
+    setGatewayGauge("pvp_gateway_heap_used_bytes", process.memoryUsage().heapUsed);
+  };
+
+  snapshotGatewayMetrics();
+  const metricSnapshotInterval = setInterval(snapshotGatewayMetrics, METRIC_SNAPSHOT_INTERVAL_MS);
+  if (typeof metricSnapshotInterval.unref === "function") {
+    metricSnapshotInterval.unref();
+  }
 
   const USE_REDIS = envBool("PVP_USE_REDIS", false);
   const REDIS_URL = process.env.PVP_REDIS_URL ?? process.env.REDIS_URL ?? null;
@@ -570,6 +1258,10 @@ async function main() {
     if (!REDIS_URL) throw new Error("PVP_USE_REDIS is enabled but PVP_REDIS_URL/REDIS_URL is missing");
 
     redisBus = await createRedisBus(REDIS_URL);
+    gatewayLogInfo("Redis bus enabled for PvP gateway", {
+      instanceId: INSTANCE_ID,
+      hasRedisUrl: Boolean(REDIS_URL),
+    });
     await redisBus.psubscribe("pvp:user:*");
     await redisBus.psubscribe("pvp:match:*");
     await redisBus.psubscribe("pvp:room:*");
@@ -577,7 +1269,7 @@ async function main() {
     redisBus.onMessage((channel, msg) => {
       if (channel.startsWith("pvp:user:")) {
         const userId = channel.slice("pvp:user:".length);
-        for (const c of getAuthedSocketsForUser(wss, userId)) send(c, msg.type as any, msg.payload);
+        for (const c of getAuthedSocketsForUser(wss, userId)) send(c, msg.type as ServerMessage["type"], msg.payload);
         return;
       }
       if (channel.startsWith("pvp:match:")) {
@@ -585,7 +1277,7 @@ async function main() {
         wss.clients.forEach((client: WebSocket) => {
           const c = client as WsConn;
           if (c.matchId !== matchId) return;
-          send(c, msg.type as any, msg.payload);
+          send(c, msg.type as ServerMessage["type"], msg.payload);
         });
         return;
       }
@@ -594,7 +1286,7 @@ async function main() {
         wss.clients.forEach((client: WebSocket) => {
           const c = client as WsConn;
           if (c.roomCode !== roomCode) return;
-          send(c, msg.type as any, msg.payload);
+          send(c, msg.type as ServerMessage["type"], msg.payload);
         });
       }
     });
@@ -720,6 +1412,13 @@ return nil
       users: params.users,
       serverStartAtMs,
     });
+    eventBus.emit("match:countdown", {
+      matchId: match.id,
+      from: "lobby",
+      to: "countdown",
+      roomCode: null,
+      atMs: local.stateChangedAt,
+    });
 
     await prisma.pvpMatch.update({
       where: { id: match.id },
@@ -761,7 +1460,28 @@ return nil
     return { matchId: match.id, local, serverStartAtMs };
   }
 
+  const resendExistingRematch = (matchId: string, userId: string) => {
+    const rematch = state.matches.get(matchId);
+    if (!rematch) return false;
+
+    sendToUser(wss, userId, "MATCH_FOUND", {
+      matchId: rematch.matchId,
+      textSnapshot: rematch.textSnapshot,
+      serverStartAt: new Date(rematch.serverStartAtMs).toISOString(),
+      players: Array.from(rematch.participants.values()).map((participant) => ({
+        userId: participant.userId,
+        username: participant.username,
+        avatar: participant.avatar,
+        slot: participant.slot,
+      })),
+    });
+
+    return true;
+  };
+
   wss.on("connection", (ws: WsConn, req: http.IncomingMessage) => {
+    ws.connectionId = crypto.randomUUID();
+
     if (!isSecureGatewayRequest(req)) {
       incrementGatewayMetric("ws_connection_rejected", { reason: "insecure_transport" });
       ws.close(1008, "Secure websocket required");
@@ -776,6 +1496,11 @@ return nil
 
     const ip = getClientIp(req);
     ws.ip = ip;
+    gatewayLogDebug("Incoming websocket connection", {
+      ip,
+      origin: req.headers.origin ?? null,
+      userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
+    });
 
     let attemptBucket = connectionAttemptBuckets.get(ip);
     if (!attemptBucket) {
@@ -864,6 +1589,7 @@ return nil
         return;
       }
       const msg = parsedMessage.data;
+      incrementGatewayMetric("pvp_ws_inbound_messages_total", { type: msg.type });
 
       if (msg.type === "INPUT_UPDATE" && ws.rl && !tryConsume(ws.rl.input, 1, nowMs)) {
         incrementGatewayMetric("ws_rate_limit_rejected", { reason: "input_message_rate" });
@@ -880,6 +1606,11 @@ return nil
           });
           const user = (await loadConnectionUser(authed.userId)) as AuthedUser;
           ws.user = user;
+
+          gatewayLogInfo("Websocket client authenticated", {
+            userId: user.userId,
+            ip: ws.ip ?? "unknown",
+          });
 
           await markOnline(user.userId);
           if (redis) {
@@ -907,6 +1638,9 @@ return nil
           });
 
           await markOnline(ws.user.userId);
+          gatewayLogDebug("Websocket auth refresh completed", {
+            userId: ws.user.userId,
+          });
           send(ws, "AUTH_REFRESH_OK", { expiresAt: Math.floor(Date.now() / 1000) + envInt("PVP_WS_TOKEN_TTL_SECONDS", 900) });
           return;
         }
@@ -916,7 +1650,27 @@ return nil
           return;
         }
 
+        const idempotency = await loadIdempotencyHit({
+          redis,
+          store: idempotencyStore,
+          eventBus,
+          userId: ws.user.userId,
+          messageType: msg.type,
+          requestId: "requestId" in msg ? msg.requestId : undefined,
+        });
+        if (idempotency?.record) {
+          if (idempotency.record.response) {
+            send(ws, idempotency.record.response.type, idempotency.record.response.payload);
+          }
+          return;
+        }
+
         if (msg.type === "QUEUE_JOIN") {
+          gatewayLogDebug("Queue join requested", {
+            userId: ws.user.userId,
+            requestId: "requestId" in msg ? msg.requestId : undefined,
+            useRedis: Boolean(redis),
+          });
           // Dev TEST: force a match vs a real DB-backed bot user (exercise human-vs-human path).
           if (TEST_FORCE_BOT_MATCH) {
             const bot = await ensureTestBot();
@@ -979,11 +1733,21 @@ return nil
               prisma,
               wss,
               state,
+              eventBus,
               matchId: match.id,
               humanId: me.userId,
               aiUserId: bot.userId,
+              snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
               persistSimUserToDb: true,
               forceFinishHumanAfterMs: 0,
+            });
+
+            await storeIdempotencyHit({
+              redis,
+              store: idempotencyStore,
+              key: idempotency?.key,
+              messageType: msg.type,
+              value: { response: null },
             });
 
             return;
@@ -1008,6 +1772,13 @@ return nil
                 ],
                 persistUserIds: [other.userId, me.userId],
                 startDelayMs: 4000,
+              });
+              await storeIdempotencyHit({
+                redis,
+                store: idempotencyStore,
+                key: idempotency?.key,
+                messageType: msg.type,
+                value: { response: null },
               });
               return;
             }
@@ -1088,9 +1859,11 @@ return nil
                   prisma,
                   wss,
                   state,
+                  eventBus,
                   matchId: match.id,
                   humanId: human.userId,
                   aiUserId,
+                  snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
                 });
               })().catch((e) => {
                 const message = e instanceof Error ? e.message : "AI fallback failed";
@@ -1104,130 +1877,147 @@ return nil
             return;
           }
 
-          // Single-instance in-memory queue
-          state.removeFromQueue(ws.user.userId);
-          state.clearQueueTimeout(ws.user.userId);
-          state.queue.push({ user: ws.user, joinedAtMs: Date.now() });
-
-          // naive in-memory skill-based match
-          const idx = state.queue.findIndex((e) => e.user.userId !== me.userId && Math.abs(e.user.pvpRating - me.pvpRating) <= 200);
-          if (idx >= 0) {
-            const other = state.queue[idx]!.user;
-            state.removeFromQueue(me.userId);
-            state.removeFromQueue(other.userId);
-            state.clearQueueTimeout(me.userId);
-            state.clearQueueTimeout(other.userId);
-
-            await createRanked1v1Match({
-              users: [
-                { ...other, slot: 0 },
-                { ...me, slot: 1 },
-              ],
-              persistUserIds: [other.userId, me.userId],
-              startDelayMs: 4000,
+          await localQueueLock.runExclusive(async () => {
+            state.removeFromQueue(ws.user!.userId);
+            state.clearQueueTimeout(ws.user!.userId);
+            const queueResult = enqueueOrMatchInMemory({
+              queue: state.queue,
+              user: ws.user!,
+              ratingRange: 200,
             });
-            return;
-          }
 
-          // Fallback: after a timeout, start a match vs AI.
-          const timeout = setTimeout(() => {
-            const userId = ws.user?.userId;
-            if (!userId) return;
+            if (queueResult.kind === "matched") {
+              const [other, currentUser] = queueResult.users;
+              state.clearQueueTimeout(currentUser.userId);
+              state.clearQueueTimeout(other.userId);
 
-            // Still queued?
-            const stillQueued = state.queue.find((e) => e.user.userId === userId);
-            if (!stillQueued) return;
-
-            // If there is no live socket, don't create a match.
-            const sockets = getAuthedSocketsForUser(wss, userId);
-            if (sockets.length === 0) {
-              state.removeFromQueue(userId);
-              state.clearQueueTimeout(userId);
+              await createRanked1v1Match({
+                users: [
+                  { ...other, slot: 0 },
+                  { ...currentUser, slot: 1 },
+                ],
+                persistUserIds: [other.userId, currentUser.userId],
+                startDelayMs: 4000,
+              });
+              await storeIdempotencyHit({
+                redis,
+                store: idempotencyStore,
+                key: idempotency?.key,
+                messageType: msg.type,
+                value: { response: null },
+              });
               return;
             }
 
-            // Remove from queue and start AI match.
-            state.removeFromQueue(userId);
-            state.clearQueueTimeout(userId);
+            const timeout = setTimeout(() => {
+              const userId = ws.user?.userId;
+              if (!userId) return;
+              const stillQueued = state.queue.find((e) => e.user.userId === userId);
+              if (!stillQueued) return;
 
-            void (async () => {
-              const human = stillQueued.user;
-              const match = await prisma.pvpMatch.create({
-                data: { status: "PENDING", textSnapshot: "placeholder" },
-                select: { id: true },
-              });
+              const sockets = getAuthedSocketsForUser(wss, userId);
+              if (sockets.length === 0) {
+                state.removeFromQueue(userId);
+                state.clearQueueTimeout(userId);
+                return;
+              }
 
-              const serverStartAtMs = Date.now() + 3500;
-              const aiUserId = `ai:${match.id}`;
+              state.removeFromQueue(userId);
+              state.clearQueueTimeout(userId);
 
-              const local = state.createLocalMatch({
-                matchId: match.id,
-                roomCode: null,
-                users: [
-                  {
-                    userId: human.userId,
-                    username: human.username,
-                    avatar: human.avatar,
-                    pvpRating: human.pvpRating,
-                    pvpDeviation: human.pvpDeviation,
-                    slot: 0,
+              void (async () => {
+                const human = stillQueued.user;
+                const match = await prisma.pvpMatch.create({
+                  data: { status: "PENDING", textSnapshot: "placeholder" },
+                  select: { id: true },
+                });
+
+                const serverStartAtMs = Date.now() + 3500;
+                const aiUserId = `ai:${match.id}`;
+
+                const local = state.createLocalMatch({
+                  matchId: match.id,
+                  roomCode: null,
+                  users: [
+                    {
+                      userId: human.userId,
+                      username: human.username,
+                      avatar: human.avatar,
+                      pvpRating: human.pvpRating,
+                      pvpDeviation: human.pvpDeviation,
+                      slot: 0,
+                    },
+                    {
+                      userId: aiUserId,
+                      username: "Kai",
+                      avatar: null,
+                      pvpRating: human.pvpRating,
+                      pvpDeviation: 180,
+                      slot: 1,
+                    },
+                  ],
+                  serverStartAtMs,
+                });
+                eventBus.emit("match:countdown", {
+                  matchId: match.id,
+                  from: "lobby",
+                  to: "countdown",
+                  roomCode: null,
+                  atMs: local.stateChangedAt,
+                });
+
+                await prisma.pvpMatch.update({
+                  where: { id: match.id },
+                  data: {
+                    status: "COUNTDOWN",
+                    textSnapshot: local.textSnapshot,
+                    serverStartAt: new Date(serverStartAtMs),
                   },
-                  {
-                    userId: aiUserId,
-                    username: "Kai",
-                    avatar: null,
-                    pvpRating: human.pvpRating,
-                    pvpDeviation: 180,
-                    slot: 1,
-                  },
-                ],
-                serverStartAtMs,
-              });
+                });
 
-              await prisma.pvpMatch.update({
-                where: { id: match.id },
-                data: {
-                  status: "COUNTDOWN",
+                await prisma.pvpParticipant.createMany({
+                  data: [{ matchId: match.id, userId: human.userId, slot: 0 }],
+                  skipDuplicates: true,
+                });
+
+                sendToUser(wss, human.userId, "MATCH_FOUND", {
+                  matchId: match.id,
                   textSnapshot: local.textSnapshot,
-                  serverStartAt: new Date(serverStartAtMs),
-                },
-              });
+                  serverStartAt: new Date(serverStartAtMs).toISOString(),
+                  players: Array.from(local.participants.values()).map((p) => ({
+                    userId: p.userId,
+                    username: p.username,
+                    avatar: p.avatar,
+                    slot: p.slot,
+                  })),
+                });
 
-              await prisma.pvpParticipant.createMany({
-                data: [{ matchId: match.id, userId: human.userId, slot: 0 }],
-                skipDuplicates: true,
+                await startAiSimulation({
+                  prisma,
+                  wss,
+                  state,
+                  eventBus,
+                  matchId: match.id,
+                  humanId: human.userId,
+                  aiUserId,
+                  snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
+                });
+              })().catch((e) => {
+                const message = e instanceof Error ? e.message : "AI fallback failed";
+                sendToUser(wss, userId, "ERROR", { message });
+                sendToUser(wss, userId, "QUEUE_STATUS", { status: "IDLE" });
               });
+            }, AI_QUEUE_TIMEOUT_MS);
+            state.queueTimeouts.set(ws.user!.userId, timeout);
+          });
 
-              // Notify the human only (AI has no socket).
-              sendToUser(wss, human.userId, "MATCH_FOUND", {
-                matchId: match.id,
-                textSnapshot: local.textSnapshot,
-                serverStartAt: new Date(serverStartAtMs).toISOString(),
-                players: Array.from(local.participants.values()).map((p) => ({
-                  userId: p.userId,
-                  username: p.username,
-                  avatar: p.avatar,
-                  slot: p.slot,
-                })),
-              });
-
-              // Start AI simulation.
-              await startAiSimulation({
-                prisma,
-                wss,
-                state,
-                matchId: match.id,
-                humanId: human.userId,
-                aiUserId,
-              });
-            })().catch((e) => {
-              const message = e instanceof Error ? e.message : "AI fallback failed";
-              sendToUser(wss, userId, "ERROR", { message });
-              sendToUser(wss, userId, "QUEUE_STATUS", { status: "IDLE" });
-            });
-          }, AI_QUEUE_TIMEOUT_MS);
-          state.queueTimeouts.set(ws.user.userId, timeout);
-
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { response: { type: "QUEUE_STATUS", payload: { status: "SEARCHING" } } },
+          });
           send(ws, "QUEUE_STATUS", { status: "SEARCHING" });
           return;
         }
@@ -1236,50 +2026,112 @@ return nil
           state.removeFromQueue(ws.user.userId);
           state.clearQueueTimeout(ws.user.userId);
           await queueLeave(ws.user.userId);
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { response: { type: "QUEUE_STATUS", payload: { status: "IDLE" } } },
+          });
           send(ws, "QUEUE_STATUS", { status: "IDLE" });
           return;
         }
 
         if (msg.type === "MATCH_JOIN") {
+          gatewayLogDebug("Match join requested", {
+            userId: ws.user.userId,
+            matchId: msg.payload.matchId,
+          });
+
+          const participantRow = await prisma.pvpParticipant.findUnique({
+            where: {
+              matchId_userId: {
+                matchId: msg.payload.matchId,
+                userId: ws.user.userId,
+              },
+            },
+            select: {
+              slot: true,
+              match: {
+                select: {
+                  id: true,
+                  status: true,
+                  textSnapshot: true,
+                  serverStartAt: true,
+                },
+              },
+            },
+          });
+
+          const matchJoinAccess = canJoinPvpMatchSocket({
+            status: participantRow?.match.status ?? "FINISHED",
+            participantExists: Boolean(participantRow),
+            userId: ws.user.userId,
+          });
+
+          if (!matchJoinAccess.allowed) {
+            gatewayLogWarn("Blocked invalid match join", {
+              userId: ws.user.userId,
+              matchId: msg.payload.matchId,
+              reason: matchJoinAccess.reason,
+            });
+            send(ws, "ERROR", {
+              message: matchJoinAccess.reason === "not_participant" ? "Not a participant" : "Match can no longer be joined",
+            });
+            return;
+          }
+
           ws.matchId = msg.payload.matchId;
+          claimMatchSession(msg.payload.matchId, ws.user.userId, ws);
+          clearDisconnectForfeitTimer(msg.payload.matchId, ws.user.userId);
           const match = state.matches.get(msg.payload.matchId);
           if (!match) {
-            // fallback: load from DB
-            const db = await prisma.pvpMatch.findUnique({
-              where: { id: msg.payload.matchId },
-              select: { id: true, status: true, textSnapshot: true, serverStartAt: true },
-            });
+            const db = participantRow?.match;
             if (!db) {
               send(ws, "ERROR", { message: "Match not found" });
               return;
             }
 
+            if (isTerminalPvpMatchStatus(db.status)) {
+              send(ws, "ERROR", { message: "Match can no longer be joined" });
+              return;
+            }
+
             // Create a minimal local state from DB if missing
+            const lifecycleState = matchStateFromDbStatus(db.status);
             state.matches.set(db.id, {
               matchId: db.id,
               roomCode: null,
-              status: db.status === "FINISHED" ? "FINISHED" : db.status === "RUNNING" ? "RUNNING" : "COUNTDOWN",
+              state: lifecycleState,
+              stateChangedAt: Date.now(),
+              revision: 1,
+              lastSnapshotBroadcastAtMs: 0,
+              status: matchStateToLegacyStatus(lifecycleState),
               textSnapshot: db.textSnapshot,
               serverStartAtMs: db.serverStartAt ? db.serverStartAt.getTime() : Date.now() + 3000,
               participants: new Map(),
+              endedReason: null,
+              forfeitedUserId: null,
             });
           }
 
           const effective = state.matches.get(msg.payload.matchId)!;
+          const effectiveAccess = canJoinPvpMatchSocket({
+            status: effective.status,
+            participantExists: Boolean(participantRow),
+            userId: ws.user.userId,
+            forfeitedUserId: effective.forfeitedUserId,
+            endedReason: effective.endedReason,
+          });
+          if (!effectiveAccess.allowed) {
+            send(ws, "ERROR", {
+              message: effectiveAccess.reason === "disconnect_forfeit" ? "Reconnect is not allowed after disconnect forfeit" : "Match can no longer be joined",
+            });
+            return;
+          }
           const p = effective.participants.get(ws.user.userId);
           if (!p) {
-            // Ensure participant exists in DB
-            const isParticipant = await prisma.pvpParticipant.findUnique({
-              where: {
-                matchId_userId: {
-                  matchId: msg.payload.matchId,
-                  userId: ws.user.userId,
-                },
-              },
-              select: { slot: true },
-            });
-
-            if (!isParticipant) {
+            if (!participantRow) {
               send(ws, "ERROR", { message: "Not a participant" });
               return;
             }
@@ -1288,7 +2140,7 @@ return nil
               userId: ws.user.userId,
               username: ws.user.username,
               avatar: ws.user.avatar,
-              slot: isParticipant.slot,
+              slot: participantRow.slot,
               input: "",
               seq: 0,
               errors: 0,
@@ -1298,20 +2150,49 @@ return nil
             });
           }
 
-          send(ws, "MATCH_STATE", {
-            matchId: effective.matchId,
-            roomCode: effective.roomCode,
-            status: effective.status,
-            textSnapshot: effective.textSnapshot,
-            serverStartAt: new Date(effective.serverStartAtMs).toISOString(),
-            players: Array.from(effective.participants.values()).map((pp) => ({
-              userId: pp.userId,
-              username: pp.username,
-              avatar: pp.avatar,
-              slot: pp.slot,
-              caretIndex: pp.input.length,
-            })),
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: {
+              response: {
+                type: "MATCH_STATE",
+                payload: buildMatchStatePayload(effective),
+              },
+            },
           });
+          send(ws, "MATCH_STATE", buildMatchStatePayload(effective));
+
+          return;
+        }
+
+        if (msg.type === "MATCH_LEAVE") {
+          const match = state.matches.get(msg.payload.matchId);
+          if (!match) {
+            send(ws, "ERROR", { message: "Unknown match" });
+            return;
+          }
+
+          if (!match.participants.has(ws.user.userId)) {
+            send(ws, "ERROR", { message: "Not a participant" });
+            return;
+          }
+
+          clearDisconnectForfeitTimer(match.matchId, ws.user.userId);
+          releaseMatchSession(ws);
+          ws.matchId = undefined;
+
+          if (match.participants.size === 2 && !isTerminalPvpMatchStatus(match.status)) {
+            await finalizeMatchByDisconnectForfeit({
+              prisma,
+              wss,
+              state,
+              eventBus,
+              matchId: match.matchId,
+              forfeitedUserId: ws.user.userId,
+            });
+          }
 
           return;
         }
@@ -1336,10 +2217,16 @@ return nil
             return;
           }
 
-          if (match.status === "COUNTDOWN") match.status = "RUNNING";
+          if (match.state === "countdown") {
+            applyMatchTransition({ match, nextState: "live", eventBus, reason: "completed" });
+          }
 
-          // Sequence check (monotonic)
-          if (msg.payload.seq <= participant.seq) return;
+          const inputDecision = shouldAcceptInputUpdate({
+            lastProcessedSeq: participant.seq,
+            incomingSeq: msg.payload.seq,
+            cachedProcessedSeq: idempotency?.record?.processedSeq,
+          });
+          if (!inputDecision.accept) return;
 
           // Anti-cheat: input must evolve by append or backspace only.
           const prev = participant.input;
@@ -1380,23 +2267,26 @@ return nil
           participant.errors = countErrors(match.textSnapshot, participant.input);
           participant.accuracy = computeAccuracy(match.textSnapshot, participant.input);
           participant.wpm = computeWpm(match.textSnapshot, participant.input, match.serverStartAtMs, nowMs);
+          observeGatewayHistogram("pvp_input_update_chars", participant.input.length, [8, 16, 32, 64, 128, 256, 512, 1024]);
 
           if (participant.input.length >= match.textSnapshot.length && participant.finishedAt === null) {
             participant.finishedAt = nowMs;
           }
 
           // Broadcast progress
-          broadcastMatch(wss, match.matchId, "PROGRESS", {
-            matchId: match.matchId,
-            userId: participant.userId,
-            caretIndex: participant.input.length,
-            wpm: participant.wpm,
-            accuracy: participant.accuracy,
-            errors: participant.errors,
-            serverNowMs: nowMs,
+          bumpMatchRevision(match);
+          broadcastMatch(wss, match.matchId, "PROGRESS", buildProgressPayload(match, participant, nowMs));
+          maybeBroadcastMatchSnapshot(wss, match, nowMs, MATCH_SNAPSHOT_INTERVAL_MS);
+
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { processedSeq: msg.payload.seq },
           });
 
-          await finalizeMatchIfComplete({ prisma, wss, state, matchId: match.matchId });
+          await finalizeMatchIfComplete({ prisma, wss, state, eventBus, matchId: match.matchId });
 
           return;
         }
@@ -1435,7 +2325,15 @@ return nil
             },
           });
 
-          await finalizeMatchIfComplete({ prisma, wss, state, matchId: match.matchId });
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { processedSeq: participant.seq },
+          });
+
+          await finalizeMatchIfComplete({ prisma, wss, state, eventBus, matchId: match.matchId });
 
           return;
         }
@@ -1444,6 +2342,10 @@ return nil
           const match = state.matches.get(msg.payload.matchId);
           if (!match) {
             send(ws, "ERROR", { message: "Unknown match" });
+            return;
+          }
+          if (match.rematchMatchId) {
+            resendExistingRematch(match.rematchMatchId, ws.user.userId);
             return;
           }
           if (match.status !== "FINISHED") {
@@ -1559,9 +2461,11 @@ return nil
               prisma,
               wss,
               state,
+              eventBus,
               matchId: matchRow.id,
               humanId: meId,
               aiUserId,
+              snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
             });
 
             return;
@@ -1589,13 +2493,13 @@ return nil
               loadConnectionUser(other.userId),
             ]);
 
-            await createRanked1v1Match({
+            await createLockedHumanRematch({
+              sourceMatchId: match.matchId,
               users: [
                 { ...aConn, slot: me.slot },
                 { ...bConn, slot: other.slot },
               ],
               persistUserIds: [meId, other.userId],
-              startDelayMs: 3500,
             });
           }
 
@@ -1606,6 +2510,10 @@ return nil
           const match = state.matches.get(msg.payload.matchId);
           if (!match) {
             send(ws, "ERROR", { message: "Unknown match" });
+            return;
+          }
+          if (match.rematchMatchId) {
+            resendExistingRematch(match.rematchMatchId, ws.user.userId);
             return;
           }
           if (match.status !== "FINISHED") {
@@ -1666,13 +2574,13 @@ return nil
               loadConnectionUser(other.userId),
             ]);
 
-            await createRanked1v1Match({
+            await createLockedHumanRematch({
+              sourceMatchId: match.matchId,
               users: [
                 { ...aConn, slot: me.slot },
                 { ...bConn, slot: other.slot },
               ],
               persistUserIds: [meId, other.userId],
-              startDelayMs: 3500,
             });
           } else {
             sendToUser(wss, other.userId, "REMATCH_OFFER", { matchId: match.matchId, fromUserId: meId });
@@ -1766,6 +2674,14 @@ return nil
             },
           });
 
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { response: null },
+          });
+
           return;
         }
 
@@ -1830,6 +2746,14 @@ return nil
             },
           });
 
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { response: null },
+          });
+
           const active = members;
           const allReady = active.length >= 2 && active.every((m) => !!m.readyAt);
           if (!allReady) return;
@@ -1858,6 +2782,13 @@ return nil
               slot: m.colorSlot,
             })),
             serverStartAtMs,
+          });
+          eventBus.emit("match:countdown", {
+            matchId: match.id,
+            from: "lobby",
+            to: "countdown",
+            roomCode: code,
+            atMs: local.stateChangedAt,
           });
 
           await prisma.pvpMatch.update({
@@ -1891,16 +2822,36 @@ return nil
             })),
           });
 
+          await storeIdempotencyHit({
+            redis,
+            store: idempotencyStore,
+            key: idempotency?.key,
+            messageType: msg.type,
+            value: { response: null },
+          });
+
           return;
         }
 
       } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";
+        gatewayLogError("Websocket message handler failed", e, {
+          userId: ws.user?.userId,
+          ip: ws.ip ?? "unknown",
+          messageType: parsedMessage.success ? parsedMessage.data.type : "unknown",
+        });
         send(ws, "ERROR", { message });
       }
     });
 
     ws.on("close", () => {
+      gatewayLogDebug("Websocket connection closed", {
+        userId: ws.user?.userId,
+        ip: ws.ip ?? "unknown",
+        matchId: ws.matchId,
+        roomCode: ws.roomCode,
+      });
+      messageBatcher?.drop(ws);
       if (pingInterval) clearInterval(pingInterval);
       if (ws.presenceInterval) clearInterval(ws.presenceInterval);
       if (ws.ip) {
@@ -1915,6 +2866,26 @@ return nil
         state.removeFromQueue(ws.user.userId);
         state.clearQueueTimeout(ws.user.userId);
         void queueLeave(ws.user.userId);
+        releaseMatchSession(ws);
+
+        const otherSockets = getAuthedSocketsForUser(wss, ws.user.userId).filter((socket) => socket !== ws);
+        if (otherSockets.length === 0) {
+          const activeMatch = findActiveMatchByUserId(state, ws.user.userId);
+          if (
+            activeMatch &&
+            shouldScheduleDisconnectForfeit({
+              policy: getDisconnectForfeitPolicy({
+                roomCode: activeMatch.roomCode,
+                participantCount: activeMatch.participants.size,
+              }),
+              participantCount: activeMatch.participants.size,
+              otherActiveSocketsForUser: otherSockets.length,
+              matchStatus: activeMatch.status,
+            })
+          ) {
+            scheduleDisconnectForfeit(activeMatch.matchId, ws.user.userId);
+          }
+        }
       }
 
       if (ws.user && ws.roomCode) {
@@ -1936,8 +2907,13 @@ return nil
   });
 
   server.listen(PORT, () => {
-    console.log(`[pvp-gateway] listening on :${PORT}`);
+    gatewayLogInfo("PvP gateway listening", { port: PORT, instanceId: INSTANCE_ID });
   });
 }
 
-void main();
+void main().catch((error) => {
+  gatewayLogError("PvP gateway failed to start", error, {
+    instanceId: INSTANCE_ID,
+  });
+  throw error;
+});

@@ -1,5 +1,6 @@
 // Use a fully specified file name so the compiled CJS `require()` includes the extension.
 import { pickLongText } from "./texts.js";
+import { matchStateToLegacyStatus, type MatchLifecycleState } from "./match-fsm";
 
 export type ConnectionUser = {
   userId: string;
@@ -30,10 +31,22 @@ export type MatchParticipantState = {
 export type MatchState = {
   matchId: string;
   roomCode: string | null;
-  status: "COUNTDOWN" | "RUNNING" | "FINISHED";
+  // Current authoritative live match state is process-local. This is reliable for a
+  // single gateway instance but not yet safe as distributed authoritative state.
+  // A future phase will persist critical live transitions beyond process memory.
+  state: MatchLifecycleState;
+  stateChangedAt: number;
+  revision: number;
+  lastSnapshotBroadcastAtMs: number;
+  status: "COUNTDOWN" | "RUNNING" | "FINISHED" | "ABORTED" | "PENDING";
   textSnapshot: string;
   serverStartAtMs: number;
   participants: Map<string, MatchParticipantState>; // userId -> state
+  endedReason?: "completed" | "opponent_disconnected" | "aborted" | null;
+  forfeitedUserId?: string | null;
+  rematchMatchId?: string | null;
+  finalizedAtMs?: number | null;
+  cleanupScheduledAtMs?: number | null;
 };
 
 export type QueueEntry = {
@@ -102,10 +115,19 @@ export class InMemoryState {
     const match: MatchState = {
       matchId: params.matchId,
       roomCode: params.roomCode,
-      status: "COUNTDOWN",
+      state: "countdown",
+      stateChangedAt: Date.now(),
+      revision: 1,
+      lastSnapshotBroadcastAtMs: 0,
+      status: matchStateToLegacyStatus("countdown"),
       textSnapshot,
       serverStartAtMs: params.serverStartAtMs,
       participants,
+      endedReason: null,
+      forfeitedUserId: null,
+      rematchMatchId: null,
+      finalizedAtMs: null,
+      cleanupScheduledAtMs: null,
     };
 
     this.matches.set(match.matchId, match);

@@ -173,6 +173,7 @@ class ClientLogger {
 export const logger = {
   auth: new ClientLogger('AUTH'),
   perf: new ClientLogger('PERF'),
+  pvp: new ClientLogger('PVP'),
   xp: new ClientLogger('XP'),
   challenge: new ClientLogger('CHALLENGE'),
   session: new ClientLogger('SESSION'),

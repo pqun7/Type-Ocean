@@ -25,6 +25,7 @@ import {
   getDefaultLongTermStats,
   NormalizedSessionData
 } from "@/helper/session-stats";
+import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 
 const SERVICE_TYPE = "SESSION-STATS";
 // Constants now imported from session-stats helper module
@@ -473,6 +474,9 @@ export async function POST(req: NextRequest) {
         where: { userId },
         update: updateData,
         create: createData,
+      });
+      void refreshLeaderboardProfileCache(userId).catch(() => {
+        // ignore
       });
     } catch {
       // best-effort

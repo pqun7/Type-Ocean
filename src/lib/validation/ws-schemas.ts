@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const MAX_MESSAGE_BYTES = 1024;
 const MAX_INPUT_MESSAGE_BYTES = 4096;
+const RequestIdSchema = z.string().trim().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/);
 
 function jsonByteLength(value: unknown) {
   const json = JSON.stringify(value);
@@ -30,6 +31,7 @@ export const RoomCodeSchema = z.string().trim().min(4).max(10).regex(/^[a-zA-Z0-
 const HelloMessageBaseSchema = z
   .object({
     type: z.literal("HELLO"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         token: PvpWsTokenSchema,
@@ -44,6 +46,7 @@ export const HelloMessageSchema = withByteLimit(HelloMessageBaseSchema, MAX_MESS
 const AuthRefreshMessageBaseSchema = z
   .object({
     type: z.literal("AUTH_REFRESH"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         token: PvpWsTokenSchema,
@@ -62,6 +65,7 @@ export const AuthRefreshMessageSchema = withByteLimit(
 const QueueJoinMessageBaseSchema = z
   .object({
     type: z.literal("QUEUE_JOIN"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         language: TypingLanguageSchema.optional(),
@@ -79,6 +83,7 @@ export const QueueJoinMessageSchema = withByteLimit(
 const QueueLeaveMessageBaseSchema = z
   .object({
     type: z.literal("QUEUE_LEAVE"),
+    requestId: RequestIdSchema.optional(),
     payload: z.object({}).strict(),
   })
   .strict();
@@ -92,6 +97,7 @@ export const QueueLeaveMessageSchema = withByteLimit(
 const RoomJoinMessageBaseSchema = z
   .object({
     type: z.literal("ROOM_JOIN"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         code: RoomCodeSchema,
@@ -106,6 +112,7 @@ export const RoomJoinMessageSchema = withByteLimit(RoomJoinMessageBaseSchema, MA
 const ReadyMessageBaseSchema = z
   .object({
     type: z.literal("READY"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         roomCode: RoomCodeSchema.optional(),
@@ -120,6 +127,7 @@ export const ReadyMessageSchema = withByteLimit(ReadyMessageBaseSchema, MAX_MESS
 const MatchJoinMessageBaseSchema = z
   .object({
     type: z.literal("MATCH_JOIN"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         matchId: z.string().uuid(),
@@ -134,9 +142,28 @@ export const MatchJoinMessageSchema = withByteLimit(
   "MATCH_JOIN payload is too large"
 );
 
+const MatchLeaveMessageBaseSchema = z
+  .object({
+    type: z.literal("MATCH_LEAVE"),
+    requestId: RequestIdSchema.optional(),
+    payload: z
+      .object({
+        matchId: z.string().uuid(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const MatchLeaveMessageSchema = withByteLimit(
+  MatchLeaveMessageBaseSchema,
+  MAX_MESSAGE_BYTES,
+  "MATCH_LEAVE payload is too large"
+);
+
 const InputUpdateMessageBaseSchema = z
   .object({
     type: z.literal("INPUT_UPDATE"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         matchId: z.string().uuid(),
@@ -157,6 +184,7 @@ export const InputUpdateMessageSchema = withByteLimit(
 const FinishMessageBaseSchema = z
   .object({
     type: z.literal("FINISH"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         matchId: z.string().uuid(),
@@ -171,6 +199,7 @@ export const FinishMessageSchema = withByteLimit(FinishMessageBaseSchema, MAX_ME
 const RematchRequestMessageBaseSchema = z
   .object({
     type: z.literal("REMATCH_REQUEST"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         matchId: z.string().uuid(),
@@ -188,6 +217,7 @@ export const RematchRequestMessageSchema = withByteLimit(
 const RematchResponseMessageBaseSchema = z
   .object({
     type: z.literal("REMATCH_RESPONSE"),
+    requestId: RequestIdSchema.optional(),
     payload: z
       .object({
         matchId: z.string().uuid(),
@@ -212,6 +242,7 @@ export const PvpClientMessageSchema = z
     RoomJoinMessageBaseSchema,
     ReadyMessageBaseSchema,
     MatchJoinMessageBaseSchema,
+    MatchLeaveMessageBaseSchema,
     InputUpdateMessageBaseSchema,
     FinishMessageBaseSchema,
     RematchRequestMessageBaseSchema,

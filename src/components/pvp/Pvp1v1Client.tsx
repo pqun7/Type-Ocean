@@ -7,10 +7,12 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
+import { usePvpErrorAlert } from "@/features/pvp/client/pvp-error-utils";
 
 export default function Pvp1v1Client() {
   const router = useRouter();
   const { status, error, send, addListener } = usePvpSocket();
+  usePvpErrorAlert(error);
   const [queueStatus, setQueueStatus] = useState<string>("IDLE");
   const [searchStartedAtMs, setSearchStartedAtMs] = useState<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -23,12 +25,6 @@ export default function Pvp1v1Client() {
   }, [addListener, router]);
 
   const canQueue = status === "ready";
-
-  // Auto-queue on page open once the socket is ready.
-  useEffect(() => {
-    if (!canQueue) return;
-    send({ type: "QUEUE_JOIN", payload: {} });
-  }, [canQueue, send]);
 
   useEffect(() => {
     if (queueStatus === "SEARCHING") {
@@ -61,7 +57,7 @@ export default function Pvp1v1Client() {
             </div>
             {queueStatus === "SEARCHING" ? <Loader2 className="h-4 w-4 animate-spin text-[#E0E7FF]/70" /> : null}
           </div>
-          {error ? <div className="text-sm text-red-400">{error}</div> : null}
+          {error ? <div className="text-sm text-amber-300">A connection issue occurred. Please try again.</div> : null}
 
           <div className="flex gap-2">
             <Button
@@ -79,7 +75,7 @@ export default function Pvp1v1Client() {
             </Button>
           </div>
 
-          <div className="text-sm text-[#8A8FB5]">When a match is found, you’ll be redirected.</div>
+          <div className="text-sm text-[#8A8FB5]">Press `Join Queue` to start searching for an opponent. You will be redirected only after a match is found.</div>
         </CardContent>
       </Card>
     </div>

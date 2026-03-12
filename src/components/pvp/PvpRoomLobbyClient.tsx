@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
+import { usePvpErrorAlert } from "@/features/pvp/client/pvp-error-utils";
 
 export default function PvpRoomLobbyClient({ code }: { code: string }) {
   const router = useRouter();
   const { status, error, send, addListener } = usePvpSocket();
+  usePvpErrorAlert(error);
 
   const [room, setRoom] = useState<{
     code: string;
@@ -30,7 +32,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
     send({ type: "ROOM_JOIN", payload: { code } });
   }, [status, send, code]);
 
-  const members = room?.members ?? [];
+  const members = useMemo(() => room?.members ?? [], [room]);
   const readyCount = useMemo(() => members.filter((m) => m.ready).length, [members]);
 
   return (
@@ -41,7 +43,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
         </CardHeader>
         <CardContent className="space-y-4 text-[#E0E7FF]/90">
           <div className="text-sm text-[#8A8FB5]">Status: {status} · Ready: {readyCount}/{members.length}</div>
-          {error ? <div className="text-sm text-red-400">{error}</div> : null}
+          {error ? <div className="text-sm text-amber-300">A room connection issue occurred. Please try again.</div> : null}
 
           <div className="space-y-2">
             {members.map((m) => (

@@ -5,6 +5,7 @@ import { del, put } from "@vercel/blob";
 import { env } from "@/env.mjs";
 import { auth } from "@/features/auth/lib/auth";
 import prisma from "@/features/auth/lib/db";
+import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 import { rateLimiter } from "@/lib/rate-limiter";
 
 export const runtime = "nodejs";
@@ -131,6 +132,10 @@ export async function POST(req: NextRequest) {
         achievements: [],
         avatar: blob.url,
       },
+    });
+
+    void refreshLeaderboardProfileCache(session.user.id).catch(() => {
+      // ignore
     });
 
     return NextResponse.json({ url: blob.url, requestId });

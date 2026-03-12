@@ -26,22 +26,46 @@ export type ServerMessage =
       type: "MATCH_STATE";
       payload: {
         matchId: string;
+        revision: number;
         roomCode: string | null;
         status: string;
         textSnapshot: string;
         serverStartAt: string;
-        players: Array<{ userId: string; username: string; avatar: string | null; slot: number; caretIndex: number }>;
+        snapshotAt: string;
+        players: Array<{
+          userId: string;
+          username: string;
+          avatar: string | null;
+          slot: number;
+          caretIndex: number;
+          wpm: number;
+          accuracy: number;
+          errors: number;
+          finishedAt: string | null;
+        }>;
+      };
+    }
+  | {
+      type: "MATCH_ENDED";
+      payload: {
+        matchId: string;
+        reason: "opponent_disconnected" | "completed" | "aborted";
+        message: string;
+        finalResultsPending?: boolean;
       };
     }
   | {
       type: "PROGRESS";
       payload: {
         matchId: string;
+        revision: number;
+        status: string;
         userId: string;
         caretIndex: number;
         wpm: number;
         accuracy: number;
         errors: number;
+        finishedAt: string | null;
         serverNowMs?: number;
       };
     }
@@ -73,14 +97,15 @@ export type ServerMessage =
   | { type: "ERROR"; payload: { message: string } };
 
 export type ClientMessage =
-  | { type: "HELLO"; payload: { token: string; clientSecret: string } }
-  | { type: "AUTH_REFRESH"; payload: { token: string; clientSecret: string } }
-    | { type: "QUEUE_JOIN"; payload: Record<string, never> }
-    | { type: "QUEUE_LEAVE"; payload: Record<string, never> }
-  | { type: "ROOM_JOIN"; payload: { code: string } }
-  | { type: "READY"; payload?: { roomCode?: string } }
-  | { type: "MATCH_JOIN"; payload: { matchId: string } }
-  | { type: "INPUT_UPDATE"; payload: { matchId: string; input: string; seq: number; clientTs?: number } }
-  | { type: "FINISH"; payload: { matchId: string; clientTs?: number } }
-  | { type: "REMATCH_REQUEST"; payload: { matchId: string } }
-  | { type: "REMATCH_RESPONSE"; payload: { matchId: string; accept: boolean } };
+  | { type: "HELLO"; payload: { token: string; clientSecret: string }; requestId?: string }
+  | { type: "AUTH_REFRESH"; payload: { token: string; clientSecret: string }; requestId?: string }
+  | { type: "QUEUE_JOIN"; payload: Record<string, never>; requestId?: string }
+  | { type: "QUEUE_LEAVE"; payload: Record<string, never>; requestId?: string }
+  | { type: "ROOM_JOIN"; payload: { code: string }; requestId?: string }
+  | { type: "READY"; payload?: { roomCode?: string }; requestId?: string }
+  | { type: "MATCH_JOIN"; payload: { matchId: string }; requestId?: string }
+  | { type: "MATCH_LEAVE"; payload: { matchId: string }; requestId?: string }
+  | { type: "INPUT_UPDATE"; payload: { matchId: string; input: string; seq: number; clientTs?: number }; requestId?: string }
+  | { type: "FINISH"; payload: { matchId: string; clientTs?: number }; requestId?: string }
+  | { type: "REMATCH_REQUEST"; payload: { matchId: string }; requestId?: string }
+  | { type: "REMATCH_RESPONSE"; payload: { matchId: string; accept: boolean }; requestId?: string };
