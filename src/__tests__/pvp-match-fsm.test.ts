@@ -37,9 +37,13 @@ describe("match-fsm", () => {
   });
 
   it("maps database and legacy states consistently", () => {
+    expect(canTransition("lobby", "waiting_for_both")).toBe(true);
+    expect(canTransition("waiting_for_both", "countdown")).toBe(true);
     expect(canTransition("lobby", "countdown")).toBe(true);
     expect(canTransition("aborted", "live")).toBe(false);
+    expect(matchStateFromDbStatus("PENDING")).toBe("waiting_for_both");
     expect(matchStateFromDbStatus("RUNNING")).toBe("live");
+    expect(matchStateToDbStatus("waiting_for_both")).toBe("PENDING");
     expect(matchStateToDbStatus("aborted")).toBe("ABORTED");
     expect(matchStateToLegacyStatus("countdown")).toBe("COUNTDOWN");
   });

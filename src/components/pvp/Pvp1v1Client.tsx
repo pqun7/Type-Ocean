@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Swords } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ type PendingMatch = {
 
 export default function Pvp1v1Client() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { status, error, user, send, addListener } = usePvpSocket();
   usePvpErrorAlert(error);
 
@@ -30,6 +31,24 @@ export default function Pvp1v1Client() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const [pendingMatch, setPendingMatch] = useState<PendingMatch | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
+  const cancelledReason = searchParams.get("cancelled");
+
+  useEffect(() => {
+    if (cancelledReason !== "no_show") return;
+
+    const timer = window.setTimeout(() => {
+      router.replace("/pvp/1v1");
+    }, 6_000);
+
+    return () => window.clearTimeout(timer);
+  }, [cancelledReason, router]);
+
+  useEffect(() => {
+    if (status === "ready") {
+      setHasConnectedOnce(true);
+    }
+  }, [status]);
 
   useEffect(() => {
     return addListener((message) => {
@@ -99,9 +118,10 @@ export default function Pvp1v1Client() {
     return () => window.clearTimeout(timeoutId);
   }, [pendingMatch, router]);
 
-  const canQueue = status === "ready" && queueStatus === "IDLE" && !pendingMatch;
+  const canQueue = status === "ready" && (queueStatus === "IDLE" || queueStatus === "CONNECTED") && !pendingMatch;
   const countdown = pendingMatch ? Math.max(0, Math.ceil((new Date(pendingMatch.serverStartAt).getTime() - nowMs) / 1000)) : null;
   const isSearching = queueStatus === "SEARCHING" && !pendingMatch;
+  const isReconnecting = hasConnectedOnce && status === "connecting";
 
   const handleQueueJoin = () => {
     if (!canQueue) return;
@@ -143,7 +163,20 @@ export default function Pvp1v1Client() {
             {isSearching ? <Loader2 className="h-4 w-4 animate-spin text-[#B8E6FF]" /> : null}
           </div>
 
-          {error ? <div className="text-sm text-amber-300">A ranked queue connection issue occurred. Reconnect and queue again if needed.</div> : null}
+          {isReconnecting ? (
+            <div className="flex items-center gap-2 rounded-xl border border-[rgba(125,211,252,0.22)] bg-[rgba(56,189,248,0.08)] px-3 py-2 text-sm text-sky-200">
+              <Loader2 className="h-4 w-4 animate-spin text-sky-300" />
+              Reconnecting to ranked queue...
+            </div>
+          ) : null}
+
+          {error && !isReconnecting ? <div className="text-sm text-amber-300">{error}</div> : null}
+
+          {cancelledReason === "no_show" ? (
+            <div className="rounded-xl border border-[rgba(251,191,36,0.25)] bg-[rgba(245,158,11,0.08)] px-3 py-2 text-sm text-amber-200">
+              The opponent did not connect in time, so the match was cancelled.
+            </div>
+          ) : null}
 
           {pendingMatch ? (
             <div className="grid gap-4 rounded-[28px] border border-[rgba(130,214,255,0.18)] bg-[linear-gradient(135deg,rgba(17,45,72,0.95),rgba(10,22,38,0.95))] p-5 md:grid-cols-[1.3fr_0.7fr]">

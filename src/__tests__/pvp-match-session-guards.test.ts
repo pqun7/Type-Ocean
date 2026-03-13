@@ -19,6 +19,7 @@ describe("pvp match session guards", () => {
         policy: "grace_resume",
         participantCount: 2,
         otherActiveSocketsForUser: 0,
+        matchState: "live",
         matchStatus: "RUNNING",
       })
     ).toBe(true);
@@ -28,6 +29,7 @@ describe("pvp match session guards", () => {
         policy: "grace_resume",
         participantCount: 2,
         otherActiveSocketsForUser: 1,
+        matchState: "live",
         matchStatus: "RUNNING",
       })
     ).toBe(false);
@@ -37,6 +39,7 @@ describe("pvp match session guards", () => {
         policy: "grace_resume",
         participantCount: 3,
         otherActiveSocketsForUser: 0,
+        matchState: "live",
         matchStatus: "RUNNING",
       })
     ).toBe(false);
@@ -46,6 +49,7 @@ describe("pvp match session guards", () => {
         policy: "grace_resume",
         participantCount: 2,
         otherActiveSocketsForUser: 0,
+        matchState: "live",
         matchStatus: "FINISHED",
       })
     ).toBe(false);
@@ -55,7 +59,18 @@ describe("pvp match session guards", () => {
         policy: "immediate_forfeit",
         participantCount: 2,
         otherActiveSocketsForUser: 0,
+        matchState: "live",
         matchStatus: "RUNNING",
+      })
+    ).toBe(false);
+
+    expect(
+      shouldScheduleDisconnectForfeit({
+        policy: "grace_resume",
+        participantCount: 2,
+        otherActiveSocketsForUser: 0,
+        matchState: "countdown",
+        matchStatus: "COUNTDOWN",
       })
     ).toBe(false);
   });

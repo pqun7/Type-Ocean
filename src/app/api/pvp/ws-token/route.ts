@@ -30,6 +30,7 @@ let hasPvpWsTokenVersionColumns: boolean | null = null;
 let hasLoggedMissingPvpWsTokenColumnsWarning = false;
 let wsTokenColumnsLastCheckedAt = 0;
 const WS_TOKEN_COLUMNS_RETRY_MS = 60_000;
+const PVP_INSECURE_LOCALHOST = process.env.PVP_INSECURE_LOCALHOST === "1";
 
 function createRequestId() {
   return `pvp-ws-token-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
@@ -37,6 +38,22 @@ function createRequestId() {
 
 function createUserLogRef(userId: string) {
   return crypto.createHash("sha256").update(userId).digest("hex").slice(0, 12);
+}
+
+function isLocalhostHost(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function isAllowedInsecureLocalWsUrl(wsUrl: string) {
+  if (!PVP_INSECURE_LOCALHOST) return false;
+
+  try {
+    const parsed = new URL(wsUrl);
+    return parsed.protocol === "ws:" && isLocalhostHost(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
 
 function isMissingPvpWsTokenColumns(error: unknown) {
@@ -174,7 +191,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing NEXT_PUBLIC_PVP_WS_URL" }, { status: 500, headers: rateLimit.headers });
     }
 
-    if (process.env.NODE_ENV === "production" && !wsUrl.startsWith("wss://")) {
+    const enforceWss = process.env.NODE_ENV === "production" && !isAllowedInsecureLocalWsUrl(wsUrl);
+    if (enforceWss && !wsUrl.startsWith("wss://")) {
       incrementSecurityMetric("api_transport_rejected", { route: "/api/pvp/ws-token", reason: "insecure_ws_url" });
       logging.error("PvP WS token request rejected due to insecure websocket URL", new Error("Insecure websocket URL"), {
         requestId,

@@ -17,10 +17,12 @@ export function shouldScheduleDisconnectForfeit(params: {
   participantCount: number;
   otherActiveSocketsForUser: number;
   matchStatus: string;
+  matchState: MatchLifecycleState;
 }) {
   if (params.policy !== "grace_resume") return false;
   if (params.participantCount !== 2) return false;
   if (params.otherActiveSocketsForUser > 0) return false;
+  if (params.matchState !== "live") return false;
   if (params.matchStatus === "FINISHED" || params.matchStatus === "ABORTED") return false;
   return true;
 }

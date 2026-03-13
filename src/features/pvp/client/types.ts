@@ -68,7 +68,7 @@ export type ServerMessage =
       type: "MATCH_ENDED";
       payload: {
         matchId: string;
-        reason: "opponent_disconnected" | "completed" | "aborted";
+        reason: "opponent_disconnected" | "completed" | "aborted" | "no_show";
         message: string;
         finalResultsPending?: boolean;
       };

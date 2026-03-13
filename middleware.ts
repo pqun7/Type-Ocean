@@ -24,6 +24,8 @@ const PROTECTED_API_PREFIX = "/api/protected"
 const MISSING_USER_CACHE_PREFIX = "auth:missing-user"
 const MISSING_USER_CACHE_TTL_SECONDS = 60
 
+const PVP_INSECURE_LOCALHOST = process.env.PVP_INSECURE_LOCALHOST === "1"
+
 type AuthTokenPayload = JwtPayload & {
   userId: string
 }
@@ -74,7 +76,7 @@ export default auth(async (req) => {
     return NextResponse.next()
   }
 
-  if (process.env.NODE_ENV === 'production' && !isSecureRequest(req)) {
+  if (shouldEnforceHttps(req) && !isSecureRequest(req)) {
     const secureUrl = req.nextUrl.clone()
     secureUrl.protocol = 'https:'
     return redirectWithSecurity(secureUrl)
@@ -104,7 +106,7 @@ export default auth(async (req) => {
           path: "/",
           sameSite: "lax",
           maxAge: 60,
-          secure: process.env.NODE_ENV === "production",
+          secure: shouldUseSecureCookies(req),
         });
       }
 
@@ -113,7 +115,7 @@ export default auth(async (req) => {
           path: "/",
           sameSite: "lax",
           maxAge: 60,
-          secure: process.env.NODE_ENV === "production",
+          secure: shouldUseSecureCookies(req),
         });
       }
 
@@ -122,7 +124,7 @@ export default auth(async (req) => {
           path: "/",
           sameSite: "lax",
           maxAge: 60,
-          secure: process.env.NODE_ENV === "production",
+          secure: shouldUseSecureCookies(req),
         });
       }
 
@@ -433,6 +435,10 @@ function applySecurityHeaders(response: NextResponse) {
 }
 
 function shouldUseSecureCookies(req: NextRequest): boolean {
+  if (shouldAllowInsecureLocalhost(req)) {
+    return false
+  }
+
   const forwardedProto = req.headers.get('x-forwarded-proto')
   if (forwardedProto) {
     return forwardedProto.split(',')[0]?.trim().toLowerCase() === 'https'
@@ -503,6 +509,21 @@ function isSecureRequest(req: NextRequest): boolean {
   }
 
   return req.nextUrl.protocol === 'https:'
+}
+
+function shouldEnforceHttps(req: NextRequest): boolean {
+  if (process.env.NODE_ENV !== 'production') return false
+  return !shouldAllowInsecureLocalhost(req)
+}
+
+function shouldAllowInsecureLocalhost(req: NextRequest): boolean {
+  if (!PVP_INSECURE_LOCALHOST) return false
+  return isLocalhostHost(req.nextUrl.hostname)
+}
+
+function isLocalhostHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase()
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1'
 }
 
 

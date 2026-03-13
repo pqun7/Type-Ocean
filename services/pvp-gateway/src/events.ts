@@ -12,7 +12,7 @@ type MatchTransitionEvent = {
 };
 
 type MatchFinishedEvent = MatchTransitionEvent & {
-  reason: "completed" | "opponent_disconnected" | "aborted";
+  reason: "completed" | "opponent_disconnected" | "aborted" | "no_show";
 };
 
 type PlayerEvent = {

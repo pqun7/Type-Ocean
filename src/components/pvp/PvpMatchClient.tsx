@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ function slotToColor(slot: number) {
 }
 
 export default function PvpMatchClient({ matchId }: { matchId: string }) {
+  const WAITING_TIMEOUT_MS = 40_000;
   const router = useRouter();
   const { status, error, user, send, addListener, getMatchTransport } = usePvpSocket();
   usePvpErrorAlert(error);
@@ -41,7 +43,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const [textId, setTextId] = useState<string | null>(null);
   const [serverStartAt, setServerStartAt] = useState<string | null>(null);
   const [roomCode, setRoomCode] = useState<string | null>(null);
-  const [matchStatus, setMatchStatus] = useState<string>("COUNTDOWN");
+  const [matchStatus, setMatchStatus] = useState<string>("PENDING");
   const [players, setPlayers] = useState<Array<{ userId: string; username: string; avatar: string | null; slot: number }>>(
     []
   );
@@ -66,6 +68,8 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const [rematchAcceptedUserIds, setRematchAcceptedUserIds] = useState<string[]>([]);
   const [rematchDeclinedReason, setRematchDeclinedReason] = useState<string | null>(null);
   const [matchEndingNotice, setMatchEndingNotice] = useState<string | null>(null);
+  const [waitingSinceMs, setWaitingSinceMs] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const [results, setResults] = useState<null | {
     placements: Array<{ position: number; userId: string; username: string; wpm: number; accuracy: number; errors: number; timeMs: number }>;
@@ -82,7 +86,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     setTextId(null);
     setServerStartAt(null);
     setRoomCode(null);
-    setMatchStatus("COUNTDOWN");
+    setMatchStatus("PENDING");
     setPlayers([]);
     setCarets({});
     setRemoteCaretPositions({});
@@ -97,7 +101,21 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     setRematchAcceptedUserIds([]);
     setRematchDeclinedReason(null);
     setMatchEndingNotice(null);
+    setWaitingSinceMs(null);
+    setNowMs(Date.now());
   }, [matchId]);
+
+  const isWaitingForOpponent = matchStatus === "PENDING" && players.length < 2 && !results;
+
+  useEffect(() => {
+    if (!isWaitingForOpponent && matchStatus !== "COUNTDOWN") return;
+
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [isWaitingForOpponent, matchStatus]);
 
   useEffect(() => {
     if (status !== "ready") return;
@@ -140,6 +158,8 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         setServerStartAt(m.payload.serverStartAt);
         setRoomCode(m.payload.roomCode ?? null);
         setMatchStatus(m.payload.status);
+        const isStillWaiting = m.payload.status === "PENDING" && m.payload.players.length < 2;
+        setWaitingSinceMs((current) => (isStillWaiting ? current ?? Date.now() : null));
         setPlayers(m.payload.players.map((p) => ({ userId: p.userId, username: p.username, avatar: p.avatar, slot: p.slot })));
         const next: Record<string, number> = {};
         for (const p of m.payload.players) next[p.userId] = p.caretIndex;
@@ -176,6 +196,12 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
       if (m.type === "MATCH_ENDED" && m.payload.matchId === matchId) {
         setMatchStatus("ENDING");
         setMatchEndingNotice(m.payload.message);
+
+        if (m.payload.reason === "no_show") {
+          window.setTimeout(() => {
+            router.push("/pvp/1v1?cancelled=no_show");
+          }, 1200);
+        }
       }
       if (m.type === "RESULTS" && m.payload.matchId === matchId) {
         setMatchEndingNotice(null);
@@ -205,6 +231,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (matchEndingNotice || results) return;
+    if (isWaitingForOpponent) return;
 
     const next = e.target.value;
     setUserInput(next);
@@ -224,7 +251,8 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   };
 
   const startAtMs = serverStartAt ? new Date(serverStartAt).getTime() : null;
-  const countdown = startAtMs ? Math.max(0, Math.ceil((startAtMs - Date.now()) / 1000)) : null;
+  const countdown = startAtMs && matchStatus === "COUNTDOWN" ? Math.max(0, Math.ceil((startAtMs - nowMs) / 1000)) : null;
+  const waitingRemainingSec = waitingSinceMs ? Math.max(0, Math.ceil((waitingSinceMs + WAITING_TIMEOUT_MS - nowMs) / 1000)) : 40;
 
   const byId = useMemo(() => {
     const map = new Map<string, { userId: string; username: string; slot: number }>();
@@ -347,41 +375,54 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         </div>
       </div>
 
-      {error ? <div className="text-sm text-amber-300">A match connection issue occurred. Please try again.</div> : null}
+      {error ? <div className="text-sm text-amber-300">{error}</div> : null}
       {matchEndingNotice ? <div className="text-sm text-amber-300">{matchEndingNotice}</div> : null}
 
-      <div className="relative w-full p-4">
-        <TextDisplay
-          text={text}
-          userInput={userInput}
-          isError={isError}
-          textRefs={textRefs}
-          fontSize="text-2xl"
-          lineHeight="leading-10"
-          font="font-mono"
-          optimizePerformance
-        />
-
-        {/* Local caret */}
-        <Caret
-          caretPosition={caretPosition}
-          caretHeight="h-7"
-          colorClassName={slotToColor(byId.get(user?.userId ?? "")?.slot ?? 0)}
-        />
-
-        {/* Remote carets */}
-        {remoteCarets.map((c) => (
-          <Caret
-            key={c.userId}
-            caretPosition={c.pos}
-            caretHeight="h-7"
-            colorClassName={slotToColor(c.slot)}
-            className="opacity-90"
+      {isWaitingForOpponent ? (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-[rgba(125,211,252,0.2)] bg-[rgba(56,189,248,0.08)] px-4 py-3 text-sky-100">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-4 w-4 animate-spin text-sky-300" />
+            <div>
+              <div className="text-sm font-medium">Opponent is connecting... please wait.</div>
+              <div className="text-xs text-sky-200">Match will be cancelled if they do not connect in time.</div>
+            </div>
+          </div>
+          <div className="rounded-md border border-[rgba(125,211,252,0.2)] px-2 py-1 text-xs text-sky-200">{waitingRemainingSec}s</div>
+        </div>
+      ) : (
+        <div className="relative w-full p-4">
+          <TextDisplay
+            text={text}
+            userInput={userInput}
+            isError={isError}
+            textRefs={textRefs}
+            fontSize="text-2xl"
+            lineHeight="leading-10"
+            font="font-mono"
+            optimizePerformance
           />
-        ))}
 
-        <TypingInput inputRef={inputRef} userInput={userInput} handleInputChange={onChange} />
-      </div>
+          {/* Local caret */}
+          <Caret
+            caretPosition={caretPosition}
+            caretHeight="h-7"
+            colorClassName={slotToColor(byId.get(user?.userId ?? "")?.slot ?? 0)}
+          />
+
+          {/* Remote carets */}
+          {remoteCarets.map((c) => (
+            <Caret
+              key={c.userId}
+              caretPosition={c.pos}
+              caretHeight="h-7"
+              colorClassName={slotToColor(c.slot)}
+              className="opacity-90"
+            />
+          ))}
+
+          <TypingInput inputRef={inputRef} userInput={userInput} handleInputChange={onChange} />
+        </div>
+      )}
 
       {results ? (
         <PvpResultsOverlay

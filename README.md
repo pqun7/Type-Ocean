@@ -21,6 +21,11 @@ Optional (OAuth):
 Optional (Redis):
 - `REDIS_URL` OR `REDIS_HOST` + `REDIS_PORT` (+ `REDIS_PASSWORD` if needed)
 
+Optional (PvP gateway):
+- `NEXT_PUBLIC_PVP_WS_URL` for the PvP websocket endpoint.
+	- Local gateway dev (`npm run pvp:gateway:dev`): use `ws://localhost:8787`.
+	- Production/public gateway: use `wss://your-gateway-host`.
+
 Where to get Redis values:
 - Local (Docker/installed Redis): use `REDIS_HOST=127.0.0.1`, `REDIS_PORT=6379`, and leave `REDIS_PASSWORD` empty.
 - Docker Compose in this repo: use `REDIS_HOST=redis`, `REDIS_PORT=6379` (the service name is `redis`).

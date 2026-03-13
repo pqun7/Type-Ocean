@@ -49,6 +49,7 @@ import { getPvpRankInfo } from "../../../src/features/pvp/rank";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 const TRUST_PROXY_TLS = envBool("PVP_TRUST_PROXY_TLS", false);
+const INSECURE_LOCALHOST = envBool("PVP_INSECURE_LOCALHOST", false);
 const INSTANCE_ID = process.env.PVP_INSTANCE_ID ?? crypto.randomUUID();
 
 let redisBus: RedisBus | null = null;
@@ -62,6 +63,7 @@ const MATCH_RESULT_RETENTION_MS = envMs("PVP_MATCH_RESULT_RETENTION_MS", 5 * 60 
 const MATCH_SWEEP_INTERVAL_MS = envMs("PVP_MATCH_SWEEP_INTERVAL_MS", 30_000);
 const MATCH_MAX_COUNTDOWN_AGE_MS = envMs("PVP_MATCH_MAX_COUNTDOWN_AGE_MS", 2 * 60 * 1000);
 const MATCH_MAX_LIVE_AGE_MS = envMs("PVP_MATCH_MAX_LIVE_AGE_MS", 30 * 60 * 1000);
+const MATCH_NO_SHOW_TIMEOUT_MS = envMs("PVP_MATCH_NO_SHOW_TIMEOUT_MS", 40_000);
 const ONLINE_KEY_PREFIX = "pvp:online:";
 const ROOM_INACTIVITY_TTL_MS = envMs("PVP_ROOM_INACTIVITY_TTL_MS", 60 * 60 * 1000);
 const ROOM_RECONNECT_GRACE_MS = envMs("PVP_ROOM_RECONNECT_GRACE_MS", 30_000);
@@ -204,6 +206,35 @@ function originAllowed(origin: string | undefined | null) {
   return allowedOrigins.has(origin);
 }
 
+function isLocalhostHost(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function isLocalOrigin(origin: string) {
+  try {
+    const parsed = new URL(origin);
+    return isLocalhostHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function hasOnlyLocalOrigins() {
+  if (!allowedOrigins || allowedOrigins.size === 0) return false;
+  return Array.from(allowedOrigins).every(isLocalOrigin);
+}
+
+function isLoopbackAddress(remoteAddress: string | undefined) {
+  if (!remoteAddress) return false;
+  const normalized = remoteAddress.trim().toLowerCase();
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized.startsWith("::ffff:127.0.0.1")
+  );
+}
+
 function getClientIp(req: http.IncomingMessage) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.trim()) {
@@ -277,6 +308,18 @@ function createGatewayServer() {
     return http.createServer(healthHandler);
   }
 
+  if (INSECURE_LOCALHOST) {
+    if (!hasOnlyLocalOrigins()) {
+      throw new Error("PVP_INSECURE_LOCALHOST requires all PVP_ALLOWED_ORIGINS values to be localhost/127.0.0.1");
+    }
+
+    gatewayLogWarn("Starting PvP gateway in insecure localhost mode", {
+      insecureLocalhost: true,
+      warning: "Development only. Disable PVP_INSECURE_LOCALHOST for deployed environments.",
+    });
+    return http.createServer(healthHandler);
+  }
+
   const keyPath = process.env.PVP_TLS_KEY_PATH;
   const certPath = process.env.PVP_TLS_CERT_PATH;
   if (!keyPath || !certPath) {
@@ -295,6 +338,10 @@ function createGatewayServer() {
 
 function isSecureGatewayRequest(req: http.IncomingMessage) {
   if (!IS_PROD) return true;
+
+  if (INSECURE_LOCALHOST && isLoopbackAddress(req.socket.remoteAddress)) {
+    return true;
+  }
 
   if ((req.socket as { encrypted?: boolean }).encrypted) return true;
 
@@ -1132,6 +1179,7 @@ async function abortMatchLifecycle(params: {
   eventBus: ReturnType<typeof createGatewayEventBus>;
   matchId: string;
   reasonMessage: string;
+  reasonCode?: "aborted" | "no_show";
 }) {
   const match = params.state.matches.get(params.matchId);
   if (!match) return;
@@ -1139,7 +1187,8 @@ async function abortMatchLifecycle(params: {
   if (!tryBeginMatchFinalization(params.matchId)) return;
 
   try {
-    match.endedReason = "aborted";
+    const reasonCode = params.reasonCode ?? "aborted";
+    match.endedReason = reasonCode;
     const transitioned = applyMatchTransition({
       match,
       nextState: "aborted",
@@ -1154,7 +1203,7 @@ async function abortMatchLifecycle(params: {
       where: { id: match.matchId },
       data: {
         status: matchStateToDbStatus("aborted"),
-        startedAt: new Date(match.serverStartAtMs),
+        startedAt: reasonCode === "no_show" ? null : new Date(match.serverStartAtMs),
         endedAt: new Date(),
       },
     });
@@ -1163,7 +1212,7 @@ async function abortMatchLifecycle(params: {
       if (isAiUserId(participant.userId)) continue;
       sendToUser(params.wss, participant.userId, "MATCH_ENDED", {
         matchId: match.matchId,
-        reason: "aborted",
+        reason: reasonCode,
         message: params.reasonMessage,
         finalResultsPending: false,
       });
@@ -1483,6 +1532,7 @@ async function main() {
   const connectionAttemptBuckets = new Map<string, TokenBucket>();
   const roomActionLastSeen = new Map<string, number>();
   const activeMatchSessions = new Map<string, WsConn>();
+  const noShowTimers = new Map<string, NodeJS.Timeout>();
 
   const clearDisconnectForfeitTimer = (matchId: string, userId: string) => {
     const key = getDisconnectForfeitKey(matchId, userId);
@@ -1490,6 +1540,108 @@ async function main() {
     if (!existing) return;
     clearTimeout(existing);
     disconnectForfeitTimers.delete(key);
+  };
+
+  const clearNoShowTimer = (matchId: string) => {
+    const existing = noShowTimers.get(matchId);
+    if (!existing) return;
+    clearTimeout(existing);
+    noShowTimers.delete(matchId);
+  };
+
+  const isParticipantReadyForMatchStart = (matchId: string, userId: string) => {
+    // Bot participants do not own websocket sessions, so they are immediately
+    // considered ready once the server creates the local match state.
+    if (isAiUserId(userId)) return true;
+
+    const session = activeMatchSessions.get(`${matchId}:${userId}`);
+    if (!session) return false;
+    if (session.readyState !== WebSocket.OPEN) return false;
+    if (session.matchId !== matchId) return false;
+    return true;
+  };
+
+  const getReadyParticipantCount = (matchId: string, match: InMemoryState["matches"] extends Map<string, infer T> ? T : never) => {
+    let ready = 0;
+    for (const userId of match.participants.keys()) {
+      if (!isParticipantReadyForMatchStart(matchId, userId)) continue;
+      ready += 1;
+    }
+    return ready;
+  };
+
+  const maybeStartRankedCountdown = async (match: InMemoryState["matches"] extends Map<string, infer T> ? T : never) => {
+    if (match.roomCode !== null) return false;
+    if (match.state !== "waiting_for_both") return false;
+
+    const readyCount = getReadyParticipantCount(match.matchId, match);
+    if (readyCount < match.participants.size) return false;
+
+    clearNoShowTimer(match.matchId);
+    match.serverStartAtMs = Date.now() + RANKED_MATCH_START_DELAY_MS;
+    const transitioned = applyMatchTransition({
+      match,
+      nextState: "countdown",
+      eventBus,
+      reason: "completed",
+    });
+
+    if (!transitioned) return false;
+
+    bumpMatchRevision(match);
+
+    await prisma.pvpMatch.update({
+      where: { id: match.matchId },
+      data: {
+        status: "COUNTDOWN",
+        serverStartAt: new Date(match.serverStartAtMs),
+      },
+    });
+
+    for (const participant of match.participants.values()) {
+      if (isAiUserId(participant.userId)) continue;
+      sendToUser(wss, participant.userId, "MATCH_STATE", buildMatchStatePayload(match));
+    }
+
+    return true;
+  };
+
+  const scheduleNoShowTimeout = (matchId: string) => {
+    clearNoShowTimer(matchId);
+
+    const timer = setTimeout(() => {
+      noShowTimers.delete(matchId);
+      const match = state.matches.get(matchId);
+      if (!match) return;
+      if (match.roomCode !== null) return;
+      if (match.state !== "waiting_for_both") return;
+
+      if (getReadyParticipantCount(matchId, match) >= match.participants.size) {
+        return;
+      }
+
+      for (const userId of match.participants.keys()) {
+        clearDisconnectForfeitTimer(matchId, userId);
+      }
+
+      void abortMatchLifecycle({
+        prisma,
+        wss,
+        state,
+        eventBus,
+        matchId,
+        reasonCode: "no_show",
+        reasonMessage: "The opponent did not connect in time, so the match was cancelled.",
+      }).catch(() => {
+        // ignore
+      });
+    }, MATCH_NO_SHOW_TIMEOUT_MS);
+
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+
+    noShowTimers.set(matchId, timer);
   };
 
   const scheduleDisconnectForfeit = (matchId: string, userId: string) => {
@@ -1506,6 +1658,7 @@ async function main() {
           }),
           participantCount: activeMatch.participants.size,
           otherActiveSocketsForUser: getAuthedSocketsForUser(wss, userId).length,
+          matchState: activeMatch.state,
           matchStatus: activeMatch.status,
         })
       ) {
@@ -1588,6 +1741,7 @@ async function main() {
 
     for (const [matchId, match] of state.matches.entries()) {
       if ((match.state === "finished" || match.state === "aborted") && match.finalizedAtMs && now - match.finalizedAtMs >= MATCH_RESULT_RETENTION_MS) {
+        clearNoShowTimer(matchId);
         clearScheduledMatchCleanup(matchId);
         state.clearAiInterval(matchId);
         state.matches.delete(matchId);
@@ -1603,6 +1757,7 @@ async function main() {
 
       if (staleReason) {
         gatewayLogWarn("Sweeping stale active match", { matchId, staleReason, state: match.state });
+        clearNoShowTimer(matchId);
         for (const userId of match.participants.keys()) {
           clearDisconnectForfeitTimer(matchId, userId);
         }
@@ -2088,16 +2243,10 @@ return nil
       roomCode: null,
       users: params.users,
       serverStartAtMs,
+      initialState: "waiting_for_both",
       textSnapshot: rankedText.textSnapshot,
       textId: rankedText.textId,
       inputNonce,
-    });
-    eventBus.emit("match:countdown", {
-      matchId: match.id,
-      from: "lobby",
-      to: "countdown",
-      roomCode: null,
-      atMs: local.stateChangedAt,
     });
 
     await registerReplayNonce(redis, match.id, local.inputNonce);
@@ -2105,11 +2254,11 @@ return nil
     await prisma.pvpMatch.update({
       where: { id: match.id },
       data: {
-        status: "COUNTDOWN",
+        status: "PENDING",
         textSnapshot: local.textSnapshot,
         textId: local.textId,
         inputNonce: local.inputNonce,
-        serverStartAt: new Date(serverStartAtMs),
+        serverStartAt: null,
       },
     });
 
@@ -2137,6 +2286,8 @@ return nil
       if (isAiUserId(u.userId)) continue;
       sendToUser(wss, u.userId, "MATCH_FOUND", payload);
     }
+
+    scheduleNoShowTimeout(match.id);
 
     return { matchId: match.id, local, serverStartAtMs, payload };
   }
@@ -2769,6 +2920,12 @@ return nil
             matchId: msg.payload.matchId,
           });
 
+          // Cancel the disconnect-forfeit timer BEFORE the async DB lookup.
+          // Without this, the timer can fire during the ~200-300ms await window and
+          // finalise the match before clearDisconnectForfeitTimer is ever reached
+          // below, causing a spurious "match_closed" rejection on a legitimate rejoin.
+          clearDisconnectForfeitTimer(msg.payload.matchId, ws.user.userId);
+
           const participantRow = await prisma.pvpParticipant.findUnique({
             where: {
               matchId_userId: {
@@ -2811,7 +2968,6 @@ return nil
 
           ws.matchId = msg.payload.matchId;
           claimMatchSession(msg.payload.matchId, ws.user.userId, ws);
-          clearDisconnectForfeitTimer(msg.payload.matchId, ws.user.userId);
           const match = state.matches.get(msg.payload.matchId);
           if (!match) {
             const db = participantRow?.match;
@@ -2885,6 +3041,10 @@ return nil
             });
           }
 
+          if (effective.roomCode === null && effective.state === "waiting_for_both") {
+            await maybeStartRankedCountdown(effective);
+          }
+
           await storeIdempotencyHit({
             redis,
             store: idempotencyStore,
@@ -2919,14 +3079,26 @@ return nil
           ws.matchId = undefined;
 
           if (match.participants.size === 2 && !isTerminalPvpMatchStatus(match.status)) {
-            await finalizeMatchByDisconnectForfeit({
-              prisma,
-              wss,
-              state,
-              eventBus,
-              matchId: match.matchId,
-              forfeitedUserId: ws.user.userId,
-            });
+            if (match.state === "live") {
+              await finalizeMatchByDisconnectForfeit({
+                prisma,
+                wss,
+                state,
+                eventBus,
+                matchId: match.matchId,
+                forfeitedUserId: ws.user.userId,
+              });
+            } else {
+              await abortMatchLifecycle({
+                prisma,
+                wss,
+                state,
+                eventBus,
+                matchId: match.matchId,
+                reasonCode: "no_show",
+                reasonMessage: "The match was cancelled because a player left before it started.",
+              });
+            }
           }
 
           return;
@@ -2942,6 +3114,11 @@ return nil
           const participant = match.participants.get(ws.user.userId);
           if (!participant) {
             send(ws, "ERROR", { message: "Not joined" });
+            return;
+          }
+
+          if (match.state === "waiting_for_both") {
+            send(ws, "ERROR", { message: "Waiting for both players to connect" });
             return;
           }
 
@@ -3765,6 +3942,7 @@ return nil
               }),
               participantCount: activeMatch.participants.size,
               otherActiveSocketsForUser: otherSockets.length,
+              matchState: activeMatch.state,
               matchStatus: activeMatch.status,
             })
           ) {

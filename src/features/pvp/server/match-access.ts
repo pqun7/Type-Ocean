@@ -16,7 +16,7 @@ export function canJoinPvpMatchSocket(params: {
   participantExists: boolean;
   userId: string;
   forfeitedUserId?: string | null;
-  endedReason?: "completed" | "opponent_disconnected" | "aborted" | null;
+  endedReason?: "completed" | "opponent_disconnected" | "aborted" | "no_show" | null;
 }) {
   if (!params.participantExists) {
     return { allowed: false as const, reason: "not_participant" as const };

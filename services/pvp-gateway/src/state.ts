@@ -55,7 +55,7 @@ export type MatchState = {
   inputNonce: string | null;
   serverStartAtMs: number;
   participants: Map<string, MatchParticipantState>; // userId -> state
-  endedReason?: "completed" | "opponent_disconnected" | "aborted" | null;
+  endedReason?: "completed" | "opponent_disconnected" | "aborted" | "no_show" | null;
   forfeitedUserId?: string | null;
   rematchMatchId?: string | null;
   finalizedAtMs?: number | null;
@@ -104,6 +104,7 @@ export class InMemoryState {
     roomCode: string | null;
     users: Array<ConnectionUser & { slot: number }>;
     serverStartAtMs: number;
+    initialState?: MatchLifecycleState;
     textSnapshot?: string;
     textId?: string | null;
     inputNonce?: string | null;
@@ -131,14 +132,16 @@ export class InMemoryState {
       });
     }
 
+    const initialState = params.initialState ?? "countdown";
+
     const match: MatchState = {
       matchId: params.matchId,
       roomCode: params.roomCode,
-      state: "countdown",
+      state: initialState,
       stateChangedAt: Date.now(),
       revision: 1,
       lastSnapshotBroadcastAtMs: 0,
-      status: matchStateToLegacyStatus("countdown"),
+      status: matchStateToLegacyStatus(initialState),
       textSnapshot,
       textId: params.textId ?? null,
       inputNonce: params.inputNonce ?? null,

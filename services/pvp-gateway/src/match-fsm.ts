@@ -1,7 +1,8 @@
-export type MatchLifecycleState = "lobby" | "countdown" | "live" | "finished" | "aborted";
+export type MatchLifecycleState = "lobby" | "waiting_for_both" | "countdown" | "live" | "finished" | "aborted";
 
 export const MATCH_STATE_TRANSITIONS: Readonly<Record<MatchLifecycleState, readonly MatchLifecycleState[]>> = {
-  lobby: ["countdown", "aborted"],
+  lobby: ["waiting_for_both", "countdown", "aborted"],
+  waiting_for_both: ["countdown", "aborted"],
   countdown: ["live", "aborted", "finished"],
   live: ["finished", "aborted"],
   finished: [],
@@ -49,13 +50,14 @@ export function matchStateFromDbStatus(status: string): MatchLifecycleState {
       return "aborted";
     case "PENDING":
     default:
-      return "lobby";
+      return "waiting_for_both";
   }
 }
 
 export function matchStateToDbStatus(state: MatchLifecycleState): string {
   switch (state) {
     case "lobby":
+    case "waiting_for_both":
       return "PENDING";
     case "countdown":
       return "COUNTDOWN";
@@ -71,6 +73,7 @@ export function matchStateToDbStatus(state: MatchLifecycleState): string {
 export function matchStateToLegacyStatus(state: MatchLifecycleState): "COUNTDOWN" | "RUNNING" | "FINISHED" | "ABORTED" | "PENDING" {
   switch (state) {
     case "lobby":
+    case "waiting_for_both":
       return "PENDING";
     case "countdown":
       return "COUNTDOWN";

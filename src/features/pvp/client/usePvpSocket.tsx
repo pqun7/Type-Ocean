@@ -82,6 +82,7 @@ const PvpSocketContext = createContext<PvpSocketContextValue | null>(null);
 
 /** Delay (ms) before closing the socket when no consumers remain. */
 const SOCKET_IDLE_CLOSE_DELAY_MS = 3_000;
+const SOCKET_RECONNECT_DELAY_MS = 1_500;
 
 /* ------------------------------------------------------------------ */
 /*  Provider                                                           */
@@ -106,6 +107,8 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
   const versionRef = useRef(0);
   /** Deduplicates concurrent ensureConnected() calls. */
   const connectPromiseRef = useRef<Promise<void> | null>(null);
+  /** Retry timer when socket closes unexpectedly while consumers are mounted. */
+  const reconnectTimerRef = useRef<number | null>(null);
 
   /* ---------- low-level helpers ---------- */
 
@@ -119,6 +122,12 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
     if (idleCloseTimerRef.current == null) return;
     window.clearTimeout(idleCloseTimerRef.current);
     idleCloseTimerRef.current = null;
+  }, []);
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current == null) return;
+    window.clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
   }, []);
 
   const setSafeError = useCallback((nextError: string | PvpErrorPayload | null | undefined) => {
@@ -202,6 +211,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
     versionRef.current += 1;
     clearRefreshTimer();
     clearIdleCloseTimer();
+    clearReconnectTimer();
     connectPromiseRef.current = null;
     try {
       wsRef.current?.close();
@@ -213,7 +223,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
     setError(null);
     setUser(null);
     setLastMessage(null);
-  }, [clearRefreshTimer, clearIdleCloseTimer]);
+  }, [clearRefreshTimer, clearIdleCloseTimer, clearReconnectTimer]);
 
   const ensureConnected = useCallback(() => {
     // Already connected or connecting
@@ -224,6 +234,16 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
     if (connectPromiseRef.current) return connectPromiseRef.current;
 
     const capturedVersion = ++versionRef.current;
+
+    const queueReconnect = () => {
+      if (consumerCountRef.current <= 0) return;
+      if (reconnectTimerRef.current != null) return;
+
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        void ensureConnected();
+      }, SOCKET_RECONNECT_DELAY_MS);
+    };
 
     const promise = (async () => {
       setStatus("connecting");
@@ -238,6 +258,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
 
       ws.onopen = () => {
         if (versionRef.current !== capturedVersion) return;
+        clearReconnectTimer();
         logger.pvp.info("PvP websocket connection opened", { wsUrl: auth.wsUrl });
         ws.send(
           JSON.stringify({
@@ -296,6 +317,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
           message: "WebSocket error",
           retryable: true,
         });
+        queueReconnect();
       };
 
       ws.onclose = () => {
@@ -309,17 +331,20 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
           message: "The PvP connection was closed",
           retryable: true,
         });
+        queueReconnect();
       };
     })().catch((e) => {
       if (versionRef.current !== capturedVersion) return;
       setStatus("error");
       logger.pvp.error("Failed to initialize PvP websocket", e instanceof Error ? e : new Error(String(e)));
       setSafeError(e instanceof Error ? e.message : "Unknown error");
+      connectPromiseRef.current = null;
+      queueReconnect();
     });
 
     connectPromiseRef.current = promise;
     return promise;
-  }, [clearRefreshTimer, fetchWsToken, scheduleRefresh, setSafeError]);
+  }, [clearReconnectTimer, clearRefreshTimer, fetchWsToken, scheduleRefresh, setSafeError]);
 
   /* ---------- consumer registration (lazy connect / idle close) ---------- */
 
@@ -370,7 +395,15 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
 
   const send = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      void ensureConnected();
+      setSafeError({
+        code: PVP_ERROR_CODES.QUEUE_SOCKET_NOT_READY,
+        message: "PvP socket is reconnecting",
+        retryable: true,
+      });
+      return false;
+    }
 
     const nextMessage = msg.requestId
       ? msg
@@ -385,7 +418,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
     });
     ws.send(JSON.stringify(nextMessage));
     return true;
-  }, []);
+  }, [ensureConnected, setSafeError]);
 
   const value = useMemo<PvpSocketContextValue>(
     () => ({ status, error, user, lastMessage, send, addListener, getMatchTransport, registerConsumer }),
