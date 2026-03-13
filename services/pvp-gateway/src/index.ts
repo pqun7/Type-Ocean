@@ -1407,6 +1407,7 @@ async function main() {
   const state = new InMemoryState();
   const eventBus = createGatewayEventBus();
   const localQueueLock = createLocalLock();
+  const matchJoinLock = createLocalLock();
   const idempotencyStore = new InMemoryIdempotencyStore();
   const disconnectForfeitTimers = new Map<string, NodeJS.Timeout>();
   const rematchStartedByMatchId = new Set<string>();
@@ -1570,12 +1571,23 @@ async function main() {
     return ready;
   };
 
+  const getMatchOpponentType = (match: InMemoryState["matches"] extends Map<string, infer T> ? T : never) => {
+    for (const userId of match.participants.keys()) {
+      if (isAiUserId(userId)) return "bot" as const;
+    }
+    return "human" as const;
+  };
+
   const maybeStartRankedCountdown = async (match: InMemoryState["matches"] extends Map<string, infer T> ? T : never) => {
     if (match.roomCode !== null) return false;
     if (match.state !== "waiting_for_both") return false;
 
     const readyCount = getReadyParticipantCount(match.matchId, match);
     if (readyCount < match.participants.size) return false;
+
+    incrementGatewayMetric("pvp_match_waiting_ready_total", {
+      opponent_type: getMatchOpponentType(match),
+    });
 
     clearNoShowTimer(match.matchId);
     match.serverStartAtMs = Date.now() + RANKED_MATCH_START_DELAY_MS;
@@ -1616,9 +1628,22 @@ async function main() {
       if (match.roomCode !== null) return;
       if (match.state !== "waiting_for_both") return;
 
-      if (getReadyParticipantCount(matchId, match) >= match.participants.size) {
+      const readyCount = getReadyParticipantCount(matchId, match);
+      if (readyCount >= match.participants.size) {
         return;
       }
+
+      const opponentType = getMatchOpponentType(match);
+      incrementGatewayMetric("pvp_match_no_show_total", {
+        opponent_type: opponentType,
+      });
+      gatewayLogWarn("Aborting ranked match due to no-show timeout", {
+        matchId,
+        opponentType,
+        readyParticipants: readyCount,
+        totalParticipants: match.participants.size,
+        timeoutMs: MATCH_NO_SHOW_TIMEOUT_MS,
+      });
 
       for (const userId of match.participants.keys()) {
         clearDisconnectForfeitTimer(matchId, userId);
@@ -1724,8 +1749,28 @@ async function main() {
     const hasOpenExistingSession = Boolean(existing && existing !== ws && existing.readyState === WebSocket.OPEN);
 
     if (existing && shouldRejectDuplicateMatchTab(hasOpenExistingSession ? 1 : 0)) {
-      send(existing, "ERROR", { message: "This match was opened in another tab" });
-      existing.close(4001, "Superseded by a newer match session");
+      send(existing, "ERROR", {
+        code: PVP_ERROR_CODES.MATCH_SESSION_SUPERSEDED,
+        message: "This match was opened in another tab",
+        retryable: false,
+        details: {
+          phase: "match_session_claim",
+        },
+      });
+
+      const supersedeTimer = setTimeout(() => {
+        try {
+          if (existing.readyState === WebSocket.OPEN) {
+            existing.close(4001, "Superseded by a newer match session");
+          }
+        } catch {
+          // ignore
+        }
+      }, 75);
+
+      if (typeof supersedeTimer.unref === "function") {
+        supersedeTimer.unref();
+      }
     }
 
     if (ws.matchSessionKey && ws.matchSessionKey !== key) {
@@ -2225,6 +2270,10 @@ return nil
     persistUserIds: string[];
     startDelayMs?: number;
   }) {
+    const hasAiParticipant = params.users.some((user) => isAiUserId(user.userId));
+    const initialState: MatchLifecycleState = hasAiParticipant ? "countdown" : "waiting_for_both";
+    const initialDbStatus = hasAiParticipant ? "COUNTDOWN" : "PENDING";
+
     const match = await prisma.pvpMatch.create({
       data: { status: "PENDING", textSnapshot: "placeholder" },
       select: { id: true },
@@ -2243,22 +2292,32 @@ return nil
       roomCode: null,
       users: params.users,
       serverStartAtMs,
-      initialState: "waiting_for_both",
+      initialState,
       textSnapshot: rankedText.textSnapshot,
       textId: rankedText.textId,
       inputNonce,
     });
+
+    if (hasAiParticipant) {
+      eventBus.emit("match:countdown", {
+        matchId: match.id,
+        from: "lobby",
+        to: "countdown",
+        roomCode: null,
+        atMs: local.stateChangedAt,
+      });
+    }
 
     await registerReplayNonce(redis, match.id, local.inputNonce);
 
     await prisma.pvpMatch.update({
       where: { id: match.id },
       data: {
-        status: "PENDING",
+        status: initialDbStatus,
         textSnapshot: local.textSnapshot,
         textId: local.textId,
         inputNonce: local.inputNonce,
-        serverStartAt: null,
+        serverStartAt: hasAiParticipant ? new Date(serverStartAtMs) : null,
       },
     });
 
@@ -2287,7 +2346,9 @@ return nil
       sendToUser(wss, u.userId, "MATCH_FOUND", payload);
     }
 
-    scheduleNoShowTimeout(match.id);
+    if (!hasAiParticipant) {
+      scheduleNoShowTimeout(match.id);
+    }
 
     return { matchId: match.id, local, serverStartAtMs, payload };
   }
@@ -2926,138 +2987,199 @@ return nil
           // below, causing a spurious "match_closed" rejection on a legitimate rejoin.
           clearDisconnectForfeitTimer(msg.payload.matchId, ws.user.userId);
 
-          const participantRow = await prisma.pvpParticipant.findUnique({
-            where: {
-              matchId_userId: {
-                matchId: msg.payload.matchId,
-                userId: ws.user.userId,
-              },
-            },
-            select: {
-              slot: true,
-              match: {
-                select: {
-                  id: true,
-                  status: true,
-                  textSnapshot: true,
-                  textId: true,
-                  inputNonce: true,
-                  serverStartAt: true,
+          await matchJoinLock.runExclusive(async () => {
+            const sessionKey = `${msg.payload.matchId}:${ws.user!.userId}`;
+            const cachedMatch = state.matches.get(msg.payload.matchId);
+
+            if (
+              ws.matchId === msg.payload.matchId &&
+              ws.matchSessionKey === sessionKey &&
+              cachedMatch?.participants.has(ws.user!.userId)
+            ) {
+              const cachedPayload = buildMatchStatePayload(cachedMatch);
+              await storeIdempotencyHit({
+                redis,
+                store: idempotencyStore,
+                key: idempotency?.key,
+                messageType: msg.type,
+                value: {
+                  response: {
+                    type: "MATCH_STATE",
+                    payload: cachedPayload,
+                  },
+                },
+              });
+              send(ws, "MATCH_STATE", cachedPayload);
+              return;
+            }
+
+            const participantRow = await prisma.pvpParticipant.findUnique({
+              where: {
+                matchId_userId: {
+                  matchId: msg.payload.matchId,
+                  userId: ws.user!.userId,
                 },
               },
-            },
-          });
-
-          const matchJoinAccess = canJoinPvpMatchSocket({
-            status: participantRow?.match.status ?? "FINISHED",
-            participantExists: Boolean(participantRow),
-            userId: ws.user.userId,
-          });
-
-          if (!matchJoinAccess.allowed) {
-            gatewayLogWarn("Blocked invalid match join", {
-              userId: ws.user.userId,
-              matchId: msg.payload.matchId,
-              reason: matchJoinAccess.reason,
-            });
-            send(ws, "ERROR", {
-              message: matchJoinAccess.reason === "not_participant" ? "Not a participant" : "Match can no longer be joined",
-            });
-            return;
-          }
-
-          ws.matchId = msg.payload.matchId;
-          claimMatchSession(msg.payload.matchId, ws.user.userId, ws);
-          const match = state.matches.get(msg.payload.matchId);
-          if (!match) {
-            const db = participantRow?.match;
-            if (!db) {
-              send(ws, "ERROR", { message: "Match not found" });
-              return;
-            }
-
-            if (isTerminalPvpMatchStatus(db.status)) {
-              send(ws, "ERROR", { message: "Match can no longer be joined" });
-              return;
-            }
-
-            // Create a minimal local state from DB if missing
-            const lifecycleState = matchStateFromDbStatus(db.status);
-            state.matches.set(db.id, {
-              matchId: db.id,
-              roomCode: null,
-              state: lifecycleState,
-              stateChangedAt: Date.now(),
-              revision: 1,
-              lastSnapshotBroadcastAtMs: 0,
-              status: matchStateToLegacyStatus(lifecycleState),
-              textSnapshot: db.textSnapshot,
-              textId: db.textId ?? null,
-              inputNonce: db.inputNonce ?? null,
-              serverStartAtMs: db.serverStartAt ? db.serverStartAt.getTime() : Date.now() + 3000,
-              participants: new Map(),
-              endedReason: null,
-              forfeitedUserId: null,
-              rematchMatchId: null,
-              finalizedAtMs: null,
-              cleanupScheduledAtMs: null,
-            });
-
-            await registerReplayNonce(redis, db.id, db.inputNonce ?? null);
-          }
-
-          const effective = state.matches.get(msg.payload.matchId)!;
-          const effectiveAccess = canJoinPvpMatchSocket({
-            status: effective.status,
-            participantExists: Boolean(participantRow),
-            userId: ws.user.userId,
-            forfeitedUserId: effective.forfeitedUserId,
-            endedReason: effective.endedReason,
-          });
-          if (!effectiveAccess.allowed) {
-            send(ws, "ERROR", {
-              message: effectiveAccess.reason === "disconnect_forfeit" ? "Reconnect is not allowed after disconnect forfeit" : "Match can no longer be joined",
-            });
-            return;
-          }
-          const p = effective.participants.get(ws.user.userId);
-          if (!p) {
-            if (!participantRow) {
-              send(ws, "ERROR", { message: "Not a participant" });
-              return;
-            }
-
-            effective.participants.set(ws.user.userId, {
-              userId: ws.user.userId,
-              username: ws.user.username,
-              avatar: ws.user.avatar,
-              slot: participantRow.slot,
-              input: "",
-              seq: 0,
-              errors: 0,
-              wpm: 0,
-              accuracy: 100,
-              finishedAt: null,
-            });
-          }
-
-          if (effective.roomCode === null && effective.state === "waiting_for_both") {
-            await maybeStartRankedCountdown(effective);
-          }
-
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: {
-              response: {
-                type: "MATCH_STATE",
-                payload: buildMatchStatePayload(effective),
+              select: {
+                slot: true,
+                match: {
+                  select: {
+                    id: true,
+                    status: true,
+                    textSnapshot: true,
+                    textId: true,
+                    inputNonce: true,
+                    serverStartAt: true,
+                  },
+                },
               },
-            },
+            });
+
+            const matchJoinAccess = canJoinPvpMatchSocket({
+              status: participantRow?.match.status ?? "FINISHED",
+              participantExists: Boolean(participantRow),
+              userId: ws.user!.userId,
+            });
+
+            if (!matchJoinAccess.allowed) {
+              gatewayLogWarn("Blocked invalid match join", {
+                userId: ws.user!.userId,
+                matchId: msg.payload.matchId,
+                reason: matchJoinAccess.reason,
+              });
+              send(ws, "ERROR", {
+                message: matchJoinAccess.reason === "not_participant" ? "Not a participant" : "Match can no longer be joined",
+              });
+              return;
+            }
+
+            const match = state.matches.get(msg.payload.matchId);
+            if (!match) {
+              const db = participantRow?.match;
+              if (!db) {
+                send(ws, "ERROR", { message: "Match not found" });
+                return;
+              }
+
+              if (isTerminalPvpMatchStatus(db.status)) {
+                send(ws, "ERROR", { message: "Match can no longer be joined" });
+                return;
+              }
+
+              // Create a minimal local state from DB if missing
+              const lifecycleState = matchStateFromDbStatus(db.status);
+              state.matches.set(db.id, {
+                matchId: db.id,
+                roomCode: null,
+                state: lifecycleState,
+                stateChangedAt: Date.now(),
+                revision: 1,
+                lastSnapshotBroadcastAtMs: 0,
+                status: matchStateToLegacyStatus(lifecycleState),
+                textSnapshot: db.textSnapshot,
+                textId: db.textId ?? null,
+                inputNonce: db.inputNonce ?? null,
+                serverStartAtMs: db.serverStartAt ? db.serverStartAt.getTime() : Date.now() + 3000,
+                participants: new Map(),
+                endedReason: null,
+                forfeitedUserId: null,
+                rematchMatchId: null,
+                finalizedAtMs: null,
+                cleanupScheduledAtMs: null,
+              });
+
+              const participants = await prisma.pvpParticipant.findMany({
+                where: { matchId: db.id },
+                select: {
+                  userId: true,
+                  slot: true,
+                  user: {
+                    select: {
+                      username: true,
+                      profile: { select: { avatar: true } },
+                    },
+                  },
+                },
+              });
+
+              const hydrated = state.matches.get(db.id);
+              if (hydrated) {
+                for (const participant of participants) {
+                  hydrated.participants.set(participant.userId, {
+                    userId: participant.userId,
+                    username: sanitizeDisplayName(participant.user.username ?? "user", 32) || "user",
+                    avatar: sanitizeAvatarUrl(participant.user.profile?.avatar ?? null),
+                    slot: participant.slot,
+                    input: "",
+                    seq: 0,
+                    errors: 0,
+                    wpm: 0,
+                    accuracy: 100,
+                    finishedAt: null,
+                  });
+                }
+              }
+
+              await registerReplayNonce(redis, db.id, db.inputNonce ?? null);
+            }
+
+            const effective = state.matches.get(msg.payload.matchId)!;
+            const effectiveAccess = canJoinPvpMatchSocket({
+              status: effective.status,
+              participantExists: Boolean(participantRow),
+              userId: ws.user!.userId,
+              forfeitedUserId: effective.forfeitedUserId,
+              endedReason: effective.endedReason,
+            });
+            if (!effectiveAccess.allowed) {
+              send(ws, "ERROR", {
+                message: effectiveAccess.reason === "disconnect_forfeit" ? "Reconnect is not allowed after disconnect forfeit" : "Match can no longer be joined",
+              });
+              return;
+            }
+            const p = effective.participants.get(ws.user!.userId);
+            if (!p) {
+              if (!participantRow) {
+                send(ws, "ERROR", { message: "Not a participant" });
+                return;
+              }
+
+              effective.participants.set(ws.user!.userId, {
+                userId: ws.user!.userId,
+                username: ws.user!.username,
+                avatar: ws.user!.avatar,
+                slot: participantRow.slot,
+                input: "",
+                seq: 0,
+                errors: 0,
+                wpm: 0,
+                accuracy: 100,
+                finishedAt: null,
+              });
+            }
+
+            ws.matchId = msg.payload.matchId;
+            claimMatchSession(msg.payload.matchId, ws.user!.userId, ws);
+
+            if (effective.roomCode === null && effective.state === "waiting_for_both") {
+              await maybeStartRankedCountdown(effective);
+            }
+
+            const matchStatePayload = buildMatchStatePayload(effective);
+            await storeIdempotencyHit({
+              redis,
+              store: idempotencyStore,
+              key: idempotency?.key,
+              messageType: msg.type,
+              value: {
+                response: {
+                  type: "MATCH_STATE",
+                  payload: matchStatePayload,
+                },
+              },
+            });
+            send(ws, "MATCH_STATE", matchStatePayload);
           });
-          send(ws, "MATCH_STATE", buildMatchStatePayload(effective));
 
           return;
         }

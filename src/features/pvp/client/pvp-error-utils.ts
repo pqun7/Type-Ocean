@@ -44,6 +44,10 @@ export function toSafePvpErrorMessage(error: string | PvpErrorPayload | null | u
     return "The PvP connection was interrupted. Please refresh and try again.";
   }
 
+  if (normalizedError.code === PVP_ERROR_CODES.MATCH_SESSION_SUPERSEDED) {
+    return "This match is active in another tab. Continue there or close the other tab first.";
+  }
+
   if (normalizedError.code === PVP_ERROR_CODES.QUEUE_GATEWAY_DRAINING) {
     return "Ranked matchmaking is restarting. Please retry in a moment.";
   }
@@ -96,7 +100,7 @@ export function toSafePvpErrorMessage(error: string | PvpErrorPayload | null | u
     return "This match is no longer available. Please return to the lobby and start again.";
   }
 
-  if (normalized.includes("already open in another tab")) {
+  if (normalized.includes("already open in another tab") || normalized.includes("opened in another tab")) {
     return "This match is already active in another tab. Please continue there or close the other tab first.";
   }
 

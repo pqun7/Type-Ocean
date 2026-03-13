@@ -108,5 +108,23 @@ describe("pvp match session guards", () => {
         maxLiveAgeMs: 1_800_000,
       })
     ).toBeNull();
+
+    expect(
+      getStaleMatchAbortReason({
+        state: "waiting_for_both",
+        stateAgeMs: 999_999,
+        maxCountdownAgeMs: 120_000,
+        maxLiveAgeMs: 1_800_000,
+      })
+    ).toBeNull();
+
+    expect(
+      getStaleMatchAbortReason({
+        state: "lobby",
+        stateAgeMs: 999_999,
+        maxCountdownAgeMs: 120_000,
+        maxLiveAgeMs: 1_800_000,
+      })
+    ).toBeNull();
   });
 });
