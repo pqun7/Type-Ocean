@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
-import { resolveExistingUserId } from "@/app/api/shared.server";
+import { resolveExistingUserId, UserResolutionUnavailableError } from "@/app/api/shared.server";
 import { clearAuthSessionCookies } from "@/features/auth/server/session-cookies";
 import { isPrismaTemporarilyUnavailableError } from "@/lib/prisma-error-utils";
 
@@ -24,7 +24,7 @@ async function handleSession(req: NextRequest) {
   }
 
   const tokenUserId = (token?.id as string | undefined) ?? token?.sub;
-  const userId = await resolveExistingUserId(tokenUserId);
+  const userId = await resolveExistingUserId(tokenUserId, { throwOnUnavailable: true });
   if (!userId) {
     return clearAuthSessionCookies(NextResponse.json(
       {
@@ -59,6 +59,19 @@ export async function GET(req: NextRequest) {
   try {
     return await handleSession(req);
   } catch (error) {
+    if (error instanceof UserResolutionUnavailableError) {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: "service_unavailable",
+        },
+        {
+          status: 200,
+          headers: { "Cache-Control": "private, no-store" },
+        }
+      );
+    }
+
     if (isPrismaTemporarilyUnavailableError(error)) {
       return NextResponse.json(
         {
@@ -86,6 +99,19 @@ export async function POST(req: NextRequest) {
   try {
     return await handleSession(req);
   } catch (error) {
+    if (error instanceof UserResolutionUnavailableError) {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: "service_unavailable",
+        },
+        {
+          status: 200,
+          headers: { "Cache-Control": "private, no-store" },
+        }
+      );
+    }
+
     if (isPrismaTemporarilyUnavailableError(error)) {
       return NextResponse.json(
         {

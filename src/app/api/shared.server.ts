@@ -20,7 +20,17 @@ const extractTokenUserId = (token: { id?: unknown; sub?: string | null } | null 
   return tokenId ?? token?.sub ?? null;
 };
 
-export const resolveExistingUserId = async (userId: string | null | undefined): Promise<string | null> => {
+export class UserResolutionUnavailableError extends Error {
+  constructor() {
+    super("User resolution temporarily unavailable");
+    this.name = "UserResolutionUnavailableError";
+  }
+}
+
+export const resolveExistingUserId = async (
+  userId: string | null | undefined,
+  options?: { throwOnUnavailable?: boolean }
+): Promise<string | null> => {
   if (!userId) {
     return null;
   }
@@ -37,6 +47,11 @@ export const resolveExistingUserId = async (userId: string | null | undefined): 
         userId,
         reason: "prisma_temporarily_unavailable",
       });
+
+      if (options?.throwOnUnavailable) {
+        throw new UserResolutionUnavailableError();
+      }
+
       return null;
     }
     throw error;

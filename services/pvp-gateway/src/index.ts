@@ -180,6 +180,12 @@ type Placement = {
   timeMs: number;
 };
 
+type PendingInputUpdateBatch = {
+  maxSeqByUser: Map<string, number>;
+  enqueuedCount: number;
+  firstEnqueuedAtMs: number;
+};
+
 function envInt(name: string, fallback: number) {
   const raw = process.env[name];
   const n = raw ? Number(raw) : NaN;
@@ -1480,6 +1486,8 @@ async function main() {
   const SHUTDOWN_GRACE_MS = envMs("PVP_GRACEFUL_SHUTDOWN_TIMEOUT_MS", 30_000);
   const USE_REDIS = envBool("PVP_USE_REDIS", false);
   const REDIS_URL = process.env.PVP_REDIS_URL ?? process.env.REDIS_URL ?? null;
+  const INPUT_UPDATE_FLUSH_INTERVAL_MS = envMs("PVP_INPUT_UPDATE_FLUSH_INTERVAL_MS", 100);
+  const INPUT_UPDATE_FLUSH_MAX_ENQUEUED = envInt("PVP_INPUT_UPDATE_FLUSH_MAX_ENQUEUED", 32);
 
   const getActiveMatchCount = () => {
     let activeMatches = 0;
@@ -1597,6 +1605,177 @@ async function main() {
   const roomActionLastSeen = new Map<string, number>();
   const activeMatchSessions = new Map<string, WsConn>();
   const noShowTimers = new Map<string, NodeJS.Timeout>();
+  const pendingInputUpdatesByMatch = new Map<string, PendingInputUpdateBatch>();
+  let inputUpdateFlushInProgress = false;
+  let inputUpdateFlushRequested = false;
+
+  const getPendingInputQueueStats = () => {
+    const nowMs = Date.now();
+    let totalEnqueued = 0;
+    let oldestAgeMs = 0;
+
+    for (const batch of pendingInputUpdatesByMatch.values()) {
+      totalEnqueued += batch.enqueuedCount;
+      oldestAgeMs = Math.max(oldestAgeMs, nowMs - batch.firstEnqueuedAtMs);
+    }
+
+    return {
+      pendingMatches: pendingInputUpdatesByMatch.size,
+      totalEnqueued,
+      oldestAgeMs,
+    };
+  };
+
+  const enqueueInputUpdateBatch = (matchId: string, userId: string, seq: number) => {
+    const nowMs = Date.now();
+    const existing = pendingInputUpdatesByMatch.get(matchId);
+    if (!existing) {
+      pendingInputUpdatesByMatch.set(matchId, {
+        maxSeqByUser: new Map([[userId, seq]]),
+        enqueuedCount: 1,
+        firstEnqueuedAtMs: nowMs,
+      });
+      return;
+    }
+
+    const previousSeq = existing.maxSeqByUser.get(userId);
+    if (previousSeq == null || seq > previousSeq) {
+      existing.maxSeqByUser.set(userId, seq);
+    }
+    existing.enqueuedCount += 1;
+  };
+
+  const mergePendingInputBatch = (matchId: string, batch: PendingInputUpdateBatch) => {
+    const existing = pendingInputUpdatesByMatch.get(matchId);
+    if (!existing) {
+      pendingInputUpdatesByMatch.set(matchId, {
+        maxSeqByUser: new Map(batch.maxSeqByUser),
+        enqueuedCount: batch.enqueuedCount,
+        firstEnqueuedAtMs: batch.firstEnqueuedAtMs,
+      });
+      return;
+    }
+
+    for (const [userId, seq] of batch.maxSeqByUser.entries()) {
+      const previousSeq = existing.maxSeqByUser.get(userId);
+      if (previousSeq == null || seq > previousSeq) {
+        existing.maxSeqByUser.set(userId, seq);
+      }
+    }
+
+    existing.enqueuedCount += batch.enqueuedCount;
+    existing.firstEnqueuedAtMs = Math.min(existing.firstEnqueuedAtMs, batch.firstEnqueuedAtMs);
+  };
+
+  const persistInputUpdateBatch = async (matchId: string, batch: PendingInputUpdateBatch) => {
+    const match = state.matches.get(matchId);
+    if (!match) {
+      return;
+    }
+
+    const persistAtRevision = async (revisionToUse: number) => {
+      const isTerminalState = match.state === "finished" || match.state === "aborted";
+      return matchRepository.withTransaction(async (tx) => {
+        return matchRepository.updateWithRevision(tx, match.matchId, {
+          expectedRevision: revisionToUse,
+          nextState: match.state,
+          liveState: buildLiveStateFromLocalMatch(match),
+          instanceId: INSTANCE_ID,
+          serverStartAt: new Date(match.serverStartAtMs),
+          startedAt: match.state === "waiting_for_both" ? null : new Date(match.serverStartAtMs),
+          endedAt: isTerminalState ? new Date(match.stateChangedAt) : null,
+        });
+      });
+    };
+
+    const initialRevision = match.revision;
+    let persistResult = await persistAtRevision(initialRevision);
+    if (!persistResult.applied) {
+      const latest = await matchRepository.load(match.matchId);
+      if (!latest) {
+        throw new Error("Match state sync failed while flushing pending INPUT_UPDATE batch");
+      }
+
+      // If all pending seq values are already represented in DB, avoid redundant writes.
+      let fullyCoveredByLatest = true;
+      for (const [userId, pendingSeq] of batch.maxSeqByUser.entries()) {
+        const latestSeq = latest.liveState?.participants?.[userId]?.seq ?? -1;
+        if (latestSeq < pendingSeq) {
+          fullyCoveredByLatest = false;
+          break;
+        }
+      }
+
+      if (fullyCoveredByLatest) {
+        match.revision = latest.revision;
+        return;
+      }
+
+      persistResult = await persistAtRevision(latest.revision);
+      if (!persistResult.applied) {
+        throw new Error("Match state changed while flushing pending INPUT_UPDATE batch");
+      }
+    }
+
+    match.revision = persistResult.nextRevision;
+  };
+
+  const flushPendingInputUpdates = async (reason: "timer" | "threshold" | "shutdown") => {
+    if (inputUpdateFlushInProgress) {
+      inputUpdateFlushRequested = true;
+      return;
+    }
+
+    if (pendingInputUpdatesByMatch.size === 0) {
+      return;
+    }
+
+    inputUpdateFlushInProgress = true;
+    const startedAt = Date.now();
+    incrementGatewayMetric("pvp_input_update_flush_total", { reason });
+
+    try {
+      do {
+        inputUpdateFlushRequested = false;
+        const batches = Array.from(pendingInputUpdatesByMatch.entries());
+        pendingInputUpdatesByMatch.clear();
+
+        for (const [matchId, batch] of batches) {
+          try {
+            await persistInputUpdateBatch(matchId, batch);
+          } catch (error) {
+            // Requeue on transient failures to avoid dropping accepted local progress.
+            mergePendingInputBatch(matchId, batch);
+            incrementGatewayMetric("pvp_input_update_requeue_total", { reason });
+            gatewayLogWarn("INPUT_UPDATE batch flush failed; requeued", {
+              matchId,
+              reason,
+              enqueuedCount: batch.enqueuedCount,
+              ageMs: Date.now() - batch.firstEnqueuedAtMs,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } while (inputUpdateFlushRequested && pendingInputUpdatesByMatch.size > 0);
+    } finally {
+      inputUpdateFlushInProgress = false;
+      observeGatewayHistogram(
+        "pvp_input_update_flush_duration_ms",
+        Date.now() - startedAt,
+        [5, 10, 25, 50, 100, 250, 500, 1_000, 2_000, 5_000],
+        { reason }
+      );
+      gatewayLogDebug("INPUT_UPDATE flush cycle completed", {
+        reason,
+        durationMs: Date.now() - startedAt,
+        pendingMatches: pendingInputUpdatesByMatch.size,
+      });
+    }
+  };
+
+  const inputUpdateFlushInterval = setInterval(() => {
+    void flushPendingInputUpdates("timer");
+  }, INPUT_UPDATE_FLUSH_INTERVAL_MS);
 
   const clearDisconnectForfeitTimer = (matchId: string, userId: string) => {
     const key = getDisconnectForfeitKey(matchId, userId);
@@ -2108,11 +2287,16 @@ async function main() {
   }
 
   const snapshotGatewayMetrics = () => {
+    const pendingInputStats = getPendingInputQueueStats();
+
     setGatewayGauge("pvp_active_connections", wss.clients.size);
     setGatewayGauge("pvp_queue_depth", state.queue.length);
     setGatewayGauge("pvp_active_matches", getActiveMatchCount());
     setGatewayGauge("pvp_gateway_uptime_seconds", Number(process.uptime().toFixed(3)));
     setGatewayGauge("pvp_gateway_heap_used_bytes", process.memoryUsage().heapUsed);
+    setGatewayGauge("pvp_input_update_pending_matches", pendingInputStats.pendingMatches);
+    setGatewayGauge("pvp_input_update_pending_enqueued", pendingInputStats.totalEnqueued);
+    setGatewayGauge("pvp_input_update_oldest_age_ms", pendingInputStats.oldestAgeMs);
     gatewayMetrics?.setConnectionsActive(wss.clients.size);
     gatewayMetrics?.setQueueLength("ranked", state.queue.length);
     gatewayMetrics?.setLifecycle({
@@ -3779,9 +3963,6 @@ return nil
           }
 
           const nextInput = next.slice(0, match.textSnapshot.length);
-          const previousInput = participant.input;
-          const expectedRevision = match.revision;
-
           updateParticipantMetricsIncremental({
             matchId: match.matchId,
             textSnapshot: match.textSnapshot,
@@ -3806,50 +3987,11 @@ return nil
           participant.lastInputLen = participant.input.length;
           observeGatewayHistogram("pvp_input_update_chars", participant.input.length, [8, 16, 32, 64, 128, 256, 512, 1024]);
 
-          const persistRevision = async (revisionToUse: number) => {
-            return matchRepository.withTransaction(async (tx) => {
-              return matchRepository.updateWithRevision(tx, match.matchId, {
-                expectedRevision: revisionToUse,
-                nextState: match.state,
-                liveState: buildLiveStateFromLocalMatch(match),
-                instanceId: INSTANCE_ID,
-                serverStartAt: new Date(match.serverStartAtMs),
-                startedAt: match.state === "waiting_for_both" ? null : new Date(match.serverStartAtMs),
-                endedAt: null,
-              });
-            });
-          };
-
-          let persistResult = await persistRevision(expectedRevision);
-          if (!persistResult.applied) {
-            const latest = await matchRepository.load(match.matchId);
-            const latestParticipant = latest?.liveState?.participants?.[ws.user.userId];
-
-            if (!latest) {
-              send(ws, "ERROR", {
-                message: "Match state sync failed. Please try again.",
-                retryable: true,
-              });
-              participant.input = previousInput;
-              return;
-            }
-
-            if (latestParticipant && latestParticipant.seq >= msg.payload.seq) {
-              return;
-            }
-
-            persistResult = await persistRevision(latest.revision);
-            if (!persistResult.applied) {
-              send(ws, "ERROR", {
-                message: "Match state changed while syncing input. Please retry.",
-                retryable: true,
-              });
-              participant.input = previousInput;
-              return;
-            }
+          enqueueInputUpdateBatch(match.matchId, ws.user.userId, msg.payload.seq);
+          const queuedBatch = pendingInputUpdatesByMatch.get(match.matchId);
+          if (queuedBatch && queuedBatch.enqueuedCount >= INPUT_UPDATE_FLUSH_MAX_ENQUEUED) {
+            void flushPendingInputUpdates("threshold");
           }
-
-          match.revision = persistResult.nextRevision;
 
           await registerAcceptedReplaySeq(redis, match.matchId, ws.user.userId, msg.payload.seq);
 
@@ -4702,6 +4844,8 @@ return nil
 
       messageBatcher?.flushAll();
       messageBatcher?.stop();
+      clearInterval(inputUpdateFlushInterval);
+      await flushPendingInputUpdates("shutdown");
 
       for (const client of Array.from(wss.clients)) {
         try {

@@ -5,9 +5,10 @@ import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import type { JWT } from "next-auth/jwt";
 import { PrismaAdapter } from "@auth/prisma-adapter";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { loginSchema } from "@/schemas/authSchema";
 import { getUserFromDb } from "@/features/auth/utils/db";
+import prisma from "@/features/auth/lib/db";
 import {
   normalizeUsernameForDisplay,
   sanitizeUsernameFromProvider,
@@ -31,7 +32,6 @@ import { ZodError } from "zod";
 //   }
 // }
 
-const prisma = new PrismaClient();
 const prismaAdapter = PrismaAdapter(prisma);
 
 type AuthUserState = {
