@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 
 import { resolveExistingUserId } from "@/app/api/shared.server";
 import { clearAuthSessionCookies } from "@/features/auth/server/session-cookies";
+import { isPrismaTemporarilyUnavailableError } from "@/lib/prisma-error-utils";
 
 export const runtime = "nodejs";
 
@@ -57,7 +58,20 @@ async function handleSession(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     return await handleSession(req);
-  } catch {
+  } catch (error) {
+    if (isPrismaTemporarilyUnavailableError(error)) {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: "service_unavailable",
+        },
+        {
+          status: 200,
+          headers: { "Cache-Control": "private, no-store" },
+        }
+      );
+    }
+
     return NextResponse.json(
       {
         valid: false,
@@ -71,7 +85,20 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     return await handleSession(req);
-  } catch {
+  } catch (error) {
+    if (isPrismaTemporarilyUnavailableError(error)) {
+      return NextResponse.json(
+        {
+          valid: false,
+          reason: "service_unavailable",
+        },
+        {
+          status: 200,
+          headers: { "Cache-Control": "private, no-store" },
+        }
+      );
+    }
+
     return NextResponse.json(
       { 
         valid: false,

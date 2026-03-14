@@ -11,7 +11,6 @@ import { usePvpErrorAlert } from "@/features/pvp/client/pvp-error-utils";
 
 type PendingMatch = {
   matchId: string;
-  serverStartAt: string;
   opponent: {
     username: string;
     rankTier?: string;
@@ -30,7 +29,6 @@ export default function Pvp1v1Client() {
   const [searchStartedAtMs, setSearchStartedAtMs] = useState<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [pendingMatch, setPendingMatch] = useState<PendingMatch | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
   const cancelledReason = searchParams.get("cancelled");
 
@@ -60,7 +58,6 @@ export default function Pvp1v1Client() {
         const opponent = message.payload.players.find((player) => player.userId !== user?.userId) ?? message.payload.players[0] ?? null;
         setPendingMatch({
           matchId: message.payload.matchId,
-          serverStartAt: message.payload.serverStartAt,
           opponent: opponent
             ? {
                 username: opponent.username,
@@ -88,38 +85,23 @@ export default function Pvp1v1Client() {
   }, [pendingMatch, queueStatus]);
 
   useEffect(() => {
-    if (!searchStartedAtMs && !pendingMatch) return;
+    if (!searchStartedAtMs) return;
 
     const intervalId = window.setInterval(() => {
       const currentNowMs = Date.now();
-      setNowMs(currentNowMs);
-
-      if (searchStartedAtMs != null) {
-        setElapsedSec(Math.max(0, Math.floor((currentNowMs - searchStartedAtMs) / 1000)));
-      }
+      setElapsedSec(Math.max(0, Math.floor((currentNowMs - searchStartedAtMs) / 1000)));
     }, 100);
 
     return () => window.clearInterval(intervalId);
-  }, [pendingMatch, searchStartedAtMs]);
+  }, [searchStartedAtMs]);
 
   useEffect(() => {
     if (!pendingMatch) return;
 
-    const delayMs = new Date(pendingMatch.serverStartAt).getTime() - Date.now();
-    if (delayMs <= 0) {
-      router.push(`/pvp/match/${pendingMatch.matchId}`);
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      router.push(`/pvp/match/${pendingMatch.matchId}`);
-    }, delayMs);
-
-    return () => window.clearTimeout(timeoutId);
+    router.push(`/pvp/match/${pendingMatch.matchId}`);
   }, [pendingMatch, router]);
 
   const canQueue = status === "ready" && (queueStatus === "IDLE" || queueStatus === "CONNECTED") && !pendingMatch;
-  const countdown = pendingMatch ? Math.max(0, Math.ceil((new Date(pendingMatch.serverStartAt).getTime() - nowMs) / 1000)) : null;
   const isSearching = queueStatus === "SEARCHING" && !pendingMatch;
   const isReconnecting = hasConnectedOnce && status === "connecting";
 
@@ -145,7 +127,7 @@ export default function Pvp1v1Client() {
               <div className="text-xs uppercase tracking-[0.28em] text-[#8DCBEB]">PvP Ranked Queue</div>
               <CardTitle className="text-3xl text-[#F2F7FF]">Ranked 1v1</CardTitle>
               <p className="max-w-2xl text-sm text-[#B5CAE2]">
-                Every match uses a server-selected ranked text. Players share one queue, and the countdown starts as soon as an opponent is locked in.
+                Every match uses a server-selected ranked text. Players share one queue, then move to the match page where the countdown runs.
               </p>
             </div>
             <div className="rounded-full border border-[rgba(160,220,255,0.16)] bg-[rgba(255,255,255,0.04)] p-3 text-[#9DDBFF]">
@@ -200,9 +182,9 @@ export default function Pvp1v1Client() {
               </div>
 
               <div className="flex flex-col items-center justify-center rounded-[24px] border border-[rgba(160,220,255,0.12)] bg-[rgba(255,255,255,0.03)] p-5 text-center">
-                <div className="text-xs uppercase tracking-[0.24em] text-[#91D7F6]">Match starting in</div>
-                <div className="mt-3 text-7xl font-semibold leading-none text-white">{countdown ?? 0}</div>
-                <div className="mt-3 text-sm text-[#A9C0D6]">3... 2... 1...</div>
+                <div className="text-xs uppercase tracking-[0.24em] text-[#91D7F6]">Loading match</div>
+                <Loader2 className="mt-3 h-10 w-10 animate-spin text-[#B8E6FF]" />
+                <div className="mt-3 text-sm text-[#A9C0D6]">Redirecting you to the arena...</div>
               </div>
             </div>
           ) : isSearching ? (

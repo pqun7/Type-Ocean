@@ -9,6 +9,10 @@ import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { passwordValidation } from "@/features/auth/utils/password-policy";
 import { logging } from "@/log/ServerLogger";
 import { rateLimiter } from "@/lib/rate-limiter";
+import {
+  isPrismaAccountHoldError,
+  isPrismaTemporarilyUnavailableError,
+} from "@/lib/prisma-error-utils";
 
 const SERVICE_TYPE = "USER-PASSWORD-API";
 
@@ -115,6 +119,43 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ message: "Password updated successfully" });
   } catch (error) {
+    if (isPrismaAccountHoldError(error)) {
+      logging.warn("Password update blocked by Prisma account hold", {
+        requestId,
+        service: SERVICE_TYPE,
+      });
+
+      return NextResponse.json(
+        {
+          error: "Password update is temporarily unavailable due to a database account hold",
+          code: "DB_ACCOUNT_HOLD",
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "120",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
+    if (isPrismaTemporarilyUnavailableError(error)) {
+      return NextResponse.json(
+        {
+          error: "Password update is temporarily unavailable",
+          code: "DB_TEMP_UNAVAILABLE",
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "60",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
     logging.error("Password update failed", error, {
       requestId,
       service: SERVICE_TYPE,

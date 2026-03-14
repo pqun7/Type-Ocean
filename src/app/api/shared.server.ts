@@ -5,6 +5,7 @@ import prisma from "@/features/auth/lib/db";
 import { getTodayDate, getUtcMidnightTTL } from "@/features/auth/utils/timeUtils";
 import { logging } from "@/log/ServerLogger";
 import { getToken } from "next-auth/jwt";
+import { isPrismaTemporarilyUnavailableError } from "@/lib/prisma-error-utils";
 
 export type AuthorizedAdminActor = {
   id: string;
@@ -24,10 +25,22 @@ export const resolveExistingUserId = async (userId: string | null | undefined): 
     return null;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, banned: true },
-  });
+  let user: { id: string; banned: boolean } | null = null;
+  try {
+    user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, banned: true },
+    });
+  } catch (error) {
+    if (isPrismaTemporarilyUnavailableError(error)) {
+      logging.warn("Temporarily unable to resolve user id", {
+        userId,
+        reason: "prisma_temporarily_unavailable",
+      });
+      return null;
+    }
+    throw error;
+  }
 
   if (!user || user.banned) {
     return null;

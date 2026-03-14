@@ -8,6 +8,10 @@ import prisma from "@/features/auth/lib/db";
 import { syncPlayerProfile } from "@/features/auth/server/player-profile";
 import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 import { rateLimiter } from "@/lib/rate-limiter";
+import {
+  isPrismaAccountHoldError,
+  isPrismaTemporarilyUnavailableError,
+} from "@/lib/prisma-error-utils";
 
 export const runtime = "nodejs";
 
@@ -138,6 +142,40 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url: blob.url, requestId });
   } catch (error) {
+    if (isPrismaAccountHoldError(error)) {
+      return NextResponse.json(
+        {
+          error: "Avatar update is temporarily unavailable due to a database account hold",
+          code: "DB_ACCOUNT_HOLD",
+          requestId,
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "120",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
+    if (isPrismaTemporarilyUnavailableError(error)) {
+      return NextResponse.json(
+        {
+          error: "Avatar update is temporarily unavailable",
+          code: "DB_TEMP_UNAVAILABLE",
+          requestId,
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "60",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error), requestId },
       { status: 400 }

@@ -1,0 +1,124 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "websocket handshake status is 101": {
+                    "name": "websocket handshake status is 101",
+                    "path": "::websocket handshake status is 101",
+                    "id": "ffdaf41f87fcf21fff14265b5118413a",
+                    "passes": 1017,
+                    "fails": 0
+                }
+            }
+    },
+    "metrics": {
+        "pvp_ws_queue_to_match_latency": {
+            "p(90)": 2295.1,
+            "p(95)": 2719.9999999999986,
+            "avg": 1052.1829521829522,
+            "min": 338,
+            "med": 537.5,
+            "max": 10244,
+            "thresholds": {
+                "p(95)<5000": false
+            }
+        },
+        "iterations": {
+            "count": 1011,
+            "rate": 4.103042251163619
+        },
+        "pvp_ws_hello_latency": {
+            "max": 19584,
+            "p(90)": 15700,
+            "p(95)": 16048,
+            "avg": 6196.475181998677,
+            "min": 274,
+            "med": 2944,
+            "thresholds": {
+                "p(95)<1000": true
+            }
+        },
+        "iteration_duration": {
+            "p(90)": 121018.9835,
+            "p(95)": 121038.69145,
+            "avg": 65545.73051186942,
+            "min": 4324.4772,
+            "med": 24647.8359,
+            "max": 121339.058
+        },
+        "data_sent": {
+            "count": 1444377,
+            "rate": 5861.85940416316
+        },
+        "vus": {
+            "value": 21,
+            "min": 0,
+            "max": 600
+        },
+        "vus_max": {
+            "min": 142,
+            "max": 600,
+            "value": 600
+        },
+        "ws_msgs_received": {
+            "count": 4883,
+            "rate": 19.81716648113942
+        },
+        "ws_msgs_sent": {
+            "count": 3997,
+            "rate": 16.221424211573677
+        },
+        "pvp_ws_connect_errors": {
+            "passes": 1393,
+            "fails": 0,
+            "thresholds": {
+                "rate<0.05": true
+            },
+            "value": 1
+        },
+        "checks": {
+            "passes": 1017,
+            "fails": 0,
+            "value": 1
+        },
+        "pvp_ws_results_rate": {
+            "fails": 0,
+            "passes": 0,
+            "thresholds": {
+                "rate>=0": false
+            },
+            "value": 0
+        },
+        "ws_session_duration": {
+            "p(90)": 120015.3599,
+            "p(95)": 120034.03508,
+            "avg": 64870.16782763025,
+            "min": 3315.4373,
+            "med": 24037.7763,
+            "max": 120338.8262
+        },
+        "ws_connecting": {
+            "max": 574.8477,
+            "p(90)": 122.0606,
+            "p(95)": 215.6717999999999,
+            "avg": 33.61660898950136,
+            "min": 0,
+            "med": 3.00745
+        },
+        "data_received": {
+            "count": 1555632,
+            "rate": 6313.376679784534
+        },
+        "pvp_ws_protocol_errors": {
+            "count": 561,
+            "rate": 2.2767623174112663
+        },
+        "ws_sessions": {
+            "count": 1524,
+            "rate": 6.185001375641302
+        }
+    }
+}

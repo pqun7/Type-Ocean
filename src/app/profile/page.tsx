@@ -13,18 +13,16 @@ import { getOverallKeyboardPerformance } from "@/helper/overall-keyboard-perform
 import { Prisma } from "@prisma/client";
 import { getRankInfo } from "@/features/ranking/rating";
 import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
+import {
+  getPrismaErrorCode,
+  isPrismaAccountHoldError,
+  isPrismaTemporarilyUnavailableError,
+} from "@/lib/prisma-error-utils";
 
 import ProfileClient from "./profile-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function getPrismaErrorCode(err: unknown): string | null {
-  if (typeof err !== "object" || err === null) return null;
-  if (!("code" in err)) return null;
-  const { code } = err as { code?: unknown };
-  return typeof code === "string" ? code : null;
-}
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -105,9 +103,8 @@ export default async function ProfilePage() {
     const code = getPrismaErrorCode(err);
     console.error("/profile prisma.user.findUnique failed", { code, err });
 
-    const isNetworkLike =
-      code === "P5010" ||
-      (err instanceof Error && err.message.toLowerCase().includes("fetch failed"));
+    const isNetworkLike = isPrismaTemporarilyUnavailableError(err);
+    const isAccountHold = isPrismaAccountHoldError(err);
 
     return (
       <div className="min-h-svh bg-[#0a0a1f] p-6 md:p-10">
@@ -120,7 +117,9 @@ export default async function ProfilePage() {
                 Temporarily unavailable
               </h2>
               <p className="mt-2 text-[#8A8FB5]">
-                {isNetworkLike
+                {isAccountHold
+                  ? "Database access is temporarily blocked by the hosting plan limit. Please resolve the Prisma account hold and try again."
+                  : isNetworkLike
                   ? "We couldn’t reach the database service. Please try again in a moment."
                   : "We couldn’t load your profile right now. Please try again later."}
               </p>

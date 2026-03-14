@@ -257,6 +257,12 @@ model PvpMatch {
   id              String   @id @default(uuid())
   status          String   @default("PENDING")
   roomId          String?
+  /// Distributed authoritative lifecycle snapshot for active matches.
+  liveState       Json?
+  /// Monotonic revision used for optimistic concurrency and reconnect resume.
+  revision        Int      @default(0)
+  /// Gateway instance currently responsible for match lifecycle work.
+  instanceId      String?
   /// The canonical text used by all participants in the match.
   textSnapshot    String
   textId          String?
@@ -275,6 +281,8 @@ model PvpMatch {
   updatedAt DateTime @updatedAt
 
   @@index([status, createdAt])
+  @@index([status, instanceId, updatedAt])
+  @@index([instanceId, updatedAt])
   @@map("pvp_match")
 }
 

@@ -17,6 +17,7 @@ interface TypingInputProps {
 
   dir?: "ltr" | "rtl";
   lang?: string;
+  disabled?: boolean;
 
 }
 
@@ -28,6 +29,7 @@ export default function TypingInput({
   lineHeightClassName,
   dir,
   lang,
+  disabled = false,
 }: TypingInputProps) {
   const audio = useAudio();
 
@@ -61,7 +63,12 @@ export default function TypingInput({
       value={userInput}
       onChange={handleInputChange}
       onKeyDown={handleKeyDown} 
-      onBlur={() => inputRef.current?.focus()} // إعادة التركيز عند فقدانه
+      onBlur={() => {
+        if (!disabled) {
+          inputRef.current?.focus();
+        }
+      }}
+      disabled={disabled}
 
 
       className={cn(

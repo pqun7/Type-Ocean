@@ -15,6 +15,7 @@ import { sanitizeAvatarUrl, sanitizeDisplayName } from "@/lib/sanitize";
 import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 import { ensurePlayerProfile, syncPlayerProfile } from "@/features/auth/server/player-profile";
 import { clearAuthSessionCookies } from "@/features/auth/server/session-cookies";
+import { isPrismaAccountHoldError } from "@/lib/prisma-error-utils";
 
 const OTP_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -193,6 +194,28 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
+    if (isPrismaAccountHoldError(error)) {
+      logUserOperation.error(requestId, "get_user_profile", error, {
+        operationPhase: "get_user_profile",
+        fallbackStatus: 503,
+        reason: "prisma_account_hold",
+      });
+
+      return NextResponse.json(
+        {
+          error: "Profile is temporarily unavailable due to a database account hold",
+          code: "DB_ACCOUNT_HOLD",
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "120",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
     logUserOperation.error(requestId, "get_user_profile", error, {
       operationPhase: "get_user_profile",
     });

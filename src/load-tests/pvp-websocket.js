@@ -9,23 +9,34 @@ const queueToMatchLatency = new Trend('pvp_ws_queue_to_match_latency');
 const matchDuration = new Trend('pvp_ws_match_duration');
 const resultsRate = new Rate('pvp_ws_results_rate');
 const protocolErrors = new Counter('pvp_ws_protocol_errors');
+const TEST_MODE = String(__ENV.PVP_WS_MODE || 'default').toLowerCase();
+const IS_AI_STRESS = TEST_MODE === 'ai-stress';
+
+const AI_STRESS_TARGET_VUS = Number(__ENV.PVP_AI_STRESS_TARGET_VUS || 500);
+const AI_STRESS_PEAK_VUS = Number(__ENV.PVP_AI_STRESS_PEAK_VUS || 1000);
 
 export const options = {
   scenarios: {
     pvp_ws: {
       executor: 'ramping-vus',
       startVUs: 0,
-      stages: [
-        { duration: '30s', target: 10 },
-        { duration: '1m', target: 50 },
-        { duration: '30s', target: 0 },
-      ],
+      stages: IS_AI_STRESS
+        ? [
+            { duration: '1m', target: AI_STRESS_TARGET_VUS },
+            { duration: '2m', target: AI_STRESS_PEAK_VUS },
+            { duration: '1m', target: 0 },
+          ]
+        : [
+            { duration: '30s', target: 10 },
+            { duration: '1m', target: 50 },
+            { duration: '30s', target: 0 },
+          ],
       gracefulRampDown: '10s',
     },
   },
   thresholds: {
     pvp_ws_connect_errors: ['rate<0.05'],
-    pvp_ws_results_rate: ['rate>0.80'],
+    pvp_ws_results_rate: IS_AI_STRESS ? ['rate>=0'] : ['rate>0.80'],
     pvp_ws_hello_latency: ['p(95)<1000'],
     pvp_ws_queue_to_match_latency: ['p(95)<5000'],
   },
@@ -41,9 +52,19 @@ function randomHex(byteLength) {
 }
 
 function loadTokens() {
+  const filePath = __ENV.PVP_WS_TOKENS_FILE || '';
+  if (filePath) {
+    const fileRaw = open(filePath);
+    const parsed = JSON.parse(fileRaw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      fail('PVP_WS_TOKENS_FILE must contain a non-empty JSON array');
+    }
+    return parsed;
+  }
+
   const raw = __ENV.PVP_WS_TOKENS_JSON || __ENV.PVP_WS_TOKENS || '';
   if (!raw) {
-    fail('Missing PVP_WS_TOKENS_JSON (JSON array of websocket tokens)');
+    fail('Missing PVP_WS_TOKENS_JSON or PVP_WS_TOKENS_FILE (JSON array of websocket tokens)');
   }
 
   try {
@@ -66,10 +87,11 @@ function loadTokens() {
 }
 
 const TOKENS = loadTokens();
-const INPUT_INTERVAL_MS = Number(__ENV.PVP_INPUT_INTERVAL_MS || 75);
+const INPUT_INTERVAL_MS = Number(__ENV.PVP_INPUT_INTERVAL_MS || (IS_AI_STRESS ? 180 : 75));
 const THINK_TIME_SECONDS = Number(__ENV.PVP_THINK_TIME_SECONDS || 1);
+const SESSION_TIMEOUT_MS = Number(__ENV.PVP_SESSION_TIMEOUT_MS || (IS_AI_STRESS ? 120000 : 30000));
 
-export default function () {
+export default function pvpWebsocketScenario() {
   const url = __ENV.PVP_WS_URL;
   if (!url) {
     fail('Missing PVP_WS_URL');
@@ -77,7 +99,9 @@ export default function () {
 
   const vuIndex = Math.max(0, exec.vu.idInTest - 1);
   const token = TOKENS[vuIndex % TOKENS.length];
-  const clientSecret = randomHex(32);
+  const clientSecret = __ENV.PVP_FIXED_CLIENT_SECRET || randomHex(32);
+  const userAgentHeader = __ENV.PVP_WS_USER_AGENT || 'k6-ai-stress/1.0';
+  const originHeader = __ENV.PVP_WS_ORIGIN || 'http://localhost:3000';
   const startedAt = Date.now();
 
   let helloSentAt = 0;
@@ -89,8 +113,14 @@ export default function () {
   let input = '';
   let live = false;
   let closed = false;
+  let lastSeenRevision = 0;
 
-  const response = ws.connect(url, {}, function (socket) {
+  const response = ws.connect(url, {
+    headers: {
+      'User-Agent': userAgentHeader,
+      Origin: originHeader,
+    },
+  }, function (socket) {
     socket.on('open', () => {
       helloSentAt = Date.now();
       socket.send(JSON.stringify({
@@ -122,11 +152,12 @@ export default function () {
           queueToMatchLatency.add(Date.now() - queueJoinedAt);
           activeMatchId = message.payload.matchId;
           textSnapshot = message.payload.textSnapshot;
-          socket.send(JSON.stringify({ type: 'MATCH_JOIN', payload: { matchId: activeMatchId } }));
+          socket.send(JSON.stringify({ type: 'MATCH_JOIN', payload: { matchId: activeMatchId, lastSeenRevision } }));
           return;
         }
         case 'MATCH_STATE': {
           activeMatchId = message.payload.matchId;
+          lastSeenRevision = Math.max(lastSeenRevision, Number(message.payload.revision || 0));
           textSnapshot = message.payload.textSnapshot;
           input = '';
           lastSeq = 0;
@@ -137,6 +168,7 @@ export default function () {
           return;
         }
         case 'PROGRESS': {
+          lastSeenRevision = Math.max(lastSeenRevision, Number(message.payload.revision || 0));
           if (message.payload.userId) {
             live = message.payload.status === 'RUNNING';
           }
@@ -168,7 +200,7 @@ export default function () {
       if (!activeMatchId || !textSnapshot || !live || closed) return;
       if (input.length >= textSnapshot.length) return;
 
-      const nextLength = Math.min(textSnapshot.length, input.length + 2);
+      const nextLength = Math.min(textSnapshot.length, input.length + (IS_AI_STRESS ? 1 : 2));
       input = textSnapshot.slice(0, nextLength);
       lastSeq += 1;
       const now = Date.now();
@@ -182,7 +214,7 @@ export default function () {
         },
       }));
 
-      if (input.length >= textSnapshot.length) {
+      if (!IS_AI_STRESS && input.length >= textSnapshot.length) {
         socket.send(JSON.stringify({
           type: 'FINISH',
           payload: {
@@ -198,7 +230,7 @@ export default function () {
         connectErrors.add(1);
         socket.close();
       }
-    }, Number(__ENV.PVP_SESSION_TIMEOUT_MS || 30000));
+    }, SESSION_TIMEOUT_MS);
 
     socket.on('close', () => {
       closed = true;

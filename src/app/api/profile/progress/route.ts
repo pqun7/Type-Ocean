@@ -8,6 +8,10 @@ import { authorizeRequest } from "@/app/api/shared.server";
 import { rateLimiter } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { addUserXP, getUserProgress } from "@/features/level/server-utils/userCache";
+import {
+  isPrismaAccountHoldError,
+  isPrismaTemporarilyUnavailableError,
+} from "@/lib/prisma-error-utils";
 
 const SERVICE_TYPE = "PROFILE-PROGRESS";
 
@@ -63,6 +67,38 @@ export async function GET(req: NextRequest) {
       }
     );
   } catch (error) {
+    if (isPrismaAccountHoldError(error)) {
+      return NextResponse.json(
+        {
+          error: "Progress is temporarily unavailable due to a database account hold",
+          code: "DB_ACCOUNT_HOLD",
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "120",
+            "Cache-Control": "private, no-store",
+          },
+        }
+      );
+    }
+
+    if (isPrismaTemporarilyUnavailableError(error)) {
+      return NextResponse.json(
+        {
+          error: "Progress is temporarily unavailable",
+          code: "DB_TEMP_UNAVAILABLE",
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "60",
+            "Cache-Control": "private, no-store",
+          },
+        }
+      );
+    }
+
     logging.error("Profile progress fetch failed", error, {
       requestId,
       service: SERVICE_TYPE,
@@ -162,6 +198,38 @@ export async function POST(req: NextRequest) {
       progress: updated,
     });
   } catch (error) {
+    if (isPrismaAccountHoldError(error)) {
+      return NextResponse.json(
+        {
+          error: "Progress update is temporarily unavailable due to a database account hold",
+          code: "DB_ACCOUNT_HOLD",
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "120",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
+    if (isPrismaTemporarilyUnavailableError(error)) {
+      return NextResponse.json(
+        {
+          error: "Progress update is temporarily unavailable",
+          code: "DB_TEMP_UNAVAILABLE",
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "60",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
     logging.error("Profile progress update failed", error, {
       requestId,
       service: SERVICE_TYPE,

@@ -188,6 +188,7 @@ const MatchJoinMessageBaseSchema = z
     payload: z
       .object({
         matchId: z.string().uuid(),
+        lastSeenRevision: z.number().int().min(0).max(10_000_000).optional(),
       })
       .strict(),
   })

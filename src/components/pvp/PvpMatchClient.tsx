@@ -119,7 +119,13 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
 
   useEffect(() => {
     if (status !== "ready") return;
-    send({ type: "MATCH_JOIN", payload: { matchId } });
+    send({
+      type: "MATCH_JOIN",
+      payload: {
+        matchId,
+        lastSeenRevision: Math.max(0, revisionRef.current),
+      },
+    });
   }, [status, send, matchId]);
 
   useEffect(() => {
@@ -230,8 +236,9 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   }, [text, userInput]);
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (matchEndingNotice || results) return;
-    if (isWaitingForOpponent) return;
+    const startAtMs = serverStartAt ? new Date(serverStartAt).getTime() : null;
+    const countdownActive = startAtMs != null && Date.now() < startAtMs;
+    if (matchEndingNotice || results || isWaitingForOpponent || countdownActive) return;
 
     const next = e.target.value;
     setUserInput(next);
@@ -252,6 +259,8 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
 
   const startAtMs = serverStartAt ? new Date(serverStartAt).getTime() : null;
   const countdown = startAtMs && matchStatus === "COUNTDOWN" ? Math.max(0, Math.ceil((startAtMs - nowMs) / 1000)) : null;
+  const countdownActive = startAtMs != null && nowMs < startAtMs;
+  const inputLocked = isWaitingForOpponent || countdownActive || !!matchEndingNotice || !!results;
   const waitingRemainingSec = waitingSinceMs ? Math.max(0, Math.ceil((waitingSinceMs + WAITING_TIMEOUT_MS - nowMs) / 1000)) : 40;
 
   const byId = useMemo(() => {
@@ -391,6 +400,16 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         </div>
       ) : (
         <div className="relative w-full p-4">
+          {countdownActive ? (
+            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-xl border border-[rgba(125,211,252,0.22)] bg-[rgba(3,8,22,0.82)]">
+              <div className="text-center">
+                <div className="text-xs uppercase tracking-[0.24em] text-sky-200">Match starts in</div>
+                <div className="mt-2 text-7xl font-semibold leading-none text-white">{countdown ?? 0}</div>
+                <div className="mt-2 text-sm text-sky-100">Input unlocks when countdown reaches zero.</div>
+              </div>
+            </div>
+          ) : null}
+
           <TextDisplay
             text={text}
             userInput={userInput}
@@ -420,7 +439,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
             />
           ))}
 
-          <TypingInput inputRef={inputRef} userInput={userInput} handleInputChange={onChange} />
+          <TypingInput inputRef={inputRef} userInput={userInput} handleInputChange={onChange} disabled={inputLocked} />
         </div>
       )}
 

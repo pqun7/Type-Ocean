@@ -60,6 +60,13 @@ export type MatchState = {
   rematchMatchId?: string | null;
   finalizedAtMs?: number | null;
   cleanupScheduledAtMs?: number | null;
+  reconnectUntilByUserId?: Record<string, number>;
+  recentDeltas?: Array<{
+    revision: number;
+    type: "PROGRESS" | "MATCH_STATE";
+    payload: unknown;
+    atMs: number;
+  }>;
 };
 
 export type QueueEntry = {
@@ -152,6 +159,8 @@ export class InMemoryState {
       rematchMatchId: null,
       finalizedAtMs: null,
       cleanupScheduledAtMs: null,
+      reconnectUntilByUserId: {},
+      recentDeltas: [],
     };
 
     this.matches.set(match.matchId, match);
