@@ -1,6 +1,7 @@
 import "dotenv/config";
 
-import prisma from "../src/features/auth/lib/db";
+import { sql } from "drizzle-orm";
+import { db } from "../src/db";
 
 type ParsedArgs = {
   email?: string;
@@ -56,17 +57,22 @@ async function main() {
     return;
   }
 
-  const where = args.userId ? { id: args.userId } : { email: args.email };
-  const user = await prisma.user.findUnique({
-    where,
-    select: {
-      id: true,
-      email: true,
-      username: true,
-      role: true,
-      banned: true,
-    },
-  });
+  const userResult = args.userId
+    ? await db.execute<{ id: string; email: string; username: string; role: string; banned: boolean }>(sql`
+        SELECT "id", "email", "username", "role", "banned"
+        FROM "User"
+        WHERE "id" = ${args.userId}
+        LIMIT 1
+      `)
+    : await db.execute<{ id: string; email: string; username: string; role: string; banned: boolean }>(sql`
+        SELECT "id", "email", "username", "role", "banned"
+        FROM "User"
+        WHERE "email" = ${args.email!}
+        LIMIT 1
+      `);
+  const user = (userResult.rows?.[0] as
+    | { id: string; email: string; username: string; role: string; banned: boolean }
+    | undefined) ?? null;
 
   if (!user) {
     console.error("User not found.");
@@ -76,21 +82,23 @@ async function main() {
 
   const nextRole = args.revoke ? "user" : "admin";
 
-  await prisma.$transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     if (args.primary && !args.revoke) {
-      await tx.user.updateMany({
-        where: { isPrimaryAdmin: true },
-        data: { isPrimaryAdmin: false },
-      });
+      await tx.execute(sql`
+        UPDATE "User"
+        SET "isPrimaryAdmin" = FALSE,
+            "updatedAt" = NOW()
+        WHERE "isPrimaryAdmin" = TRUE
+      `);
     }
 
-    await tx.user.update({
-      where: { id: user.id },
-      data: {
-        role: nextRole,
-        isPrimaryAdmin: args.revoke ? false : args.primary,
-      },
-    });
+    await tx.execute(sql`
+      UPDATE "User"
+      SET "role" = ${nextRole},
+          "isPrimaryAdmin" = ${args.revoke ? false : args.primary},
+          "updatedAt" = NOW()
+      WHERE "id" = ${user.id}
+    `);
   });
 
   console.log(
@@ -119,7 +127,4 @@ void main()
     console.error("Failed to update admin role.");
     console.error(error);
     process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

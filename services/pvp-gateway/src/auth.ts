@@ -1,7 +1,9 @@
-import type { PrismaClient } from "@prisma/client";
 import { jwtVerify } from "jose";
+import { eq } from "drizzle-orm";
 
 import { incrementGatewayMetric } from "./metrics";
+import type { GatewayDb } from "./gateway-db";
+import { users } from "@/src/db/schema";
 import { hashPvpFingerprint } from "../../../src/lib/pvp/fingerprint";
 import { sanitizeUserAgent } from "../../../src/lib/sanitize";
 
@@ -26,7 +28,7 @@ type VerifyWsTokenFastParams = {
 };
 
 type VerifyWsTokenStrictParams = VerifyWsTokenFastParams & {
-  prisma: PrismaClient;
+  prisma: GatewayDb;
 };
 
 function getSecretKey() {
@@ -94,15 +96,18 @@ export async function verifyWsTokenFast(token: string, params: VerifyWsTokenFast
   return parseAndVerifyToken(token, params);
 }
 
-export async function assertWsTokenState(prisma: PrismaClient, context: WsAuthContext): Promise<void> {
-  const tokenState = await prisma.user.findUnique({
-    where: { id: context.userId },
-    select: {
-      banned: true,
-      pvpWsTokenVersion: true,
-      pvpWsTokensValidAfter: true,
-    },
-  });
+export async function assertWsTokenState(prisma: GatewayDb, context: WsAuthContext): Promise<void> {
+  const rows = await prisma
+    .select({
+      banned: users.banned,
+      pvpWsTokenVersion: users.pvpWsTokenVersion,
+      pvpWsTokensValidAfter: users.pvpWsTokensValidAfter,
+    })
+    .from(users)
+    .where(eq(users.id, context.userId))
+    .limit(1);
+
+  const tokenState = rows[0] ?? null;
   if (!tokenState) throw new Error("User not found");
   if (tokenState.banned) {
     incrementGatewayMetric("ws_auth_rejected", { reason: "banned_user" });

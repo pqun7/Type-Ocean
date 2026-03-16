@@ -1,8 +1,19 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import {
+  adminActionLogs,
+  cheatFlags,
+  pvpMatches,
+  playerProfiles,
+  pvpRoomMembers,
+  pvpRooms,
+  userFeedback,
+  users,
+} from "@/db/schema";
 import { authorizeAdminActor } from "@/app/api/shared.server";
 import { monitoring } from "@/monitoring/monitoringSystem";
 import { PerformanceAnalyzer } from "@/monitoring/kpis";
@@ -81,141 +92,243 @@ export async function GET(req: NextRequest) {
   }
 
   const [
-    totalUsers,
-    bannedUsers,
-    adminUsers,
-    pendingFlags,
-    sanctionCandidates,
-    recentFlags,
+    totalUsersRows,
+    bannedUsersRows,
+    adminUsersRows,
+    pendingFlagsRows,
+    sanctionCandidatesRows,
+    recentFlagsRows,
     recentUsers,
-    recentRooms,
-    recentAdminActions,
+    recentRoomsRaw,
+    recentAdminActionsRows,
     adminAccounts,
-    recentFeedback,
-    openFeedbackCount,
-    activePlayers,
+    recentFeedbackRows,
+    openFeedbackCountRows,
+    activePlayersRaw,
   ] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.count({ where: { banned: true } }),
-    prisma.user.count({ where: { role: "admin" } }),
-    prisma.cheatFlag.count({ where: { reviewed: false } }),
-    prisma.cheatFlag.count({ where: { wouldSanction: true, reviewed: false } }),
-    prisma.cheatFlag.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 12,
-      include: {
-        user: { select: { id: true, username: true, role: true, banned: true } },
-        match: { select: { id: true, status: true, createdAt: true } },
-      },
-    }),
-    prisma.user.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        role: true,
-        banned: true,
-        isPrimaryAdmin: true,
-        emailVerified: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.pvpRoom.findMany({
-      orderBy: { updatedAt: "desc" },
-      take: 12,
-      select: {
-        id: true,
-        code: true,
-        status: true,
-        visibility: true,
-        maxPlayers: true,
-        hostUserId: true,
-        createdAt: true,
-        updatedAt: true,
-        expiresAt: true,
-        _count: { select: { members: true, matches: true } },
-      },
-    }),
-    prisma.adminActionLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        action: true,
-        entityType: true,
-        entityId: true,
-        targetUserId: true,
-        summary: true,
-        createdAt: true,
-        actorUser: { select: { id: true, username: true } },
-      },
-    }),
-    prisma.user.findMany({
-      where: { role: "admin" },
-      orderBy: [{ isPrimaryAdmin: "desc" }, { createdAt: "asc" }],
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        banned: true,
-        isPrimaryAdmin: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.userFeedback.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        category: true,
-        status: true,
-        subject: true,
-        body: true,
-        rating: true,
-        imageUrl: true,
-        adminReplyTitle: true,
-        adminReplyBody: true,
-        respondedAt: true,
-        createdAt: true,
-        user: {
-          select: {
-            id: true,
-            username: true,
-            email: true,
-          },
-        },
-        respondedBy: {
-          select: {
-            id: true,
-            username: true,
-          },
-        },
-      },
-    }),
-    prisma.userFeedback.count({ where: { status: { in: ["OPEN", "IN_REVIEW"] } } }),
+    db.select({ value: count() }).from(users),
+    db.select({ value: count() }).from(users).where(eq(users.banned, true)),
+    db.select({ value: count() }).from(users).where(eq(users.role, "admin")),
+    db.select({ value: count() }).from(cheatFlags).where(eq(cheatFlags.reviewed, false)),
+    db
+      .select({ value: count() })
+      .from(cheatFlags)
+      .where(and(eq(cheatFlags.wouldSanction, true), eq(cheatFlags.reviewed, false))),
+    db
+      .select({
+        id: cheatFlags.id,
+        userId: cheatFlags.userId,
+        matchId: cheatFlags.matchId,
+        confidence: cheatFlags.confidence,
+        flags: cheatFlags.flags,
+        reviewed: cheatFlags.reviewed,
+        wouldSanction: cheatFlags.wouldSanction,
+        metadata: cheatFlags.metadata,
+        createdAt: cheatFlags.createdAt,
+        updatedAt: cheatFlags.updatedAt,
+        username: users.username,
+        role: users.role,
+        banned: users.banned,
+        matchStatus: pvpMatches.status,
+        matchCreatedAt: pvpMatches.createdAt,
+      })
+      .from(cheatFlags)
+      .innerJoin(users, eq(cheatFlags.userId, users.id))
+      .innerJoin(pvpMatches, eq(cheatFlags.matchId, pvpMatches.id))
+      .orderBy(desc(cheatFlags.createdAt))
+      .limit(12),
+    db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        role: users.role,
+        banned: users.banned,
+        isPrimaryAdmin: users.isPrimaryAdmin,
+        emailVerified: users.emailVerified,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+      })
+      .from(users)
+      .orderBy(desc(users.createdAt))
+      .limit(20),
+    db
+      .select({
+        id: pvpRooms.id,
+        code: pvpRooms.code,
+        status: pvpRooms.status,
+        visibility: pvpRooms.visibility,
+        maxPlayers: pvpRooms.maxPlayers,
+        hostUserId: pvpRooms.hostUserId,
+        createdAt: pvpRooms.createdAt,
+        updatedAt: pvpRooms.updatedAt,
+        expiresAt: pvpRooms.expiresAt,
+      })
+      .from(pvpRooms)
+      .orderBy(desc(pvpRooms.updatedAt))
+      .limit(12),
+    db
+      .select({
+        id: adminActionLogs.id,
+        action: adminActionLogs.action,
+        entityType: adminActionLogs.entityType,
+        entityId: adminActionLogs.entityId,
+        targetUserId: adminActionLogs.targetUserId,
+        summary: adminActionLogs.summary,
+        createdAt: adminActionLogs.createdAt,
+        actorUserId: users.id,
+        actorUsername: users.username,
+      })
+      .from(adminActionLogs)
+      .innerJoin(users, eq(adminActionLogs.actorUserId, users.id))
+      .orderBy(desc(adminActionLogs.createdAt))
+      .limit(20),
+    db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        banned: users.banned,
+        isPrimaryAdmin: users.isPrimaryAdmin,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+      })
+      .from(users)
+      .where(eq(users.role, "admin"))
+      .orderBy(desc(users.isPrimaryAdmin), asc(users.createdAt)),
+    db
+      .select({
+        id: userFeedback.id,
+        category: userFeedback.category,
+        status: userFeedback.status,
+        subject: userFeedback.subject,
+        body: userFeedback.body,
+        rating: userFeedback.rating,
+        imageUrl: userFeedback.imageUrl,
+        adminReplyTitle: userFeedback.adminReplyTitle,
+        adminReplyBody: userFeedback.adminReplyBody,
+        respondedAt: userFeedback.respondedAt,
+        createdAt: userFeedback.createdAt,
+        userId: users.id,
+        username: users.username,
+        email: users.email,
+        respondedByUserId: userFeedback.respondedByUserId,
+      })
+      .from(userFeedback)
+      .innerJoin(users, eq(userFeedback.userId, users.id))
+      .orderBy(desc(userFeedback.createdAt))
+      .limit(20),
+    db
+      .select({ value: count() })
+      .from(userFeedback)
+      .where(inArray(userFeedback.status, ["OPEN", "IN_REVIEW"])),
     activePlayerIds.length === 0
       ? Promise.resolve([])
-      : prisma.user.findMany({
-          where: { id: { in: activePlayerIds } },
-          select: {
-            id: true,
-            username: true,
-            email: true,
-            role: true,
-            banned: true,
-            isPrimaryAdmin: true,
-            image: true,
-            profile: { select: { avatar: true } },
-          },
-        }).then((users) => {
-          const order = new Map(activePlayerIds.map((id, index) => [id, index]));
-          return users.sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0));
-        }),
+      : db
+          .select({
+            id: users.id,
+            username: users.username,
+            email: users.email,
+            role: users.role,
+            banned: users.banned,
+            isPrimaryAdmin: users.isPrimaryAdmin,
+            image: users.image,
+            avatar: playerProfiles.avatar,
+          })
+          .from(users)
+          .leftJoin(playerProfiles, eq(users.id, playerProfiles.userId))
+          .where(inArray(users.id, activePlayerIds)),
   ]);
+
+  const totalUsers = Number(totalUsersRows[0]?.value ?? 0);
+  const bannedUsers = Number(bannedUsersRows[0]?.value ?? 0);
+  const adminUsers = Number(adminUsersRows[0]?.value ?? 0);
+  const pendingFlags = Number(pendingFlagsRows[0]?.value ?? 0);
+  const sanctionCandidates = Number(sanctionCandidatesRows[0]?.value ?? 0);
+  const openFeedbackCount = Number(openFeedbackCountRows[0]?.value ?? 0);
+
+  const recentFlags = recentFlagsRows.map((row) => ({
+    id: row.id,
+    userId: row.userId,
+    matchId: row.matchId,
+    confidence: row.confidence,
+    flags: row.flags,
+    reviewed: row.reviewed,
+    wouldSanction: row.wouldSanction,
+    metadata: row.metadata,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    user: { id: row.userId, username: row.username, role: row.role, banned: row.banned },
+    match: { id: row.matchId, status: row.matchStatus, createdAt: row.matchCreatedAt },
+  }));
+
+  const recentRoomCounts = await Promise.all(
+    recentRoomsRaw.map(async (room) => {
+      const [memberRows, matchRows] = await Promise.all([
+        db.select({ value: count() }).from(pvpRoomMembers).where(eq(pvpRoomMembers.roomId, room.id)),
+        db.select({ value: count() }).from(pvpMatches).where(eq(pvpMatches.roomId, room.id)),
+      ]);
+
+      return {
+        ...room,
+        _count: {
+          members: Number(memberRows[0]?.value ?? 0),
+          matches: Number(matchRows[0]?.value ?? 0),
+        },
+      };
+    }),
+  );
+  const recentRooms = recentRoomCounts;
+
+  const recentAdminActions = recentAdminActionsRows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    entityType: row.entityType,
+    entityId: row.entityId,
+    targetUserId: row.targetUserId,
+    summary: row.summary,
+    createdAt: row.createdAt,
+    actorUser: { id: row.actorUserId, username: row.actorUsername },
+  }));
+
+  const responderIds = Array.from(
+    new Set(recentFeedbackRows.map((row) => row.respondedByUserId).filter((v): v is string => typeof v === "string")),
+  );
+  const responderRows = responderIds.length
+    ? await db
+        .select({ id: users.id, username: users.username })
+        .from(users)
+        .where(inArray(users.id, responderIds))
+    : [];
+  const responderMap = new Map(responderRows.map((row) => [row.id, row]));
+  const recentFeedback = recentFeedbackRows.map((row) => ({
+    id: row.id,
+    category: row.category,
+    status: row.status,
+    subject: row.subject,
+    body: row.body,
+    rating: row.rating,
+    imageUrl: row.imageUrl,
+    adminReplyTitle: row.adminReplyTitle,
+    adminReplyBody: row.adminReplyBody,
+    respondedAt: row.respondedAt,
+    createdAt: row.createdAt,
+    user: {
+      id: row.userId,
+      username: row.username,
+      email: row.email,
+    },
+    respondedBy: row.respondedByUserId
+      ? {
+          id: row.respondedByUserId,
+          username: responderMap.get(row.respondedByUserId)?.username ?? "unknown",
+        }
+      : null,
+  }));
+
+  const activePlayers = activePlayersRaw.sort(
+    (left, right) => activePlayerIds.indexOf(left.id) - activePlayerIds.indexOf(right.id),
+  );
 
   const report = monitoring.getPerformanceReport();
   const apiMetrics = report.apiMetrics;
@@ -246,7 +359,7 @@ export async function GET(req: NextRequest) {
     role: player.role,
     banned: player.banned,
     isPrimaryAdmin: player.isPrimaryAdmin,
-    avatar: player.profile?.avatar ?? player.image,
+    avatar: player.avatar ?? player.image,
   }));
 
   return NextResponse.json({

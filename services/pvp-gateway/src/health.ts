@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
+
 type PrismaProbeClient = {
-  $queryRawUnsafe(query: string): Promise<unknown>;
+  execute(query: unknown): Promise<unknown>;
 };
 
 type RedisProbeClient = {
@@ -35,7 +37,7 @@ export type GatewayHealthReport = {
 
 async function checkPrisma(prisma: PrismaProbeClient) {
   try {
-    await prisma.$queryRawUnsafe("SELECT 1");
+    await prisma.execute(sql`SELECT 1`);
     return true;
   } catch {
     return false;

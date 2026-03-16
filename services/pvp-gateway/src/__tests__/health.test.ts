@@ -5,7 +5,7 @@ describe("createGatewayHealthController", () => {
     const controller = createGatewayHealthController({
       instanceId: "gateway-test",
       prisma: {
-        $queryRawUnsafe: jest.fn().mockResolvedValue([{ "?column?": 1 }]),
+        execute: jest.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] }),
       },
       getRedisClient: () => ({
         ping: jest.fn().mockResolvedValue("PONG"),
@@ -29,7 +29,7 @@ describe("createGatewayHealthController", () => {
     const controller = createGatewayHealthController({
       instanceId: "gateway-test",
       prisma: {
-        $queryRawUnsafe: jest.fn().mockResolvedValue([{ "?column?": 1 }]),
+        execute: jest.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] }),
       },
       getRedisClient: () => null,
       getConnectionCount: () => 0,
@@ -52,7 +52,7 @@ describe("createGatewayHealthController", () => {
     const controller = createGatewayHealthController({
       instanceId: "gateway-test",
       prisma: {
-        $queryRawUnsafe: jest.fn().mockResolvedValue([{ "?column?": 1 }]),
+        execute: jest.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] }),
       },
       getRedisClient: () => null,
       getConnectionCount: () => 20,

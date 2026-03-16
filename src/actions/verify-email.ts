@@ -1,12 +1,13 @@
 // src/actions/verify-email.ts
 "use server";
 
-import { prisma } from "@/features/auth/lib/db";
+import { and, eq, gt, ne, or } from "drizzle-orm";
+import { db } from "@/db";
+import { pendingSignups, playerProfiles, users } from "@/db/schema";
 import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
 import { redirect } from "next/navigation";
 import { logging } from "@/log/ServerLogger";
 import { createHash } from "crypto";
-import type { Prisma } from "@prisma/client";
 
 function isNextRedirectError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -42,17 +43,24 @@ export async function verifyEmail(token: string) {
     const hashedToken = createHash("sha256").update(token).digest("hex");
 
     // 1) Pending signup verification: create the user only after email verification.
-    const pending = await prisma.pendingSignup.findFirst({
-      where: {
-        emailVerifyToken: hashedToken,
-        emailVerifyTokenExpiry: { gt: new Date() },
-      },
-    });
+    const pendingRows = await db
+      .select()
+      .from(pendingSignups)
+      .where(
+        and(
+          eq(pendingSignups.emailVerifyToken, hashedToken),
+          gt(pendingSignups.emailVerifyTokenExpiry, new Date()),
+        ),
+      )
+      .limit(1);
+
+    const pending = pendingRows[0] ?? null;
 
     if (pending) {
-      const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        const user = await tx.user.create({
-          data: {
+      const created = await db.transaction(async (tx) => {
+        const createdUsers = await tx
+          .insert(users)
+          .values({
             email: pending.email,
             username: pending.username,
             passwordHash: pending.passwordHash,
@@ -60,21 +68,21 @@ export async function verifyEmail(token: string) {
             emailVerifyToken: null,
             emailVerifyTokenExpiry: null,
             emailVerificationAttempts: 0,
-          },
+          })
+          .returning({ id: users.id, username: users.username });
+
+        const user = createdUsers[0]!;
+
+        await tx.insert(playerProfiles).values({
+          userId: user.id,
+          username: user.username,
+          level: 1,
+          xp: 0,
+          achievements: [],
+          avatar: null,
         });
 
-        await tx.playerProfile.create({
-          data: {
-            userId: user.id,
-            username: user.username,
-            level: 1,
-            xp: 0,
-            achievements: [],
-            avatar: null,
-          },
-        });
-
-        await tx.pendingSignup.delete({ where: { id: pending.id } });
+        await tx.delete(pendingSignups).where(eq(pendingSignups.id, pending.id));
 
         return user;
       });
@@ -92,12 +100,13 @@ export async function verifyEmail(token: string) {
     }
 
     // 2) Existing user verification
-    const user = await prisma.user.findFirst({
-      where: {
-        emailVerifyToken: hashedToken,
-        emailVerifyTokenExpiry: { gt: new Date() },
-      },
-    });
+    const userRows = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.emailVerifyToken, hashedToken), gt(users.emailVerifyTokenExpiry, new Date())))
+      .limit(1);
+
+    const user = userRows[0] ?? null;
 
     if (!user) {
       throw new Error("INVALID_OR_EXPIRED_TOKEN");
@@ -117,21 +126,26 @@ export async function verifyEmail(token: string) {
     if (pendingEmail) {
       const normalizedPending = pendingEmail.toLowerCase().trim();
 
-      const conflict = await prisma.user.findFirst({
-        where: {
-          id: { not: user.id },
-          OR: [{ email: normalizedPending }, { pendingEmail: normalizedPending }],
-        },
-        select: { id: true },
-      });
+      const conflictRows = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            ne(users.id, user.id),
+            or(eq(users.email, normalizedPending), eq(users.pendingEmail, normalizedPending)),
+          ),
+        )
+        .limit(1);
+
+      const conflict = conflictRows[0] ?? null;
 
       if (conflict) {
         redirect("/auth?error=EMAIL_ALREADY_IN_USE");
       }
 
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
+      await db
+        .update(users)
+        .set({
           email: normalizedPending,
           pendingEmail: null,
           pendingEmailRequestedAt: null,
@@ -139,8 +153,9 @@ export async function verifyEmail(token: string) {
           emailVerifyToken: null,
           emailVerifyTokenExpiry: null,
           emailVerificationAttempts: 0,
-        },
-      });
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
 
       logVerificationOperation.success("verify_email", {
         requestId,
@@ -159,15 +174,16 @@ export async function verifyEmail(token: string) {
       redirect("/auth?verified=already");
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
+    await db
+      .update(users)
+      .set({
         emailVerified: new Date(),
         emailVerifyToken: null,
         emailVerifyTokenExpiry: null,
-        emailVerificationAttempts: 0
-      }
-    });
+        emailVerificationAttempts: 0,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, user.id));
 
     // Ensure PlayerProfile exists.
     try {

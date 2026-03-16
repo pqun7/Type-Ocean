@@ -1,7 +1,57 @@
-import { PlayerProfile, User } from '@prisma/client';
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { playerProfiles, users } from "@/db/schema";
+
+type EmergencyUser = {
+  id: string;
+  email: string;
+  role: string;
+  pendingEmail: string | null;
+  pendingEmailRequestedAt: Date | null;
+  emailVerified: Date | null;
+  banned: boolean;
+  isPrimaryAdmin: boolean;
+  username: string;
+  usernameLastChangedAt: Date | null;
+  passwordHash: string | null;
+  image: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  resetToken: string | null;
+  resetTokenExpiry: Date | null;
+  passwordResetRequests: number;
+  emailVerifyToken: string | null;
+  emailVerifyTokenExpiry: Date | null;
+  emailVerificationAttempts: number | null;
+  emailVerifyOtpHash: string | null;
+  emailVerifyOtpExpiry: Date | null;
+  emailVerifyOtpSentAt: Date | null;
+  emailVerifyOtpFailedAttempts: number;
+  pvpWsTokenVersion: number;
+  pvpWsTokensValidAfter: Date;
+  verificationReminderShownAt: Date | null;
+};
+
+type EmergencyPlayerProfile = {
+  id: string;
+  userId: string;
+  username: string;
+  level: number;
+  xp: number;
+  rating: number;
+  ratingDeviation: number;
+  ratingUpdatedAt: Date | null;
+  achievements: unknown;
+  longTermStats: unknown;
+  avatar: string | null;
+  hideFromLeaderboard: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  user: EmergencyUser;
+};
 
 // 🔹 إنشاء ملف طوارئ مؤقت
-export function generateEmergencyProfile(userId: string): PlayerProfile & { user: User } {
+export function generateEmergencyProfile(userId: string): EmergencyPlayerProfile {
   return {
     id: 'emergency-profile',
     userId,
@@ -50,14 +100,26 @@ export function generateEmergencyProfile(userId: string): PlayerProfile & { user
 }
 
 // 🔹 استرجاع ملف الطوارئ عند الحاجة (من API server فقط!)
-import prisma from '@/features/auth/lib/db';
-
-export async function getFallbackProfile(userId: string): Promise<PlayerProfile & { user: User }> {
+export async function getFallbackProfile(userId: string): Promise<EmergencyPlayerProfile> {
   try {
-    const profile = await prisma.playerProfile.findUnique({
-      where: { userId },
-      include: { user: true },
-    });
+    const rows = await db
+      .select({
+        profile: playerProfiles,
+        user: users,
+      })
+      .from(playerProfiles)
+      .innerJoin(users, eq(playerProfiles.userId, users.id))
+      .where(eq(playerProfiles.userId, userId))
+      .limit(1);
+
+    const row = rows[0] ?? null;
+
+    const profile = row
+      ? {
+          ...row.profile,
+          user: row.user,
+        }
+      : null;
 
     if (profile) return profile;
 

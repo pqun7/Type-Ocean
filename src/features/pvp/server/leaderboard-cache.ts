@@ -1,4 +1,7 @@
-import prisma from "@/features/auth/lib/db";
+import { asc, count, desc, eq } from "drizzle-orm";
+
+import { db } from "@/db";
+import { leaderboardSnapshotMeta, leaderboardSnapshots, playerProfiles } from "@/db/schema";
 import { getRankInfo } from "@/features/ranking/rating";
 import { connectIfNeeded, redis } from "@/lib/redis";
 
@@ -222,10 +225,17 @@ async function writeLeaderboardPageToCache(params: {
 }
 
 async function readSnapshotMeta(): Promise<SnapshotMeta | null> {
-  const meta = await prisma.leaderboardSnapshotMeta.findUnique({
-    where: { snapshotKey: LEADERBOARD_SNAPSHOT_KEY },
-    select: { rowCount: true, refreshedAt: true, stale: true },
-  });
+  const rows = await db
+    .select({
+      rowCount: leaderboardSnapshotMeta.rowCount,
+      refreshedAt: leaderboardSnapshotMeta.refreshedAt,
+      stale: leaderboardSnapshotMeta.stale,
+    })
+    .from(leaderboardSnapshotMeta)
+    .where(eq(leaderboardSnapshotMeta.snapshotKey, LEADERBOARD_SNAPSHOT_KEY))
+    .limit(1);
+
+  const meta = rows[0] ?? null;
 
   if (!meta) return null;
 
@@ -250,20 +260,20 @@ async function readSnapshotPage(params: {
     });
   }
 
-  const rows = await prisma.leaderboardSnapshot.findMany({
-    where: { snapshotKey: LEADERBOARD_SNAPSHOT_KEY },
-    orderBy: { position: "asc" },
-    skip: params.offset,
-    take: params.limit,
-    select: {
-      position: true,
-      userId: true,
-      username: true,
-      avatar: true,
-      rating: true,
-      updatedAt: true,
-    },
-  });
+  const rows = await db
+    .select({
+      position: leaderboardSnapshots.position,
+      userId: leaderboardSnapshots.userId,
+      username: leaderboardSnapshots.username,
+      avatar: leaderboardSnapshots.avatar,
+      rating: leaderboardSnapshots.rating,
+      updatedAt: leaderboardSnapshots.updatedAt,
+    })
+    .from(leaderboardSnapshots)
+    .where(eq(leaderboardSnapshots.snapshotKey, LEADERBOARD_SNAPSHOT_KEY))
+    .orderBy(asc(leaderboardSnapshots.position))
+    .offset(params.offset)
+    .limit(params.limit);
 
   const expected = Math.max(0, Math.min(params.limit, params.meta.rowCount - params.offset));
   if (expected > 0 && rows.length !== expected) {
@@ -282,23 +292,28 @@ async function readLiveLeaderboardPage(params: {
   limit: number;
   offset: number;
 }): Promise<LeaderboardPageResult> {
-  const [totalRanked, profiles] = await Promise.all([
-    prisma.playerProfile.count({ where: { hideFromLeaderboard: false } }),
-    prisma.playerProfile.findMany({
-      where: { hideFromLeaderboard: false },
-      orderBy: [{ rating: "desc" }, { ratingUpdatedAt: "desc" }, { updatedAt: "desc" }],
-      take: params.limit,
-      skip: params.offset,
-      select: {
-        userId: true,
-        username: true,
-        avatar: true,
-        rating: true,
-        ratingUpdatedAt: true,
-        updatedAt: true,
-      },
-    }),
+  const [countRows, profiles] = await Promise.all([
+    db
+      .select({ value: count() })
+      .from(playerProfiles)
+      .where(eq(playerProfiles.hideFromLeaderboard, false)),
+    db
+      .select({
+        userId: playerProfiles.userId,
+        username: playerProfiles.username,
+        avatar: playerProfiles.avatar,
+        rating: playerProfiles.rating,
+        ratingUpdatedAt: playerProfiles.ratingUpdatedAt,
+        updatedAt: playerProfiles.updatedAt,
+      })
+      .from(playerProfiles)
+      .where(eq(playerProfiles.hideFromLeaderboard, false))
+      .orderBy(desc(playerProfiles.rating), desc(playerProfiles.ratingUpdatedAt), desc(playerProfiles.updatedAt))
+      .offset(params.offset)
+      .limit(params.limit),
   ]);
+
+  const totalRanked = Number(countRows[0]?.value ?? 0);
 
   return buildLeaderboardPageResult({
     limit: params.limit,
@@ -324,18 +339,18 @@ function chunkRows<T>(rows: T[], size: number) {
 }
 
 async function refreshLeaderboardSnapshot() {
-  const profiles = await prisma.playerProfile.findMany({
-    where: { hideFromLeaderboard: false },
-    orderBy: [{ rating: "desc" }, { ratingUpdatedAt: "desc" }, { updatedAt: "desc" }],
-    select: {
-      userId: true,
-      username: true,
-      avatar: true,
-      rating: true,
-      ratingUpdatedAt: true,
-      updatedAt: true,
-    },
-  });
+  const profiles = await db
+    .select({
+      userId: playerProfiles.userId,
+      username: playerProfiles.username,
+      avatar: playerProfiles.avatar,
+      rating: playerProfiles.rating,
+      ratingUpdatedAt: playerProfiles.ratingUpdatedAt,
+      updatedAt: playerProfiles.updatedAt,
+    })
+    .from(playerProfiles)
+    .where(eq(playerProfiles.hideFromLeaderboard, false))
+    .orderBy(desc(playerProfiles.rating), desc(playerProfiles.ratingUpdatedAt), desc(playerProfiles.updatedAt));
 
   const refreshedAt = new Date();
   const snapshotRows = profiles.map((profile, index) => ({
@@ -349,30 +364,31 @@ async function refreshLeaderboardSnapshot() {
     refreshedAt,
   }));
 
-  await prisma.$transaction(async (tx) => {
-    await tx.leaderboardSnapshot.deleteMany({
-      where: { snapshotKey: LEADERBOARD_SNAPSHOT_KEY },
-    });
+  await db.transaction(async (tx) => {
+    await tx.delete(leaderboardSnapshots).where(eq(leaderboardSnapshots.snapshotKey, LEADERBOARD_SNAPSHOT_KEY));
 
     for (const chunk of chunkRows(snapshotRows, 500)) {
       if (chunk.length === 0) continue;
-      await tx.leaderboardSnapshot.createMany({ data: chunk });
+      await tx.insert(leaderboardSnapshots).values(chunk);
     }
 
-    await tx.leaderboardSnapshotMeta.upsert({
-      where: { snapshotKey: LEADERBOARD_SNAPSHOT_KEY },
-      update: {
-        refreshedAt,
-        rowCount: snapshotRows.length,
-        stale: false,
-      },
-      create: {
+    await tx
+      .insert(leaderboardSnapshotMeta)
+      .values({
         snapshotKey: LEADERBOARD_SNAPSHOT_KEY,
         refreshedAt,
         rowCount: snapshotRows.length,
         stale: false,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: leaderboardSnapshotMeta.snapshotKey,
+        set: {
+          refreshedAt,
+          rowCount: snapshotRows.length,
+          stale: false,
+          updatedAt: new Date(),
+        },
+      });
   });
 
   await bumpCacheVersion();
@@ -418,14 +434,19 @@ export async function requestLeaderboardSnapshotRefresh() {
 }
 
 async function markLeaderboardSnapshotStale() {
-  await prisma.leaderboardSnapshotMeta.upsert({
-    where: { snapshotKey: LEADERBOARD_SNAPSHOT_KEY },
-    update: { stale: true },
-    create: {
+  await db
+    .insert(leaderboardSnapshotMeta)
+    .values({
       snapshotKey: LEADERBOARD_SNAPSHOT_KEY,
       stale: true,
-    },
-  });
+    })
+    .onConflictDoUpdate({
+      target: leaderboardSnapshotMeta.snapshotKey,
+      set: {
+        stale: true,
+        updatedAt: new Date(),
+      },
+    });
 
   await bumpCacheVersion();
 }

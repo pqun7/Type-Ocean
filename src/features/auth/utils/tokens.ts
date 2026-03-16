@@ -1,4 +1,6 @@
-import prisma  from "@/features/auth/lib/db";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import { randomBytes, createHash } from "crypto";
 
 
@@ -7,7 +9,8 @@ export async function generateResetToken(email: string) {
     throw new Error("INVALID_EMAIL");
   }
   
-  const user = await prisma.user.findUnique({ where: { email } });
+  const userRows = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const user = userRows[0] ?? null;
 
   if (!user) throw new Error("USER_NOT_FOUND");
   if (!user.passwordHash) throw new Error("SOCIAL_AUTH_ACCOUNT");
@@ -18,14 +21,15 @@ export async function generateResetToken(email: string) {
   // 15 minutes expiry (short-lived + reduces takeover window)
   const resetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
-  await prisma.user.update({
-    where: { email },
-    data: {
+  await db
+    .update(users)
+    .set({
       resetToken: hashedToken,
       resetTokenExpiry,
-      passwordResetRequests: { increment: 1 },
-    },
-  });
+      passwordResetRequests: sql`${users.passwordResetRequests} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.email, email));
 
   return rawToken;
 }
@@ -33,12 +37,13 @@ export async function generateResetToken(email: string) {
 export async function validateResetToken(token: string) {
   const hashedToken = createHash("sha256").update(token).digest("hex");
   
-    const user = await prisma.user.findFirst({
-      where: {
-        resetToken: hashedToken,
-        resetTokenExpiry: { gt: new Date() },
-      },
-    });
+    const userRows = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.resetToken, hashedToken), gt(users.resetTokenExpiry, new Date())))
+      .limit(1);
+
+    const user = userRows[0] ?? null;
   
     if (!user) throw new Error("INVALID_OR_EXPIRED_TOKEN");
     return user;
@@ -48,7 +53,8 @@ export async function validateResetToken(token: string) {
 
 
 export async function generateEmailVerificationToken(email: string): Promise<string> {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const userRows = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const user = userRows[0] ?? null;
   
   if (!user) throw new Error("USER_NOT_FOUND");
   if (user.emailVerified) throw new Error("EMAIL_ALREADY_VERIFIED");
@@ -58,14 +64,15 @@ export async function generateEmailVerificationToken(email: string): Promise<str
 
   const tokenExpiry = new Date(Date.now() + 24 * 3600 * 1000);
 
-  await prisma.user.update({
-    where: { email },
-    data: {
+  await db
+    .update(users)
+    .set({
       emailVerifyToken: hashedToken,
       emailVerifyTokenExpiry: tokenExpiry,
-      emailVerificationAttempts: { increment: 1 },
-    },
-  });
+      emailVerificationAttempts: sql`${users.emailVerificationAttempts} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.email, email));
 
   return rawToken;
 }
@@ -73,12 +80,13 @@ export async function generateEmailVerificationToken(email: string): Promise<str
 export async function validateEmailToken(token: string) {
   const hashedToken = createHash("sha256").update(token).digest("hex");
   
-  const user = await prisma.user.findFirst({
-    where: {
-      emailVerifyToken: hashedToken,
-      emailVerifyTokenExpiry: { gt: new Date() }
-    }
-  });
+  const userRows = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.emailVerifyToken, hashedToken), gt(users.emailVerifyTokenExpiry, new Date())))
+    .limit(1);
+
+  const user = userRows[0] ?? null;
 
   if (!user) throw new Error("INVALID_OR_EXPIRED_TOKEN");
   return user;

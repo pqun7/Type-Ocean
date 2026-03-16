@@ -6,7 +6,7 @@ import jwt, {
   type JwtPayload,
 } from "jsonwebtoken"
 import { auth } from "@/features/auth/lib/auth"
-import prisma from "@/features/auth/lib/db"
+import { db } from "@/db"
 import {
   buildProtectedRequestUserHeaders,
   type ProtectedRequestUser,
@@ -16,6 +16,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { rateLimiter } from "@/lib/rate-limiter"
 import { securityHeaders } from "@/lib/security-headers"
 import { logger } from "@/log/ServerLogger"
+import { sql } from "drizzle-orm"
 
 export const runtime = "nodejs"
 
@@ -356,15 +357,14 @@ async function findAuthenticatedUser(
     // A valid JWT only proves the token was minted by us; it does not prove the user still
     // exists or is still allowed to act. This fail-fast lookup blocks stale sessions for
     // deleted accounts, honors the banned flag, and keeps auth revocation server-controlled.
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        banned: true,
-      },
-    })
+    const result = await db.execute(sql`
+      SELECT "id", "email", "role", "banned"
+      FROM "User"
+      WHERE "id" = ${userId}
+      LIMIT 1
+    `)
+
+    const user = (result.rows[0] as AuthenticatedUser | undefined) ?? null
 
     if (user) {
       await deleteMissingUserCache(userId)

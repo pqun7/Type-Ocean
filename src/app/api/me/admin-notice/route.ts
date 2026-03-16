@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 
-import { auth } from "@/features/auth/lib/auth";
+import { auth } from "@/lib/auth";
 import { clearAdminNotice, getAdminNotice } from "@/features/admin/server/admin-notices";
 
 export async function GET() {

@@ -2,8 +2,10 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { userFeedback, users } from "@/db/schema";
 import { authorizeAdminActor } from "@/app/api/shared.server";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
 import { setAdminNotice } from "@/features/admin/server/admin-notices";
@@ -49,21 +51,32 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const feedback = await prisma.userFeedback.findUnique({
-    where: { id: parsed.data.feedbackId },
-    select: {
-      id: true,
-      userId: true,
-      subject: true,
-      status: true,
-      user: {
-        select: {
-          username: true,
-          email: true,
+  const feedbackRows = await db
+    .select({
+      id: userFeedback.id,
+      userId: userFeedback.userId,
+      subject: userFeedback.subject,
+      status: userFeedback.status,
+      username: users.username,
+      email: users.email,
+    })
+    .from(userFeedback)
+    .innerJoin(users, eq(userFeedback.userId, users.id))
+    .where(eq(userFeedback.id, parsed.data.feedbackId))
+    .limit(1);
+
+  const feedback = feedbackRows[0]
+    ? {
+        id: feedbackRows[0].id,
+        userId: feedbackRows[0].userId,
+        subject: feedbackRows[0].subject,
+        status: feedbackRows[0].status,
+        user: {
+          username: feedbackRows[0].username,
+          email: feedbackRows[0].email,
         },
-      },
-    },
-  });
+      }
+    : null;
 
   if (!feedback) {
     return NextResponse.json({ error: "Feedback not found" }, { status: 404 });
@@ -72,42 +85,75 @@ export async function PATCH(req: NextRequest) {
   const hasReply = Boolean(parsed.data.replyTitle && parsed.data.replyBody);
   const nextStatus = parsed.data.status ?? (hasReply ? "REPLIED" : feedback.status);
 
-  const updatedFeedback = await prisma.userFeedback.update({
-    where: { id: feedback.id },
-    data: {
+  await db
+    .update(userFeedback)
+    .set({
       status: nextStatus,
       adminReplyTitle: hasReply ? parsed.data.replyTitle : undefined,
       adminReplyBody: hasReply ? parsed.data.replyBody : undefined,
       respondedAt: hasReply ? new Date() : undefined,
       respondedByUserId: hasReply ? adminActor.id : undefined,
-    },
-    select: {
-      id: true,
-      category: true,
-      status: true,
-      subject: true,
-      body: true,
-      rating: true,
-      imageUrl: true,
-      adminReplyTitle: true,
-      adminReplyBody: true,
-      respondedAt: true,
-      createdAt: true,
-      user: {
-        select: {
-          id: true,
-          username: true,
-          email: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(userFeedback.id, feedback.id));
+
+  const updatedRows = await db
+    .select({
+      id: userFeedback.id,
+      category: userFeedback.category,
+      status: userFeedback.status,
+      subject: userFeedback.subject,
+      body: userFeedback.body,
+      rating: userFeedback.rating,
+      imageUrl: userFeedback.imageUrl,
+      adminReplyTitle: userFeedback.adminReplyTitle,
+      adminReplyBody: userFeedback.adminReplyBody,
+      respondedAt: userFeedback.respondedAt,
+      createdAt: userFeedback.createdAt,
+      userId: users.id,
+      username: users.username,
+      userEmail: users.email,
+      respondedByUserId: userFeedback.respondedByUserId,
+    })
+    .from(userFeedback)
+    .innerJoin(users, eq(userFeedback.userId, users.id))
+    .where(eq(userFeedback.id, feedback.id))
+    .limit(1);
+
+  const responderRows = updatedRows[0]?.respondedByUserId
+    ? await db
+        .select({ id: users.id, username: users.username })
+        .from(users)
+        .where(eq(users.id, updatedRows[0].respondedByUserId))
+        .limit(1)
+    : [];
+
+  const updatedFeedback = updatedRows[0]
+    ? {
+        id: updatedRows[0].id,
+        category: updatedRows[0].category,
+        status: updatedRows[0].status,
+        subject: updatedRows[0].subject,
+        body: updatedRows[0].body,
+        rating: updatedRows[0].rating,
+        imageUrl: updatedRows[0].imageUrl,
+        adminReplyTitle: updatedRows[0].adminReplyTitle,
+        adminReplyBody: updatedRows[0].adminReplyBody,
+        respondedAt: updatedRows[0].respondedAt,
+        createdAt: updatedRows[0].createdAt,
+        user: {
+          id: updatedRows[0].userId,
+          username: updatedRows[0].username,
+          email: updatedRows[0].userEmail,
         },
-      },
-      respondedBy: {
-        select: {
-          id: true,
-          username: true,
-        },
-      },
-    },
-  });
+        respondedBy: responderRows[0]
+          ? {
+              id: responderRows[0].id,
+              username: responderRows[0].username,
+            }
+          : null,
+      }
+    : null;
 
   if (hasReply) {
     await setAdminNotice({

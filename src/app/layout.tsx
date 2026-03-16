@@ -11,7 +11,7 @@ import { AdminNoticeDialog } from "@/components/admin/AdminNoticeDialog";
 import { FeedbackDialog } from "@/components/feedback/FeedbackDialog";
 import { HandleAuthSuccess } from "@/components/handle-auth-success";
 import { DevPanelsWrapper } from "@/components/dev/DevPanelsWrapper";
-import { auth } from "@/features/auth/lib/auth";
+import { auth } from "@/lib/auth";
 import { SettingsProvider } from "@/features/settings/context";
 import { MotionSettingsProvider } from "@/components/providers/MotionSettingsProvider";
 import { AudioProvider } from "@/features/audio/context";
@@ -93,3 +93,4 @@ export default async function RootLayout({
     </html>
   );
 }
+

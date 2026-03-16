@@ -2,14 +2,15 @@
 "use server";
 
 import { signUpSchema } from "@/schemas/authSchema";
-import { prisma } from "@/features/auth/lib/db";
+import { eq, or } from "drizzle-orm";
+import { db } from "@/db";
+import { pendingSignups, playerProfiles, users } from "@/db/schema";
 import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { ZodError } from "zod";
 import { mapErrorToMessage } from "@/constants/errors"; 
 import { logging } from '@/log/ServerLogger'; 
 import { headers } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limiter";
-import type { Prisma } from "@prisma/client";
 import { normalizeUsernameForStorage } from "@/features/auth/utils/username";
 
 // Safe logging utilities for auth operations
@@ -57,14 +58,18 @@ export const signUp = async (formData: FormData) => {
       username: validatedData.username
     });
 
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: validatedData.email.toLowerCase() },
-          { username: normalizeUsernameForStorage(validatedData.username) }
-        ]
-      }
-    });
+    const existingUserRows = await db
+      .select({ id: users.id, email: users.email, username: users.username })
+      .from(users)
+      .where(
+        or(
+          eq(users.email, validatedData.email.toLowerCase()),
+          eq(users.username, normalizeUsernameForStorage(validatedData.username)),
+        ),
+      )
+      .limit(1);
+
+    const existingUser = existingUserRows[0] ?? null;
 
     if (existingUser) {
       const conflictField = existingUser.email === validatedData.email.toLowerCase() 
@@ -103,9 +108,10 @@ export const signUp = async (formData: FormData) => {
     logging.debug("Hashing password", { requestId });
     const hashedPassword = await saltAndHashPassword(validatedData.password);
 
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const user = await tx.user.create({
-        data: {
+    await db.transaction(async (tx) => {
+      const createdRows = await tx
+        .insert(users)
+        .values({
           email: normalizedEmail,
           username: normalizedUsername,
           passwordHash: hashedPassword,
@@ -113,27 +119,23 @@ export const signUp = async (formData: FormData) => {
           emailVerifyToken: null,
           emailVerifyTokenExpiry: null,
           emailVerificationAttempts: 0,
-        },
-        select: { id: true, username: true },
+        })
+        .returning({ id: users.id, username: users.username });
+
+      const user = createdRows[0]!;
+
+      await tx.insert(playerProfiles).values({
+        userId: user.id,
+        username: user.username,
+        level: 1,
+        xp: 0,
+        achievements: [],
+        avatar: null,
       });
 
-      await tx.playerProfile.create({
-        data: {
-          userId: user.id,
-          username: user.username,
-          level: 1,
-          xp: 0,
-          achievements: [],
-          avatar: null,
-        },
-      });
-
-      // Cleanup any legacy pending signups for the same identity.
-      await tx.pendingSignup.deleteMany({
-        where: {
-          OR: [{ email: normalizedEmail }, { username: normalizedUsername }],
-        },
-      });
+      await tx
+        .delete(pendingSignups)
+        .where(or(eq(pendingSignups.email, normalizedEmail), eq(pendingSignups.username, normalizedUsername)));
     });
 
     logAuthOperation.success("user_signup", {

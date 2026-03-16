@@ -1,20 +1,29 @@
 /* eslint-disable no-console */
 
-import prisma from "../src/features/auth/lib/db";
+import { sql } from "drizzle-orm";
+import { db } from "../src/db";
 import { estimateInitialRatingFromLongTermStats } from "../src/features/ranking/rating";
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
   const onlyNullUpdatedAt = process.argv.includes("--only-null-updated-at");
 
-  const profiles = await prisma.playerProfile.findMany({
-    select: {
-      userId: true,
-      username: true,
-      ratingUpdatedAt: true,
-      longTermStats: true,
-    },
-  });
+  const profilesResult = await db.execute<{
+    userId: string;
+    username: string;
+    ratingUpdatedAt: Date | null;
+    longTermStats: unknown;
+  }>(sql`
+    SELECT "userId", "username", "ratingUpdatedAt", "longTermStats"
+    FROM "PlayerProfile"
+  `);
+
+  const profiles = (profilesResult.rows ?? []) as Array<{
+    userId: string;
+    username: string;
+    ratingUpdatedAt: Date | null;
+    longTermStats: unknown;
+  }>;
 
   let updated = 0;
 
@@ -35,14 +44,15 @@ async function main() {
       continue;
     }
 
-    await prisma.playerProfile.update({
-      where: { userId: p.userId },
-      data: {
-        rating,
-        ratingDeviation: deviation,
-        ratingUpdatedAt: new Date(),
-      },
-    });
+    await db.execute(sql`
+      UPDATE "PlayerProfile"
+      SET
+        "rating" = ${rating},
+        "ratingDeviation" = ${deviation},
+        "ratingUpdatedAt" = NOW(),
+        "updatedAt" = NOW()
+      WHERE "userId" = ${p.userId}
+    `);
 
     updated += 1;
   }
@@ -54,7 +64,4 @@ main()
   .catch((err) => {
     console.error(err);
     process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

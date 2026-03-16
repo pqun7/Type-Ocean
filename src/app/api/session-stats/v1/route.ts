@@ -3,12 +3,13 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
- import type { Prisma } from "@prisma/client";
+import { eq, sql } from "drizzle-orm";
 import { connectIfNeeded, redis } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { authorizeRequest } from "@/app/api/shared.server";
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { dailyTypingActivity, playerProfiles, users } from "@/db/schema";
 import { syncPlayerProfile } from "@/features/auth/server/player-profile";
 import {
   DEFAULT_RATING,
@@ -254,10 +255,13 @@ export async function POST(req: NextRequest) {
         ])
       : await Promise.allSettled([
           (async () => {
-            const existing = await prisma.playerProfile.findUnique({
-              where: { userId },
-              select: { longTermStats: true },
-            });
+            const existingRows = await db
+              .select({ longTermStats: playerProfiles.longTermStats })
+              .from(playerProfiles)
+              .where(eq(playerProfiles.userId, userId))
+              .limit(1);
+
+            const existing = existingRows[0] ?? null;
 
             const prev = (existing?.longTermStats as unknown as ReturnType<typeof getDefaultLongTermStats>) ??
               getDefaultLongTermStats();
@@ -333,10 +337,13 @@ export async function POST(req: NextRequest) {
       longTermStats.status === "fulfilled"
         ? longTermStats.value
         : await (async () => {
-            const existing = await prisma.playerProfile.findUnique({
-              where: { userId },
-              select: { longTermStats: true },
-            });
+            const existingRows = await db
+              .select({ longTermStats: playerProfiles.longTermStats })
+              .from(playerProfiles)
+              .where(eq(playerProfiles.userId, userId))
+              .limit(1);
+
+            const existing = existingRows[0] ?? null;
 
             const prev =
               (existing?.longTermStats as unknown as ReturnType<typeof getDefaultLongTermStats>) ??
@@ -413,15 +420,24 @@ export async function POST(req: NextRequest) {
 
     // Persist snapshot to DB for reliable Profile display.
     try {
-      const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+      const userRows = await db
+        .select({ username: users.username })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
 
-      const existingProfile = await prisma.playerProfile.findUnique({
-        where: { userId },
-        select: {
-          rating: true,
-          ratingDeviation: true,
-        },
-      });
+      const user = userRows[0] ?? null;
+
+      const existingProfileRows = await db
+        .select({
+          rating: playerProfiles.rating,
+          ratingDeviation: playerProfiles.ratingDeviation,
+        })
+        .from(playerProfiles)
+        .where(eq(playerProfiles.userId, userId))
+        .limit(1);
+
+      const existingProfile = existingProfileRows[0] ?? null;
 
       const rated = isRatedSession({
         timeSpentSec: sanitizedSession.timeSpent,
@@ -447,9 +463,7 @@ export async function POST(req: NextRequest) {
       );
 
       const now = new Date();
-      const effectiveLongTermStatsJson = JSON.parse(
-        JSON.stringify(effectiveLongTermStats)
-      ) as Prisma.InputJsonValue;
+      const effectiveLongTermStatsJson = JSON.parse(JSON.stringify(effectiveLongTermStats));
 
       const updateData = {
         longTermStats: effectiveLongTermStatsJson,
@@ -486,21 +500,9 @@ export async function POST(req: NextRequest) {
     // Persist per-day aggregates for profile heatmap (best-effort).
     try {
       const wpmTime = sanitizedSession.wpm * sanitizedSession.timeSpent;
-      await prisma.dailyTypingActivity.upsert({
-        where: {
-          userId_localDate: {
-            userId,
-            localDate,
-          },
-        },
-        update: {
-          sessionsCount: { increment: 1 },
-          totalTimeSpentSec: { increment: sanitizedSession.timeSpent },
-          sumWpm: { increment: sanitizedSession.wpm },
-          sumWpmTime: { increment: wpmTime },
-          sumAccuracy: { increment: sanitizedSession.accuracy },
-        },
-        create: {
+      await db
+        .insert(dailyTypingActivity)
+        .values({
           userId,
           localDate,
           sessionsCount: 1,
@@ -508,9 +510,18 @@ export async function POST(req: NextRequest) {
           sumWpm: sanitizedSession.wpm,
           sumWpmTime: wpmTime,
           sumAccuracy: sanitizedSession.accuracy,
-        },
-        select: { id: true },
-      });
+        })
+        .onConflictDoUpdate({
+          target: [dailyTypingActivity.userId, dailyTypingActivity.localDate],
+          set: {
+            sessionsCount: sql`${dailyTypingActivity.sessionsCount} + 1`,
+            totalTimeSpentSec: sql`${dailyTypingActivity.totalTimeSpentSec} + ${sanitizedSession.timeSpent}`,
+            sumWpm: sql`${dailyTypingActivity.sumWpm} + ${sanitizedSession.wpm}`,
+            sumWpmTime: sql`${dailyTypingActivity.sumWpmTime} + ${wpmTime}`,
+            sumAccuracy: sql`${dailyTypingActivity.sumAccuracy} + ${sanitizedSession.accuracy}`,
+            updatedAt: new Date(),
+          },
+        });
     } catch {
       // best-effort; do not block session recording
     }

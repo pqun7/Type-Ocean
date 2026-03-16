@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 
-import { auth } from "@/features/auth/lib/auth";
+import { auth } from "@/lib/auth";
 import { getAdminNotice } from "@/features/admin/server/admin-notices";
 
 function encodeEvent(event: string, data: unknown) {

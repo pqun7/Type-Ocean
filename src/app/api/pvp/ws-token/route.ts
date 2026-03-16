@@ -2,9 +2,10 @@ export const runtime = "nodejs";
 
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { pvpRatings, users } from "@/db/schema";
 import { authorizeRequest } from "@/app/api/shared.server";
 import { logging } from "@/log/ServerLogger";
 import { mintPvpWsToken } from "@/features/pvp/server/ws-token";
@@ -57,20 +58,36 @@ function isAllowedInsecureLocalWsUrl(wsUrl: string) {
 }
 
 function isMissingPvpWsTokenColumns(error: unknown) {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  if (error.code !== "P2022") return false;
+  if (typeof error !== "object" || error === null) return false;
 
-  const column = String(error.meta?.column ?? "");
-  return column.includes("User.pvpWsTokenVersion") || column.includes("User.pvpWsTokensValidAfter");
+  const code = String((error as { code?: unknown }).code ?? "");
+  const message = String((error as { message?: unknown }).message ?? "");
+
+  if (code !== "42703" && !message.toLowerCase().includes("column")) {
+    return false;
+  }
+
+  return (
+    message.includes("pvpWsTokenVersion") ||
+    message.includes("pvpWsTokensValidAfter") ||
+    message.includes("User.pvpWsTokenVersion") ||
+    message.includes("User.pvpWsTokensValidAfter")
+  );
 }
 
 async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null> {
   if (hasPvpWsTokenVersionColumns === false && Date.now() - wsTokenColumnsLastCheckedAt < WS_TOKEN_COLUMNS_RETRY_MS) {
-    const fallbackUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
+    const fallbackUser = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: {
         username: true,
-        profile: { select: { avatar: true } },
+      },
+      with: {
+        profile: {
+          columns: {
+            avatar: true,
+          },
+        },
       },
     });
 
@@ -85,13 +102,19 @@ async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null
   }
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: {
         username: true,
         pvpWsTokenVersion: true,
         pvpWsTokensValidAfter: true,
-        profile: { select: { avatar: true } },
+      },
+      with: {
+        profile: {
+          columns: {
+            avatar: true,
+          },
+        },
       },
     });
 
@@ -123,11 +146,17 @@ async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null
     hasPvpWsTokenVersionColumns = false;
   wsTokenColumnsLastCheckedAt = Date.now();
 
-    const fallbackUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
+    const fallbackUser = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: {
         username: true,
-        profile: { select: { avatar: true } },
+      },
+      with: {
+        profile: {
+          columns: {
+            avatar: true,
+          },
+        },
       },
     });
 
@@ -204,12 +233,15 @@ export async function GET(req: NextRequest) {
 
     const user = await loadWsTokenUser(userId);
 
-    const pvpRating = await prisma.pvpRating.upsert({
-      where: { userId },
-      update: {},
-      create: { userId },
-      select: { rating: true, deviation: true },
-    });
+    await db.insert(pvpRatings).values({ userId }).onConflictDoNothing({ target: pvpRatings.userId });
+
+    const pvpRatingRows = await db
+      .select({ rating: pvpRatings.rating, deviation: pvpRatings.deviation })
+      .from(pvpRatings)
+      .where(eq(pvpRatings.userId, userId))
+      .limit(1);
+
+    const pvpRating = pvpRatingRows[0] ?? { rating: 1500, deviation: 350 };
 
     const fingerprint = hashPvpFingerprint({
       userAgent: req.headers.get("user-agent"),

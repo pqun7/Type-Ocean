@@ -2,8 +2,10 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import { authorizeAdminRequest } from "@/app/api/shared.server";
 import { setAdminNotice } from "@/features/admin/server/admin-notices";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
@@ -28,10 +30,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const targetUser = await prisma.user.findUnique({
-    where: { id: parsed.data.userId },
-    select: { id: true },
-  });
+  const targetUserRows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, parsed.data.userId))
+    .limit(1);
+
+  const targetUser = targetUserRows[0] ?? null;
 
   if (!targetUser) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });

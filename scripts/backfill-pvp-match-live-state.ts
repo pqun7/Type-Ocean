@@ -1,8 +1,7 @@
-import { PrismaClient } from "@prisma/client";
+import { sql } from "drizzle-orm";
+import { db } from "../src/db";
 import type { MatchLiveState } from "../services/pvp-gateway/src/match-live-state";
 import { matchStateFromDbStatus } from "../services/pvp-gateway/src/match-live-state";
-
-const prisma = new PrismaClient();
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
@@ -13,14 +12,15 @@ async function main() {
     process.env.INSTANCE_ID ??
     `backfill-${Date.now()}`;
 
-  const active = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
+  const activeResult = await db.execute<{ id: string; status: string }>(sql`
     SELECT id, status
     FROM "pvp_match"
     WHERE status IN ('PENDING', 'COUNTDOWN', 'RUNNING')
       AND "liveState" IS NULL
     ORDER BY "createdAt" ASC
     LIMIT ${Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 200}
-  `;
+  `);
+  const active = (activeResult.rows ?? []) as Array<{ id: string; status: string }>;
 
   console.log(`Found ${active.length} active matches without liveState.`);
   if (active.length === 0) return;
@@ -28,15 +28,14 @@ async function main() {
   let updated = 0;
 
   for (const row of active) {
-    const participants = await prisma.$queryRaw<
-      Array<{ userId: string; slot: number; username: string | null }>
-    >`
+    const participantsResult = await db.execute<{ userId: string; slot: number; username: string | null }>(sql`
       SELECT p."userId" as "userId", p."slot" as "slot", u."username" as "username"
       FROM "pvp_participant" p
       LEFT JOIN "User" u ON u."id" = p."userId"
       WHERE p."matchId" = ${row.id}
       ORDER BY p."slot" ASC
-    `;
+    `);
+    const participants = (participantsResult.rows ?? []) as Array<{ userId: string; slot: number; username: string | null }>;
 
     const liveState: MatchLiveState = {
       state: matchStateFromDbStatus(row.status),
@@ -74,14 +73,14 @@ async function main() {
     }
 
     const liveStateJson = JSON.stringify(liveState);
-    await prisma.$executeRaw`
+    await db.execute(sql`
       UPDATE "pvp_match"
-      SET "liveState" = ${liveStateJson}::jsonb,
+      SET "liveState" = CAST(${liveStateJson} AS jsonb),
           "revision" = 1,
           "instanceId" = ${instanceId}
       WHERE "id" = ${row.id}
         AND "liveState" IS NULL
-    `;
+    `);
 
     updated += 1;
   }
@@ -95,7 +94,4 @@ main()
   .catch((error) => {
     console.error(error);
     process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

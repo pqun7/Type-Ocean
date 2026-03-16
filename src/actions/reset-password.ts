@@ -1,7 +1,9 @@
 "use server";
 
 import { headers } from "next/headers";
-import prisma from "@/features/auth/lib/db";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import { saltAndHashPassword } from "@/features/auth/utils/password";
 import bcrypt from "bcryptjs";
 import { resetPasswordSchema } from "@/schemas/authSchema";
@@ -70,10 +72,13 @@ export async function resetPassword(
 
     // Always return success to prevent user enumeration
     // This simulates sending an email even if user doesn't exist
-    const user = await prisma.user.findUnique({ 
-      where: { email },
-      select: { id: true, passwordHash: true }
-    });
+    const userRows = await db
+      .select({ id: users.id, passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    const user = userRows[0] ?? null;
     
     if (user) {
       // Only send reset email if user exists and has password
@@ -194,26 +199,23 @@ export async function updatePassword(
     // استخدام معاملة قاعدة بيانات آمنة
     const shouldVerifyEmail = !user.emailVerified;
 
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: {
-          passwordHash: await saltAndHashPassword(password),
-          resetToken: null,
-          resetTokenExpiry: null,
-          // Password reset link proves mailbox ownership; activate account here.
-          ...(shouldVerifyEmail
-            ? {
-                emailVerified: new Date(),
-                emailVerificationAttempts: 0,
-              }
-            : {}),
-          // Always clear any outstanding verification token.
-          emailVerifyToken: null,
-          emailVerifyTokenExpiry: null,
-        },
-      }),
-    ]);
+    await db
+      .update(users)
+      .set({
+        passwordHash: await saltAndHashPassword(password),
+        resetToken: null,
+        resetTokenExpiry: null,
+        ...(shouldVerifyEmail
+          ? {
+              emailVerified: new Date(),
+              emailVerificationAttempts: 0,
+            }
+          : {}),
+        emailVerifyToken: null,
+        emailVerifyTokenExpiry: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, user.id));
 
     logPasswordOperation.success("update_password", {
       requestId,

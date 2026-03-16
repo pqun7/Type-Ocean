@@ -1,14 +1,15 @@
 import "server-only";
 
-import { Prisma, type PlayerProfile } from "@prisma/client";
+import { eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { playerProfiles, users } from "@/db/schema";
 
-type PlayerProfileSelectArg = Prisma.PlayerProfileSelect | undefined;
+type PlayerProfileSelectArg = Record<string, boolean> | undefined;
 
 type PlayerProfileCreateOverrides = Partial<
   Pick<
-    Prisma.PlayerProfileUncheckedCreateInput,
+    typeof playerProfiles.$inferInsert,
     | "username"
     | "level"
     | "xp"
@@ -22,10 +23,25 @@ type PlayerProfileCreateOverrides = Partial<
   >
 >;
 
-type PlayerProfileResult<TSelect extends PlayerProfileSelectArg> =
-  TSelect extends Prisma.PlayerProfileSelect
-    ? Prisma.PlayerProfileGetPayload<{ select: TSelect }>
-    : PlayerProfile;
+type PlayerProfileUpdateInput = Partial<
+  Pick<
+    typeof playerProfiles.$inferInsert,
+    | "username"
+    | "level"
+    | "xp"
+    | "rating"
+    | "ratingDeviation"
+    | "ratingUpdatedAt"
+    | "achievements"
+    | "longTermStats"
+    | "avatar"
+    | "hideFromLeaderboard"
+  >
+>;
+
+type PlayerProfileResult<TSelect extends PlayerProfileSelectArg> = TSelect extends Record<string, boolean>
+  ? Record<string, unknown>
+  : typeof playerProfiles.$inferSelect;
 
 export class PlayerProfileUserNotFoundError extends Error {
   readonly code = "USER_NOT_FOUND";
@@ -40,7 +56,7 @@ function createPlayerProfileDefaults(
   userId: string,
   username: string,
   overrides?: PlayerProfileCreateOverrides
-): Prisma.PlayerProfileUncheckedCreateInput {
+): typeof playerProfiles.$inferInsert {
   return {
     userId,
     username: overrides?.username ?? username,
@@ -62,6 +78,23 @@ function createPlayerProfileDefaults(
   };
 }
 
+function applySelect<TSelect extends PlayerProfileSelectArg>(
+  profile: typeof playerProfiles.$inferSelect,
+  select?: TSelect,
+): PlayerProfileResult<TSelect> {
+  if (!select) {
+    return profile as PlayerProfileResult<TSelect>;
+  }
+
+  const projected = Object.fromEntries(
+    Object.entries(select)
+      .filter(([, enabled]) => !!enabled)
+      .map(([key]) => [key, (profile as Record<string, unknown>)[key]]),
+  );
+
+  return projected as PlayerProfileResult<TSelect>;
+}
+
 export async function ensurePlayerProfile<TSelect extends PlayerProfileSelectArg = undefined>(params: {
   userId: string;
   username?: string | null;
@@ -81,64 +114,59 @@ export async function syncPlayerProfile<TSelect extends PlayerProfileSelectArg =
   userId: string;
   username?: string | null;
   create?: PlayerProfileCreateOverrides;
-  update?: Prisma.PlayerProfileUpdateInput;
+  update?: PlayerProfileUpdateInput;
   select?: TSelect;
 }): Promise<PlayerProfileResult<TSelect>> {
-  return prisma.$transaction(async (tx) => {
-    const user = await tx.user.findUnique({
-      where: { id: params.userId },
-      select: { username: true },
-    });
+  return db.transaction(async (tx) => {
+    const userRows = await tx
+      .select({ username: users.username })
+      .from(users)
+      .where(eq(users.id, params.userId))
+      .limit(1);
+
+    const user = userRows[0] ?? null;
 
     if (!user) {
       throw new PlayerProfileUserNotFoundError(params.userId);
     }
 
-    const profileExists = await tx.playerProfile.findUnique({
-      where: { userId: params.userId },
-      select: { id: true },
-    });
+    const profileRows = await tx
+      .select()
+      .from(playerProfiles)
+      .where(eq(playerProfiles.userId, params.userId))
+      .limit(1);
+
+    const profileExists = profileRows[0] ?? null;
 
     if (profileExists) {
-      if (params.select) {
-        const updatedProfile = await tx.playerProfile.update({
-          where: { userId: params.userId },
-          data: params.update ?? {},
-          select: params.select,
-        });
-
-        return updatedProfile as PlayerProfileResult<TSelect>;
+      if (!params.update || Object.keys(params.update).length === 0) {
+        return applySelect(profileExists, params.select);
       }
 
-      const updatedProfile = await tx.playerProfile.update({
-        where: { userId: params.userId },
-        data: params.update ?? {},
-      });
+      const updatedRows = await tx
+        .update(playerProfiles)
+        .set({ ...params.update, updatedAt: new Date() })
+        .where(eq(playerProfiles.userId, params.userId))
+        .returning();
 
-      return updatedProfile as PlayerProfileResult<TSelect>;
+      const updatedProfile = updatedRows[0] ?? profileExists;
+
+      return applySelect(updatedProfile, params.select);
     }
 
-    if (params.select) {
-      const createdProfile = await tx.playerProfile.create({
-        data: createPlayerProfileDefaults(
+    const createdRows = await tx
+      .insert(playerProfiles)
+      .values(
+        createPlayerProfileDefaults(
           params.userId,
           params.username ?? user.username,
-          params.create
+          params.create,
         ),
-        select: params.select,
-      });
+      )
+      .returning();
 
-      return createdProfile as PlayerProfileResult<TSelect>;
-    }
+    const createdProfile = createdRows[0]!;
 
-    const createdProfile = await tx.playerProfile.create({
-      data: createPlayerProfileDefaults(
-        params.userId,
-        params.username ?? user.username,
-        params.create
-      ),
-    });
-
-    return createdProfile as PlayerProfileResult<TSelect>;
+    return applySelect(createdProfile, params.select);
   });
 }

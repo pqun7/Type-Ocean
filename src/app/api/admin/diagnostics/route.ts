@@ -2,10 +2,11 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
 import { authorizeAdminRequest } from "@/app/api/shared.server";
 import { connectIfNeeded, redis } from "@/lib/redis";
 import { monitoring } from "@/monitoring/monitoringSystem";
+import { sql } from "drizzle-orm";
 
 async function runDiagnostics() {
   const startedAt = Date.now();
@@ -14,7 +15,7 @@ async function runDiagnostics() {
   let redisOk = false;
 
   try {
-    await prisma.user.findFirst({ select: { id: true } });
+    await db.execute(sql`SELECT "id" FROM "User" LIMIT 1`);
     databaseOk = true;
   } catch {
     databaseOk = false;

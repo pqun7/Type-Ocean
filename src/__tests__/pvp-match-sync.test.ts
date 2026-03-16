@@ -13,6 +13,8 @@ function createMatch(): MatchState {
     lastSnapshotBroadcastAtMs: 0,
     status: "COUNTDOWN",
     textSnapshot: "hello world",
+    textId: null,
+    inputNonce: null,
     serverStartAtMs: 1_000,
     participants: new Map([
       [

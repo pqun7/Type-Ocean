@@ -1,4 +1,3 @@
-import type { PrismaClient } from "@prisma/client";
 import type { WebSocketServer } from "ws";
 
 import { createAiProfile, estimatePlayerSkill, mulberry32 } from "./ai";
@@ -7,6 +6,7 @@ import type { MatchCache } from "./match-cache";
 import type { MatchRepository } from "./match-repository";
 import type { InMemoryState } from "./state";
 import { incrementGatewayMetric, setGatewayGauge } from "./metrics";
+import type { GatewayDb } from "./gateway-db";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -26,7 +26,7 @@ function envNumber(name: string, fallback: number) {
 }
 
 type AdaptiveAiParams = {
-  prisma: PrismaClient;
+  prisma: GatewayDb;
   wss: WebSocketServer;
   matchCache: MatchCache | null;
   matchRepository: MatchRepository;

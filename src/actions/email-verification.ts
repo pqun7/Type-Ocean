@@ -4,7 +4,9 @@ import { headers } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import { sendVerificationEmail } from "@/features/auth/providers/nodemailer";
 import { mapErrorToMessage } from "@/constants/errors";
-import prisma from "@/features/auth/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { db } from "@/db";
+import { pendingSignups, users } from "@/db/schema";
 import { logging } from "@/log/ServerLogger";
 import { createHash, randomBytes } from "crypto";
 
@@ -40,10 +42,13 @@ export async function resendVerificationEmail(email: string) {
     const normalizedEmail = email.toLowerCase();
 
     // Check if this email is already a verified user.
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      select: { id: true, emailVerified: true },
-    });
+    const userRows = await db
+      .select({ id: users.id, emailVerified: users.emailVerified })
+      .from(users)
+      .where(eq(users.email, normalizedEmail))
+      .limit(1);
+
+    const user = userRows[0] ?? null;
 
     if (user?.emailVerified) {
       logEmailVerificationOperation.error(
@@ -75,32 +80,37 @@ export async function resendVerificationEmail(email: string) {
 
     // Update token either on an existing unverified user, or on a PendingSignup.
     if (user?.id) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
+      await db
+        .update(users)
+        .set({
           emailVerifyToken: hashedToken,
           emailVerifyTokenExpiry: tokenExpiry,
-          emailVerificationAttempts: { increment: 1 },
-        },
-      });
+          emailVerificationAttempts: sql`${users.emailVerificationAttempts} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
     } else {
-      const pending = await prisma.pendingSignup.findUnique({
-        where: { email: normalizedEmail },
-        select: { id: true },
-      });
+      const pendingRows = await db
+        .select({ id: pendingSignups.id })
+        .from(pendingSignups)
+        .where(eq(pendingSignups.email, normalizedEmail))
+        .limit(1);
+
+      const pending = pendingRows[0] ?? null;
 
       if (!pending) {
         return { error: "USER_NOT_FOUND" };
       }
 
-      await prisma.pendingSignup.update({
-        where: { id: pending.id },
-        data: {
+      await db
+        .update(pendingSignups)
+        .set({
           emailVerifyToken: hashedToken,
           emailVerifyTokenExpiry: tokenExpiry,
-          emailVerificationAttempts: { increment: 1 },
-        },
-      });
+          emailVerificationAttempts: sql`${pendingSignups.emailVerificationAttempts} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(pendingSignups.id, pending.id));
     }
 
     const { success, error } = await sendVerificationEmail(normalizedEmail, rawToken);

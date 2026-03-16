@@ -2,8 +2,10 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { desc, eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { cheatFlags, pvpMatches, users } from "@/db/schema";
 import { authorizeAdminRequest } from "@/app/api/shared.server";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
 
@@ -21,14 +23,44 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit") ?? "50")));
 
-  const flags = await prisma.cheatFlag.findMany({
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    include: {
-      user: { select: { id: true, username: true, role: true } },
-      match: { select: { id: true, status: true, textId: true, createdAt: true } },
-    },
-  });
+  const flagRows = await db
+    .select({
+      id: cheatFlags.id,
+      userId: cheatFlags.userId,
+      matchId: cheatFlags.matchId,
+      confidence: cheatFlags.confidence,
+      flags: cheatFlags.flags,
+      reviewed: cheatFlags.reviewed,
+      wouldSanction: cheatFlags.wouldSanction,
+      metadata: cheatFlags.metadata,
+      createdAt: cheatFlags.createdAt,
+      updatedAt: cheatFlags.updatedAt,
+      username: users.username,
+      role: users.role,
+      matchStatus: pvpMatches.status,
+      textId: pvpMatches.textId,
+      matchCreatedAt: pvpMatches.createdAt,
+    })
+    .from(cheatFlags)
+    .innerJoin(users, eq(cheatFlags.userId, users.id))
+    .innerJoin(pvpMatches, eq(cheatFlags.matchId, pvpMatches.id))
+    .orderBy(desc(cheatFlags.createdAt))
+    .limit(limit);
+
+  const flags = flagRows.map((row) => ({
+    id: row.id,
+    userId: row.userId,
+    matchId: row.matchId,
+    confidence: row.confidence,
+    flags: row.flags,
+    reviewed: row.reviewed,
+    wouldSanction: row.wouldSanction,
+    metadata: row.metadata,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    user: { id: row.userId, username: row.username, role: row.role },
+    match: { id: row.matchId, status: row.matchStatus, textId: row.textId, createdAt: row.matchCreatedAt },
+  }));
 
   return NextResponse.json({
     requestedBy: adminUserId,
@@ -49,14 +81,66 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const updatedFlag = await prisma.cheatFlag.update({
-    where: { id: parsed.data.flagId },
-    data: { reviewed: parsed.data.reviewed },
-    include: {
-      user: { select: { id: true, username: true, role: true, banned: true } },
-      match: { select: { id: true, status: true, textId: true, createdAt: true } },
-    },
-  });
+  await db
+    .update(cheatFlags)
+    .set({ reviewed: parsed.data.reviewed, updatedAt: new Date() })
+    .where(eq(cheatFlags.id, parsed.data.flagId));
+
+  const updatedRows = await db
+    .select({
+      id: cheatFlags.id,
+      userId: cheatFlags.userId,
+      matchId: cheatFlags.matchId,
+      confidence: cheatFlags.confidence,
+      reviewed: cheatFlags.reviewed,
+      wouldSanction: cheatFlags.wouldSanction,
+      flags: cheatFlags.flags,
+      metadata: cheatFlags.metadata,
+      createdAt: cheatFlags.createdAt,
+      updatedAt: cheatFlags.updatedAt,
+      username: users.username,
+      role: users.role,
+      banned: users.banned,
+      matchStatus: pvpMatches.status,
+      textId: pvpMatches.textId,
+      matchCreatedAt: pvpMatches.createdAt,
+    })
+    .from(cheatFlags)
+    .innerJoin(users, eq(cheatFlags.userId, users.id))
+    .innerJoin(pvpMatches, eq(cheatFlags.matchId, pvpMatches.id))
+    .where(eq(cheatFlags.id, parsed.data.flagId))
+    .limit(1);
+
+  const updatedFlag = updatedRows[0]
+    ? {
+        id: updatedRows[0].id,
+        userId: updatedRows[0].userId,
+        matchId: updatedRows[0].matchId,
+        confidence: updatedRows[0].confidence,
+        reviewed: updatedRows[0].reviewed,
+        wouldSanction: updatedRows[0].wouldSanction,
+        flags: updatedRows[0].flags,
+        metadata: updatedRows[0].metadata,
+        createdAt: updatedRows[0].createdAt,
+        updatedAt: updatedRows[0].updatedAt,
+        user: {
+          id: updatedRows[0].userId,
+          username: updatedRows[0].username,
+          role: updatedRows[0].role,
+          banned: updatedRows[0].banned,
+        },
+        match: {
+          id: updatedRows[0].matchId,
+          status: updatedRows[0].matchStatus,
+          textId: updatedRows[0].textId,
+          createdAt: updatedRows[0].matchCreatedAt,
+        },
+      }
+    : null;
+
+  if (!updatedFlag) {
+    return NextResponse.json({ error: "Flag not found" }, { status: 404 });
+  }
 
   await createAdminAuditLog({
     actorUserId: adminUserId,

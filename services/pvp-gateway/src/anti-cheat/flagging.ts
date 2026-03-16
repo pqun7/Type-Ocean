@@ -1,5 +1,7 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { sql } from "drizzle-orm";
 
+import { cheatFlags } from "../../../../src/db/schema";
+import type { GatewayDb } from "../gateway-db";
 import { incrementGatewayMetric } from "../metrics";
 import { readJsonValue, writeJsonValue, type RedisLike } from "./store";
 
@@ -14,7 +16,7 @@ type UserFlagSummary = {
 };
 
 export async function recordCheatAssessment(params: {
-  prisma: PrismaClient;
+  prisma: GatewayDb;
   userId: string;
   matchId: string;
   confidence: number;
@@ -23,7 +25,7 @@ export async function recordCheatAssessment(params: {
   metadata?: Record<string, unknown>;
 }) {
   const redis = params.redis ?? null;
-  const metadata = params.metadata ? (params.metadata as Prisma.InputJsonValue) : undefined;
+  const metadata = params.metadata;
   const summaryKey = `pvp:anti-cheat:v2:flag-summary:${params.userId}`;
   const existingSummary = (await readJsonValue<UserFlagSummary>(redis, summaryKey)) ?? {
     totalFlags: 0,
@@ -46,28 +48,26 @@ export async function recordCheatAssessment(params: {
   nextSummary.lastFlagAt = Date.now();
   const wouldSanction = params.confidence >= AUTO_SANCTION_THRESHOLD || nextSummary.totalFlags >= 3;
 
-  await params.prisma.cheatFlag.upsert({
-    where: {
-      userId_matchId: {
-        userId: params.userId,
-        matchId: params.matchId,
-      },
-    },
-    update: {
-      confidence: params.confidence,
-      flags: params.flags,
-      wouldSanction,
-      metadata,
-    },
-    create: {
+  await params.prisma
+    .insert(cheatFlags)
+    .values({
       userId: params.userId,
       matchId: params.matchId,
       confidence: params.confidence,
       flags: params.flags,
       wouldSanction,
       metadata,
-    },
-  });
+    })
+    .onConflictDoUpdate({
+      target: [cheatFlags.userId, cheatFlags.matchId],
+      set: {
+        confidence: params.confidence,
+        flags: params.flags,
+        wouldSanction,
+        metadata,
+        updatedAt: sql`now()`,
+      },
+    });
 
   await writeJsonValue(redis, summaryKey, nextSummary, FLAG_SCORE_TTL_SECONDS);
   incrementGatewayMetric("pvp_anti_cheat_flags_total", { wouldSanction });

@@ -1,5 +1,5 @@
 import { AuthForm } from "@/components/auth/auth-form";
-import { auth } from "@/features/auth/lib/auth";
+import { auth } from "@/lib/auth";
 import VerifiedMessage from "@/components/auth/verification/VerifiedMessage";
 import { HandleAuthErrors } from "@/components/handle-auth-errors";
 import { redirect } from "next/navigation";
@@ -22,3 +22,4 @@ export default async function AuthPage() {
     </div>
   );
 }
+

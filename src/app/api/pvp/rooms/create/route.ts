@@ -1,8 +1,10 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { pvpRoomMembers, pvpRooms } from "@/db/schema";
 import { authorizeRequest } from "@/app/api/shared.server";
 import { generateInviteCode } from "@/features/pvp/server/invite-code";
 import { incrementSecurityMetric } from "@/lib/security-metrics";
@@ -59,25 +61,30 @@ export async function POST(req: NextRequest) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     code = generateInviteCode(6);
     try {
-      const room = await prisma.pvpRoom.create({
-        data: {
-          code,
-          status: "OPEN",
-          visibility,
-          createdByUserId: userId,
-          hostUserId: userId,
-          minPlayers: 2,
-          maxPlayers,
-          autoStartAt: visibility === "PUBLIC" ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS) : null,
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-          members: {
-            create: {
-              userId,
-              colorSlot: 0,
-            },
-          },
-        },
-        select: { id: true, code: true },
+      const room = await db.transaction(async (tx) => {
+        const createdRows = await tx
+          .insert(pvpRooms)
+          .values({
+            code,
+            status: "OPEN",
+            visibility,
+            createdByUserId: userId,
+            hostUserId: userId,
+            minPlayers: 2,
+            maxPlayers,
+            autoStartAt: visibility === "PUBLIC" ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS) : null,
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          })
+          .returning({ id: pvpRooms.id, code: pvpRooms.code });
+
+        const created = createdRows[0]!;
+        await tx.insert(pvpRoomMembers).values({
+          roomId: created.id,
+          userId,
+          colorSlot: 0,
+        });
+
+        return created;
       });
 
       roomId = room.id;

@@ -1,8 +1,9 @@
 import "server-only";
 
-import type { Prisma } from "@prisma/client";
+import { db } from "@/db";
+import { adminActionLogs } from "@/db/schema";
 
-import prisma from "@/features/auth/lib/db";
+type JsonMetadata = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
 export async function createAdminAuditLog(params: {
   actorUserId: string;
@@ -11,10 +12,11 @@ export async function createAdminAuditLog(params: {
   entityId?: string | null;
   targetUserId?: string | null;
   summary: string;
-  metadata?: Prisma.InputJsonValue;
+  metadata?: JsonMetadata;
 }) {
-  return prisma.adminActionLog.create({
-    data: {
+  const rows = await db
+    .insert(adminActionLogs)
+    .values({
       actorUserId: params.actorUserId,
       action: params.action,
       entityType: params.entityType,
@@ -22,6 +24,8 @@ export async function createAdminAuditLog(params: {
       targetUserId: params.targetUserId ?? null,
       summary: params.summary,
       metadata: params.metadata,
-    },
-  });
+    })
+    .returning();
+
+  return rows[0] ?? null;
 }

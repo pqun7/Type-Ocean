@@ -30,6 +30,8 @@ function createMatchState(participantCount: number): MatchState {
     stateChangedAt: 100,
     status: "RUNNING",
     textSnapshot: "sample",
+    textId: null,
+    inputNonce: null,
     serverStartAtMs: 1_000,
     participants,
     endedReason: null,

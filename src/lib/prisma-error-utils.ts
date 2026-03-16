@@ -1,19 +1,12 @@
-import { Prisma } from "@prisma/client";
-
 export function getPrismaErrorCode(error: unknown): string | null {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    return error.code;
-  }
-
   if (typeof error !== "object" || error === null) return null;
-  if (!("code" in error)) return null;
-
-  const { code } = error as { code?: unknown };
+  const code = (error as { code?: unknown }).code;
   return typeof code === "string" ? code : null;
 }
 
 export function isPrismaAccountHoldError(error: unknown): boolean {
-  if (getPrismaErrorCode(error) !== "P5000") return false;
+  const code = getPrismaErrorCode(error);
+  if (code !== "P5000" && code !== "P6003") return false;
   if (!(error instanceof Error)) return false;
 
   const message = error.message.toLowerCase();
@@ -26,7 +19,7 @@ export function isPrismaAccountHoldError(error: unknown): boolean {
 
 export function isPrismaTemporarilyUnavailableError(error: unknown): boolean {
   const code = getPrismaErrorCode(error);
-  if (code === "P5010") return true;
+  if (code === "P5010" || code === "ECONNRESET" || code === "57P01" || code === "53300") return true;
   if (isPrismaAccountHoldError(error)) return true;
 
   if (error instanceof Error) {

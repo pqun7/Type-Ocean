@@ -2,8 +2,10 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import { authorizeAdminActor, authorizePrimaryAdminRequest } from "@/app/api/shared.server";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
 
@@ -27,18 +29,21 @@ export async function PATCH(req: NextRequest) {
   const { userId, action } = parsed.data;
   const nextBanned = action === "ban";
 
-  const targetUser = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      username: true,
-      email: true,
-      role: true,
-      banned: true,
-      isPrimaryAdmin: true,
-      updatedAt: true,
-    },
-  });
+  const targetUserRows = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      role: users.role,
+      banned: users.banned,
+      isPrimaryAdmin: users.isPrimaryAdmin,
+      updatedAt: users.updatedAt,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const targetUser = targetUserRows[0] ?? null;
 
   if (!targetUser) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -56,19 +61,21 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Primary admin cannot be moderated by another admin" }, { status: 403 });
   }
 
-  const updatedUser = await prisma.user.update({
-    where: { id: userId },
-    data: { banned: nextBanned },
-    select: {
-      id: true,
-      username: true,
-      email: true,
-      role: true,
-      banned: true,
-      isPrimaryAdmin: true,
-      updatedAt: true,
-    },
-  });
+  const updatedRows = await db
+    .update(users)
+    .set({ banned: nextBanned, updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      role: users.role,
+      banned: users.banned,
+      isPrimaryAdmin: users.isPrimaryAdmin,
+      updatedAt: users.updatedAt,
+    });
+
+  const updatedUser = updatedRows[0]!;
 
   await createAdminAuditLog({
     actorUserId: adminActor.id,
@@ -106,16 +113,19 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const targetUser = await prisma.user.findUnique({
-    where: { id: parsed.data.userId },
-    select: {
-      id: true,
-      username: true,
-      email: true,
-      role: true,
-      isPrimaryAdmin: true,
-    },
-  });
+  const targetUserRows = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      role: users.role,
+      isPrimaryAdmin: users.isPrimaryAdmin,
+    })
+    .from(users)
+    .where(eq(users.id, parsed.data.userId))
+    .limit(1);
+
+  const targetUser = targetUserRows[0] ?? null;
 
   if (!targetUser) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -133,22 +143,25 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Target user is not an admin" }, { status: 400 });
   }
 
-  const updatedUser = await prisma.user.update({
-    where: { id: targetUser.id },
-    data: {
+  const updatedRows = await db
+    .update(users)
+    .set({
       role: "user",
       isPrimaryAdmin: false,
-    },
-    select: {
-      id: true,
-      username: true,
-      email: true,
-      role: true,
-      banned: true,
-      isPrimaryAdmin: true,
-      updatedAt: true,
-    },
-  });
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, targetUser.id))
+    .returning({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      role: users.role,
+      banned: users.banned,
+      isPrimaryAdmin: users.isPrimaryAdmin,
+      updatedAt: users.updatedAt,
+    });
+
+  const updatedUser = updatedRows[0]!;
 
   await createAdminAuditLog({
     actorUserId: adminActor.id,

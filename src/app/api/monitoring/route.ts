@@ -3,29 +3,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorizeAdminRequest } from "@/app/api/shared.server";
 import { PerformanceAnalyzer } from "@/monitoring/kpis";
 import { logging } from "@/log/ServerLogger";
-import prisma from "@/features/auth/lib/db";
+import { sql } from "drizzle-orm";
+import { db } from "@/db";
 
 type PgActivityRow = {
   state: string | null;
-  count: bigint;
+  count: number;
 };
 
 async function getPgConnectionSnapshot() {
   try {
-    const rows = await prisma.$queryRaw<PgActivityRow[]>`
+    const result = await db.execute<PgActivityRow>(sql`
       SELECT state, COUNT(*)::bigint AS count
       FROM pg_stat_activity
       WHERE datname = current_database()
       GROUP BY state
-    `;
+    `);
+
+    const rows = (result.rows ?? []) as PgActivityRow[];
 
     const byState = rows.reduce<Record<string, number>>((acc, row) => {
       const key = row.state ?? "unknown";
-      acc[key] = Number(row.count);
+      acc[key] = row.count;
       return acc;
     }, {});
 
-    const total = Object.values(byState).reduce((sum, value) => sum + value, 0);
+    const total = Object.values(byState).reduce((sum: number, value: number) => sum + value, 0);
 
     return {
       available: true,
@@ -40,26 +43,8 @@ async function getPgConnectionSnapshot() {
   }
 }
 
-async function getPrismaMetricsSnapshot() {
-  try {
-    const metricsApi = (prisma as unknown as {
-      $metrics?: {
-        json?: () => Promise<unknown>;
-      };
-    }).$metrics;
-
-    if (!metricsApi?.json) {
-      return { available: false, reason: "metrics_api_unavailable" };
-    }
-
-    const payload = await metricsApi.json();
-    return { available: true, payload };
-  } catch (error) {
-    return {
-      available: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
+async function getDbMetricsSnapshot() {
+  return { available: false, reason: "prisma_metrics_removed" };
 }
 
 export async function GET(req: NextRequest) {
@@ -78,9 +63,9 @@ export async function GET(req: NextRequest) {
 
     const metrics = monitoring.getPerformanceReport();
     const stats = PerformanceAnalyzer.calculateStats(metrics.apiMetrics);
-    const [pgConnections, prismaMetrics] = await Promise.all([
+    const [pgConnections, dbMetrics] = await Promise.all([
       getPgConnectionSnapshot(),
-      getPrismaMetricsSnapshot(),
+      getDbMetricsSnapshot(),
     ]);
     
     logging.info('Generated Performance Report', {
@@ -104,7 +89,7 @@ export async function GET(req: NextRequest) {
       requestedBy: adminUserId,
       db: {
         pgConnections,
-        prismaMetrics,
+        dbMetrics,
       },
     });
   } catch (error) {

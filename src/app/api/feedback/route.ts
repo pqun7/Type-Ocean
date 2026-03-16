@@ -4,10 +4,12 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { z } from "zod";
+import { desc, eq } from "drizzle-orm";
 
+import { db } from "@/db";
+import { userFeedback } from "@/db/schema";
 import { env } from "@/env.mjs";
-import { auth } from "@/features/auth/lib/auth";
-import prisma from "@/features/auth/lib/db";
+import { auth } from "@/lib/auth";
 import { rateLimiter } from "@/lib/rate-limiter";
 
 const FeedbackCategorySchema = z.enum(["complaint", "suggestion", "rating", "bug", "other"]);
@@ -45,24 +47,24 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const feedback = await prisma.userFeedback.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    select: {
-      id: true,
-      category: true,
-      status: true,
-      subject: true,
-      body: true,
-      rating: true,
-      imageUrl: true,
-      adminReplyTitle: true,
-      adminReplyBody: true,
-      respondedAt: true,
-      createdAt: true,
-    },
-  });
+  const feedback = await db
+    .select({
+      id: userFeedback.id,
+      category: userFeedback.category,
+      status: userFeedback.status,
+      subject: userFeedback.subject,
+      body: userFeedback.body,
+      rating: userFeedback.rating,
+      imageUrl: userFeedback.imageUrl,
+      adminReplyTitle: userFeedback.adminReplyTitle,
+      adminReplyBody: userFeedback.adminReplyBody,
+      respondedAt: userFeedback.respondedAt,
+      createdAt: userFeedback.createdAt,
+    })
+    .from(userFeedback)
+    .where(eq(userFeedback.userId, session.user.id))
+    .orderBy(desc(userFeedback.createdAt))
+    .limit(10);
 
   return NextResponse.json({ feedback });
 }
@@ -127,26 +129,28 @@ export async function POST(req: NextRequest) {
     imageUrl = blob.url;
   }
 
-  const feedback = await prisma.userFeedback.create({
-    data: {
+  const createdRows = await db
+    .insert(userFeedback)
+    .values({
       userId: session.user.id,
       category: category.data,
       subject: subject.data,
       body: body.data,
       rating,
       imageUrl,
-    },
-    select: {
-      id: true,
-      category: true,
-      status: true,
-      subject: true,
-      body: true,
-      rating: true,
-      imageUrl: true,
-      createdAt: true,
-    },
-  });
+    })
+    .returning({
+      id: userFeedback.id,
+      category: userFeedback.category,
+      status: userFeedback.status,
+      subject: userFeedback.subject,
+      body: userFeedback.body,
+      rating: userFeedback.rating,
+      imageUrl: userFeedback.imageUrl,
+      createdAt: userFeedback.createdAt,
+    });
+
+  const feedback = createdRows[0] ?? null;
 
   return NextResponse.json({ feedback }, { headers: rl.headers });
 }

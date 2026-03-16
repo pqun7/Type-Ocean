@@ -1,7 +1,8 @@
 import 'server-only';
 import { NextRequest } from "next/server";
 import { redis, connectIfNeeded } from "@/lib/redis";
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { sql } from "drizzle-orm";
 import { getTodayDate, getUtcMidnightTTL } from "@/features/auth/utils/timeUtils";
 import { logging } from "@/log/ServerLogger";
 import { getToken } from "next-auth/jwt";
@@ -37,15 +38,18 @@ export const resolveExistingUserId = async (
 
   let user: { id: string; banned: boolean } | null = null;
   try {
-    user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, banned: true },
-    });
+    const result = await db.execute(sql`
+      SELECT "id", "banned"
+      FROM "User"
+      WHERE "id" = ${userId}
+      LIMIT 1
+    `);
+    user = (result.rows[0] as { id: string; banned: boolean } | undefined) ?? null;
   } catch (error) {
     if (isPrismaTemporarilyUnavailableError(error)) {
       logging.warn("Temporarily unable to resolve user id", {
         userId,
-        reason: "prisma_temporarily_unavailable",
+        reason: "db_temporarily_unavailable",
       });
 
       if (options?.throwOnUnavailable) {
@@ -125,16 +129,23 @@ export const authorizeAdminActor = async (req: NextRequest): Promise<AuthorizedA
   const userId = await authorizeRequest(req);
   if (!userId) return null;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      username: true,
-      email: true,
-      role: true,
-      isPrimaryAdmin: true,
-    },
-  });
+  const result = await db.execute(sql`
+    SELECT "id", "username", "email", "role", "isPrimaryAdmin"
+    FROM "User"
+    WHERE "id" = ${userId}
+    LIMIT 1
+  `);
+
+  const user =
+    (result.rows[0] as
+      | {
+          id: string;
+          username: string;
+          email: string;
+          role: string;
+          isPrimaryAdmin: boolean;
+        }
+      | undefined) ?? null;
 
   if (!user || user.role !== "admin") {
     return null;

@@ -1,8 +1,14 @@
-import prisma from '@/features/auth/lib/db';
+import { eq } from 'drizzle-orm';
+
+import { db } from '@/db';
+import { playerProfiles, users } from '@/db/schema';
 import { redis as client, connectIfNeeded } from '@/lib/redis';
-import { PlayerProfile, User } from '@prisma/client';
 import { logging } from '@/log/ServerLogger';
 import { calculateNextLevelXP } from "@/features/level/utils/xpMath";
+
+type UserRow = typeof users.$inferSelect;
+type PlayerProfileRow = typeof playerProfiles.$inferSelect;
+type PlayerProfileWithUser = PlayerProfileRow & { user: UserRow };
 
 // Cache configuration
 const PROFILE_CACHE_TTL = 3600; // 1 hour in seconds
@@ -17,10 +23,13 @@ type CachedProgressPayload = {
 };
 
 async function getExistingUserSeed(userId: string): Promise<{ username: string }> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { username: true },
-  });
+  const userRows = await db
+    .select({ username: users.username })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const user = userRows[0] ?? null;
 
   if (!user) {
     throw new Error("USER_NOT_FOUND");
@@ -107,7 +116,7 @@ export async function cacheXP(userId: string, xp: number): Promise<void> {
  * @param cacheKey - Redis key to use for storage
  */
 export async function cacheProfile(
-  profile: PlayerProfile & { user: User },
+  profile: PlayerProfileWithUser,
   cacheKey: string
 ): Promise<void> {
   try {
@@ -136,7 +145,7 @@ export async function cacheProfile(
  */
 export async function getCachedProfile(
   userId: string
-): Promise<PlayerProfile & { user: User }> {
+): Promise<PlayerProfileWithUser> {
   const cacheKey = `user:${userId}:profile`;
   logging.debug(`[CACHE] Attempting to fetch profile for ${userId}`);
 
@@ -162,9 +171,9 @@ export async function getCachedProfile(
 
     // Cache miss handling
     logging.debug(`[CACHE] Cache miss for ${userId}`);
-    const profile = await prisma.playerProfile.findUnique({
-      where: { userId },
-      include: { user: true },
+    const profile = await db.query.playerProfiles.findFirst({
+      where: eq(playerProfiles.userId, userId),
+      with: { user: true },
     });
 
     if (!profile) {
@@ -172,17 +181,31 @@ export async function getCachedProfile(
 
       const user = await getExistingUserSeed(userId);
 
-      const created = await prisma.playerProfile.create({
-        data: {
+      const createdRows = await db
+        .insert(playerProfiles)
+        .values({
           userId,
           username: user.username,
           level: 1,
           xp: 0,
           achievements: [],
           avatar: null,
-        },
-        include: { user: true },
+        })
+        .returning();
+
+      const createdProfile = createdRows[0]!;
+      const createdUser = await db.query.users.findFirst({
+        where: eq(users.id, userId),
       });
+
+      if (!createdUser) {
+        throw new Error("USER_NOT_FOUND");
+      }
+
+      const created: PlayerProfileWithUser = {
+        ...createdProfile,
+        user: createdUser,
+      };
 
       await cacheProfile(created, cacheKey);
       return created;
@@ -229,22 +252,25 @@ export async function getUserLevel(userId: string): Promise<number> {
   }
 }
 
-async function ensurePlayerProfile(userId: string): Promise<PlayerProfile> {
-  const existing = await prisma.playerProfile.findUnique({ where: { userId } });
+async function ensurePlayerProfile(userId: string): Promise<PlayerProfileRow> {
+  const existing = await db.query.playerProfiles.findFirst({ where: eq(playerProfiles.userId, userId) });
   if (existing) return existing;
 
   const user = await getExistingUserSeed(userId);
 
-  return prisma.playerProfile.create({
-    data: {
+  const createdRows = await db
+    .insert(playerProfiles)
+    .values({
       userId,
       username: user.username,
       level: 1,
       xp: 0,
       achievements: [],
       avatar: null,
-    },
-  });
+    })
+    .returning();
+
+  return createdRows[0]!;
 }
 
 export async function addUserXP(
@@ -266,11 +292,13 @@ export async function addUserXP(
     nextLevel += 1;
   }
 
-  const updated = await prisma.playerProfile.update({
-    where: { userId },
-    data: { level: nextLevel, xp: nextXP },
-    select: { level: true, xp: true },
-  });
+  const updatedRows = await db
+    .update(playerProfiles)
+    .set({ level: nextLevel, xp: nextXP, updatedAt: new Date() })
+    .where(eq(playerProfiles.userId, userId))
+    .returning({ level: playerProfiles.level, xp: playerProfiles.xp });
+
+  const updated = updatedRows[0] ?? { level: nextLevel, xp: nextXP };
 
   // Best-effort progress cache update (does not block response)
   cacheProgress(userId, {
@@ -344,13 +372,17 @@ export const updateUserLevel = async (userId: string, newLevel: number, newXP: n
 
     // Update database
     logging.debug("Updating player profile in database", { userId, newLevel, newXP });
-    const updatedProfile = await prisma.playerProfile.update({
-      where: { userId },
-      data: {
+    const updatedRows = await db
+      .update(playerProfiles)
+      .set({
         level: newLevel,
         xp: newXP,
-      },
-    });
+        updatedAt: new Date(),
+      })
+      .where(eq(playerProfiles.userId, userId))
+      .returning();
+
+    const updatedProfile = updatedRows[0]!;
     logging.info("Player profile updated successfully", { userId, level: updatedProfile.level, xp: updatedProfile.xp });
 
     // Update cache

@@ -1,17 +1,28 @@
 // src/app/verify/page.tsx
-import { auth } from "@/features/auth/lib/auth";
+import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import prisma from "@/features/auth/lib/db";
+import { eq } from "drizzle-orm";
+
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import { VerifyEmailOtpForm } from "@/components/auth/verification/verify-email-otp-form";
 
 export default async function VerifyPage() {
   const session = await auth();
 
   if (!session) redirect("/auth?signin");
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { emailVerified: true, email: true, pendingEmail: true, emailVerifyOtpSentAt: true },
-  });
+  const rows = await db
+    .select({
+      emailVerified: users.emailVerified,
+      email: users.email,
+      pendingEmail: users.pendingEmail,
+      emailVerifyOtpSentAt: users.emailVerifyOtpSentAt,
+    })
+    .from(users)
+    .where(eq(users.id, session.user.id))
+    .limit(1);
+
+  const user = rows[0] ?? null;
 
   if (!user) redirect("/auth?signin");
   if (user.emailVerified && !user.pendingEmail) redirect("/home");

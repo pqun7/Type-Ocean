@@ -1,6 +1,6 @@
 import { auth } from "@/features/auth/lib/auth";
-import prisma from "@/features/auth/lib/db";
-import type { Prisma } from "@prisma/client";
+import { db } from "@/db";
+import { sql } from "drizzle-orm";
 import { logging } from "@/log/ServerLogger";
 import { connectIfNeeded, redis } from "@/lib/redis";
 import { NextRequest, NextResponse } from "next/server";
@@ -22,6 +22,43 @@ const RESEND_COOLDOWN_SECONDS = 60;
 
 
 const SERVICE_TYPE = "USER-API";
+
+type UserProfileRow = {
+  id: string;
+  username: string;
+  email: string;
+  emailVerified: Date | null;
+  image: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  profileId: string | null;
+  profileUsername: string | null;
+  level: number | null;
+  xp: number | null;
+  achievements: unknown;
+  avatar: string | null;
+  hideFromLeaderboard: boolean | null;
+};
+
+type CurrentUserRow = {
+  email: string;
+  pendingEmail: string | null;
+  username: string;
+  usernameLastChangedAt: Date | null;
+  passwordHash: string | null;
+  emailVerified: Date | null;
+  emailVerifyOtpSentAt: Date | null;
+};
+
+type UpdatedUserRow = {
+  id: string;
+  username: string;
+  email: string;
+  pendingEmail: string | null;
+  emailVerified: Date | null;
+  updatedAt: Date;
+  usernameLastChangedAt: Date | null;
+};
 
 const usernameValidation = z
   .string()
@@ -124,29 +161,51 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        emailVerified: true,
-        image: true,
-        createdAt: true,
-        updatedAt: true,
-        profile: {
-          select: {
-            id: true,
-            username: true,
-            level: true,
-            xp: true,
-            achievements: true,
-            avatar: true,
-            hideFromLeaderboard: true,
-          },
-        },
-      },
-    });
+    const result = await db.execute<UserProfileRow>(sql`
+      SELECT
+        u."id",
+        u."username",
+        u."email",
+        u."emailVerified",
+        u."image",
+        u."createdAt",
+        u."updatedAt",
+        p."id" AS "profileId",
+        p."username" AS "profileUsername",
+        p."level",
+        p."xp",
+        p."achievements",
+        p."avatar",
+        p."hideFromLeaderboard"
+      FROM "User" u
+      LEFT JOIN "PlayerProfile" p ON p."userId" = u."id"
+      WHERE u."id" = ${session.user.id}
+      LIMIT 1
+    `);
+
+    const row = (result.rows?.[0] as UserProfileRow | undefined) ?? null;
+    const user = row
+      ? {
+          id: row.id,
+          username: row.username,
+          email: row.email,
+          emailVerified: row.emailVerified,
+          image: row.image,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          profile: row.profileId
+            ? {
+                id: row.profileId,
+                username: row.profileUsername ?? row.username,
+                level: row.level ?? 1,
+                xp: row.xp ?? 0,
+                achievements: row.achievements ?? [],
+                avatar: row.avatar,
+                hideFromLeaderboard: row.hideFromLeaderboard ?? false,
+              }
+            : null,
+        }
+      : null;
 
     if (!user) {
       logging.warn("Rejecting stale authenticated profile request for deleted user", {
@@ -184,7 +243,7 @@ export async function GET(req: NextRequest) {
           avatar: true,
           hideFromLeaderboard: true,
         },
-      });
+      }) as NonNullable<typeof user.profile>;
     }
 
     return NextResponse.json({
@@ -265,12 +324,12 @@ export async function PATCH(req: NextRequest) {
 
     if (!validationResult.success) {
       logUserOperation.error(requestId, "update_user_profile", new Error("Validation failed"), {
-        validationErrors: validationResult.error.errors
+        validationErrors: validationResult.error.issues
       });
       return NextResponse.json(
         {
           error: "Invalid input",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 }
       );
@@ -313,18 +372,21 @@ export async function PATCH(req: NextRequest) {
     });
     
     // Load current values for safe compare & policy enforcement
-    const currentUser = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: {
-        email: true,
-        pendingEmail: true,
-        username: true,
-        usernameLastChangedAt: true,
-        passwordHash: true,
-        emailVerified: true,
-        emailVerifyOtpSentAt: true,
-      },
-    });
+    const currentResult = await db.execute<CurrentUserRow>(sql`
+      SELECT
+        "email",
+        "pendingEmail",
+        "username",
+        "usernameLastChangedAt",
+        "passwordHash",
+        "emailVerified",
+        "emailVerifyOtpSentAt"
+      FROM "User"
+      WHERE "id" = ${session.user.id}
+      LIMIT 1
+    `);
+
+    const currentUser = (currentResult.rows?.[0] as CurrentUserRow | undefined) ?? null;
 
     if (!currentUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -332,13 +394,14 @@ export async function PATCH(req: NextRequest) {
 
     // Username conflict check
     if (requestedUsername) {
-      const existingUsername = await prisma.user.findFirst({
-        where: {
-          username: requestedUsername,
-          id: { not: session.user.id },
-        },
-        select: { id: true },
-      });
+      const existingUsernameResult = await db.execute<{ id: string }>(sql`
+        SELECT "id"
+        FROM "User"
+        WHERE "username" = ${requestedUsername}
+          AND "id" <> ${session.user.id}
+        LIMIT 1
+      `);
+      const existingUsername = (existingUsernameResult.rows?.[0] as { id: string } | undefined) ?? null;
       if (existingUsername) {
         // Use safe debug logger for sensitive values
         logging.debugSensitive("Username already in use", {
@@ -380,13 +443,17 @@ export async function PATCH(req: NextRequest) {
 
     // Email conflict check: block if another user already has it OR has it pending.
     if (normalizedEmail && emailChanged) {
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          id: { not: session.user.id },
-          OR: [{ email: normalizedEmail }, { pendingEmail: normalizedEmail }],
-        },
-        select: { id: true },
-      });
+      const existingUserResult = await db.execute<{ id: string }>(sql`
+        SELECT "id"
+        FROM "User"
+        WHERE "id" <> ${session.user.id}
+          AND (
+            "email" = ${normalizedEmail}
+            OR "pendingEmail" = ${normalizedEmail}
+          )
+        LIMIT 1
+      `);
+      const existingUser = (existingUserResult.rows?.[0] as { id: string } | undefined) ?? null;
 
       if (existingUser) {
         logging.debugSensitive("Email already in use", {
@@ -417,20 +484,21 @@ export async function PATCH(req: NextRequest) {
 
     // Cancel pending email request if needed.
     if (cancelPendingEmail) {
-      await prisma.user.update({
-        where: { id: session.user.id },
-        data: {
-          pendingEmail: null,
-          pendingEmailRequestedAt: null,
-          emailVerifyToken: null,
-          emailVerifyTokenExpiry: null,
-          emailVerificationAttempts: 0,
-          emailVerifyOtpHash: null,
-          emailVerifyOtpExpiry: null,
-          emailVerifyOtpSentAt: null,
-          emailVerifyOtpFailedAttempts: 0,
-        },
-      });
+      await db.execute(sql`
+        UPDATE "User"
+        SET
+          "pendingEmail" = NULL,
+          "pendingEmailRequestedAt" = NULL,
+          "emailVerifyToken" = NULL,
+          "emailVerifyTokenExpiry" = NULL,
+          "emailVerificationAttempts" = 0,
+          "emailVerifyOtpHash" = NULL,
+          "emailVerifyOtpExpiry" = NULL,
+          "emailVerifyOtpSentAt" = NULL,
+          "emailVerifyOtpFailedAttempts" = 0,
+          "updatedAt" = NOW()
+        WHERE "id" = ${session.user.id}
+      `);
     }
 
     // Start an email change request (pending) if needed.
@@ -459,38 +527,40 @@ export async function PATCH(req: NextRequest) {
 
       const sentAt = new Date();
 
-      await prisma.user.update({
-        where: { id: session.user.id },
-        data: {
-          pendingEmail: normalizedEmail,
-          pendingEmailRequestedAt: new Date(),
-          emailVerifyToken: null,
-          emailVerifyTokenExpiry: null,
-          emailVerificationAttempts: { increment: 1 },
-          emailVerifyOtpHash: hashedOtp,
-          emailVerifyOtpExpiry: otpExpiry,
-          emailVerifyOtpSentAt: sentAt,
-          emailVerifyOtpFailedAttempts: 0,
-        },
-      });
+      await db.execute(sql`
+        UPDATE "User"
+        SET
+          "pendingEmail" = ${normalizedEmail},
+          "pendingEmailRequestedAt" = NOW(),
+          "emailVerifyToken" = NULL,
+          "emailVerifyTokenExpiry" = NULL,
+          "emailVerificationAttempts" = COALESCE("emailVerificationAttempts", 0) + 1,
+          "emailVerifyOtpHash" = ${hashedOtp},
+          "emailVerifyOtpExpiry" = ${otpExpiry},
+          "emailVerifyOtpSentAt" = ${sentAt},
+          "emailVerifyOtpFailedAttempts" = 0,
+          "updatedAt" = NOW()
+        WHERE "id" = ${session.user.id}
+      `);
 
       const sendResult = await sendVerificationOtpEmail(normalizedEmail, otp, OTP_TTL_MINUTES);
       if (!sendResult.success) {
         // Cleanup: prevent being stuck with a pending change that can't be completed.
-        await prisma.user.update({
-          where: { id: session.user.id },
-          data: {
-            pendingEmail: null,
-            pendingEmailRequestedAt: null,
-            emailVerifyToken: null,
-            emailVerifyTokenExpiry: null,
-            emailVerificationAttempts: 0,
-            emailVerifyOtpHash: null,
-            emailVerifyOtpExpiry: null,
-            emailVerifyOtpSentAt: null,
-            emailVerifyOtpFailedAttempts: 0,
-          },
-        });
+        await db.execute(sql`
+          UPDATE "User"
+          SET
+            "pendingEmail" = NULL,
+            "pendingEmailRequestedAt" = NULL,
+            "emailVerifyToken" = NULL,
+            "emailVerifyTokenExpiry" = NULL,
+            "emailVerificationAttempts" = 0,
+            "emailVerifyOtpHash" = NULL,
+            "emailVerifyOtpExpiry" = NULL,
+            "emailVerifyOtpSentAt" = NULL,
+            "emailVerifyOtpFailedAttempts" = 0,
+            "updatedAt" = NOW()
+          WHERE "id" = ${session.user.id}
+        `);
         return NextResponse.json(
           { error: "Failed to send verification email" },
           { status: 500 }
@@ -501,25 +571,53 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Apply non-email profile updates.
-    const updatedUser = await prisma.user.update({
-      where: { id: session.user.id },
-      data: {
-        ...(usernameIsChanging && {
-          username: requestedUsername,
-          usernameLastChangedAt: new Date(),
-        }),
-        ...(normalizedAvatar !== undefined && { image: normalizedAvatar }),
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        pendingEmail: true,
-        emailVerified: true,
-        updatedAt: true,
-        usernameLastChangedAt: true,
-      },
-    });
+    if (usernameIsChanging && normalizedAvatar !== undefined) {
+      await db.execute(sql`
+        UPDATE "User"
+        SET
+          "username" = ${requestedUsername!},
+          "usernameLastChangedAt" = NOW(),
+          "image" = ${normalizedAvatar},
+          "updatedAt" = NOW()
+        WHERE "id" = ${session.user.id}
+      `);
+    } else if (usernameIsChanging) {
+      await db.execute(sql`
+        UPDATE "User"
+        SET
+          "username" = ${requestedUsername!},
+          "usernameLastChangedAt" = NOW(),
+          "updatedAt" = NOW()
+        WHERE "id" = ${session.user.id}
+      `);
+    } else if (normalizedAvatar !== undefined) {
+      await db.execute(sql`
+        UPDATE "User"
+        SET
+          "image" = ${normalizedAvatar},
+          "updatedAt" = NOW()
+        WHERE "id" = ${session.user.id}
+      `);
+    }
+
+    const updatedResult = await db.execute<UpdatedUserRow>(sql`
+      SELECT
+        "id",
+        "username",
+        "email",
+        "pendingEmail",
+        "emailVerified",
+        "updatedAt",
+        "usernameLastChangedAt"
+      FROM "User"
+      WHERE "id" = ${session.user.id}
+      LIMIT 1
+    `);
+
+    const updatedUser = (updatedResult.rows?.[0] as UpdatedUserRow | undefined) ?? null;
+    if (!updatedUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
 
     // Keep PlayerProfile in sync (username + avatar)
     if (profileData || requestedUsername) {
@@ -624,19 +722,12 @@ export async function DELETE(req: NextRequest) {
 
     // Delete user and all related data (cascade)
     // Use a non-interactive transaction for better compatibility in serverless.
-    await prisma.$transaction([
-      // Delete player profile first (relation doesn't specify onDelete cascade)
-      prisma.playerProfile.deleteMany({ where: { userId } }),
-
-      // Delete stats and auth/session artifacts
-      prisma.sessionStat.deleteMany({ where: { userId } }),
-      prisma.session.deleteMany({ where: { userId } }),
-      prisma.account.deleteMany({ where: { userId } }),
-      prisma.authenticator.deleteMany({ where: { userId } }),
-
-      // Finally delete the user. deleteMany avoids throwing if already deleted.
-      prisma.user.deleteMany({ where: { id: userId } }),
-    ]);
+    await db.execute(sql`DELETE FROM "PlayerProfile" WHERE "userId" = ${userId}`);
+    await db.execute(sql`DELETE FROM "SessionStat" WHERE "userId" = ${userId}`);
+    await db.execute(sql`DELETE FROM "Session" WHERE "userId" = ${userId}`);
+    await db.execute(sql`DELETE FROM "Account" WHERE "userId" = ${userId}`);
+    await db.execute(sql`DELETE FROM "Authenticator" WHERE "userId" = ${userId}`);
+    await db.execute(sql`DELETE FROM "User" WHERE "id" = ${userId}`);
 
     // Best-effort: clear Redis keys for this user.
     try {

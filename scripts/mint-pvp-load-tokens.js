@@ -2,7 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const dotenv = require('dotenv');
-const { PrismaClient } = require('@prisma/client');
+const { neon } = require('@neondatabase/serverless');
+const { drizzle } = require('drizzle-orm/neon-http');
+const { sql } = require('drizzle-orm');
 const { SignJWT } = require('jose');
 
 dotenv.config({ path: '.env.local' });
@@ -35,12 +37,14 @@ function hashPvpFingerprint({ userAgent, clientSecret }) {
 async function main() {
   const secret = process.env.PVP_GATEWAY_JWT_SECRET;
   if (!secret) throw new Error('Missing PVP_GATEWAY_JWT_SECRET in env files');
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('Missing DATABASE_URL in env files');
 
   const clientSecret = process.env.PVP_FIXED_CLIENT_SECRET || 'k6LoadClientSecret_abcdefghijklmnopqrstuvwxyz12';
   const userAgent = process.env.PVP_WS_USER_AGENT || 'k6-ai-stress/1.0';
   const tokenCount = Number(process.env.PVP_AI_STRESS_TOKEN_COUNT || '600');
 
-  const prisma = new PrismaClient();
+  const db = drizzle(neon(databaseUrl));
   const key = new TextEncoder().encode(secret);
   const nowSec = Math.floor(Date.now() / 1000);
   const expiresAt = nowSec + 3600;
@@ -52,37 +56,45 @@ async function main() {
     const email = `pvp_load_ai_${i}@local.test`;
     const username = `pvp_load_ai_${i}`;
 
-    const user = await prisma.user.upsert({
-      where: { email },
-      update: {
-        username,
-        banned: false,
-      },
-      create: {
-        email,
-        username,
-        passwordHash: null,
-        banned: false,
-      },
-      select: {
-        id: true,
-        username: true,
-        pvpWsTokenVersion: true,
-        pvpWsTokensValidAfter: true,
-        profile: { select: { avatar: true } },
-      },
-    });
+    const userResult = await db.execute(sql`
+      INSERT INTO "User" ("email", "username", "passwordHash", "banned")
+      VALUES (${email}, ${username}, NULL, FALSE)
+      ON CONFLICT ("email")
+      DO UPDATE SET
+        "username" = EXCLUDED."username",
+        "banned" = FALSE,
+        "updatedAt" = NOW()
+      RETURNING "id", "username", "pvpWsTokenVersion", "pvpWsTokensValidAfter"
+    `);
+    const user = userResult.rows[0];
+    if (!user) throw new Error(`Failed to upsert user: ${email}`);
 
-    const rating = await prisma.pvpRating.upsert({
-      where: { userId: user.id },
-      update: {},
-      create: { userId: user.id },
-      select: { rating: true, deviation: true },
-    });
+    const avatarResult = await db.execute(sql`
+      SELECT "avatar"
+      FROM "PlayerProfile"
+      WHERE "userId" = ${user.id}
+      LIMIT 1
+    `);
+    const avatar = avatarResult.rows[0]?.avatar ?? null;
+
+    await db.execute(sql`
+      INSERT INTO "pvp_rating" ("userId")
+      VALUES (${user.id})
+      ON CONFLICT ("userId") DO NOTHING
+    `);
+
+    const ratingResult = await db.execute(sql`
+      SELECT "rating", "deviation"
+      FROM "pvp_rating"
+      WHERE "userId" = ${user.id}
+      LIMIT 1
+    `);
+    const rating = ratingResult.rows[0];
+    if (!rating) throw new Error(`Missing rating row for user: ${user.id}`);
 
     const token = await new SignJWT({
       username: user.username,
-      avatar: user.profile?.avatar ?? null,
+      avatar,
       pvpRating: rating.rating,
       pvpDeviation: rating.deviation,
       fp: fingerprint,
@@ -106,7 +118,6 @@ async function main() {
   console.log(`PVP_FIXED_CLIENT_SECRET=${clientSecret}`);
   console.log(`PVP_WS_USER_AGENT=${userAgent}`);
 
-  await prisma.$disconnect();
 }
 
 main().catch((error) => {

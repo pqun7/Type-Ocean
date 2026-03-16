@@ -32,8 +32,6 @@ const nextConfig: NextConfig = {
   },
   
   serverExternalPackages: [
-    "@prisma/client",
-    "@prisma/instrumentation",
     "@opentelemetry/instrumentation",
     "@sentry/node",
     "@sentry/nextjs",
@@ -124,7 +122,6 @@ const nextConfig: NextConfig = {
         'https-proxy-agent': false,
         'winston': false,
         'winston-transport': false,
-        '@prisma/client': false,
         // Fix Turbopack font loading
         '@vercel/turbopack-next/internal/font/google/font': false,
       };
@@ -159,11 +156,6 @@ const nextConfig: NextConfig = {
         }),
         new webpack.IgnorePlugin({
           resourceRegExp: /^winston-transport$/,
-        }),
-        
-        // Database packages
-        new webpack.IgnorePlugin({
-          resourceRegExp: /^@prisma\/client$/,
         }),
         
         // Ignore specific problematic files from Google Auth Library
@@ -256,14 +248,6 @@ const nextConfig: NextConfig = {
         })
       );
 
-    } else {
-      // Server-side: Allow modules to work normally but externalize them
-      config.externals = [
-        ...(Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean)),
-        {
-          '@prisma/client': '@prisma/client',
-        }
-      ];
     }
     
     return config;

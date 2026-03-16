@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import bcrypt from "bcryptjs";
+import { sql } from "drizzle-orm";
 
 import { auth } from "@/features/auth/lib/auth";
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
 import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { passwordValidation } from "@/features/auth/utils/password-policy";
 import { logging } from "@/log/ServerLogger";
@@ -61,17 +62,21 @@ export async function PATCH(req: NextRequest) {
 
     if (!parsed.success) {
       return NextResponse.json(
-        { error: "Invalid input", details: parsed.error.errors },
+        { error: "Invalid input", details: parsed.error.issues },
         { status: 400 }
       );
     }
 
     const { currentPassword, newPassword } = parsed.data;
 
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { id: true, passwordHash: true },
-    });
+    const userResult = await db.execute(sql`
+      SELECT "id", "passwordHash"
+      FROM "User"
+      WHERE "id" = ${session.user.id}
+      LIMIT 1
+    `);
+    const user =
+      (userResult.rows[0] as { id: string; passwordHash: string | null } | undefined) ?? null;
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -98,17 +103,15 @@ export async function PATCH(req: NextRequest) {
 
     const nextHash = await saltAndHashPassword(newPassword);
 
-    await prisma.user.update({
-      where: { id: session.user.id },
-      data: {
-        passwordHash: nextHash,
-        resetToken: null,
-        resetTokenExpiry: null,
-        pvpWsTokenVersion: { increment: 1 },
-        pvpWsTokensValidAfter: new Date(),
-      },
-      select: { id: true },
-    });
+    await db.execute(sql`
+      UPDATE "User"
+      SET "passwordHash" = ${nextHash},
+          "resetToken" = NULL,
+          "resetTokenExpiry" = NULL,
+          "pvpWsTokenVersion" = "pvpWsTokenVersion" + 1,
+          "pvpWsTokensValidAfter" = NOW()
+      WHERE "id" = ${session.user.id}
+    `);
 
     logging.info("User password updated", {
       requestId,

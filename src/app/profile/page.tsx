@@ -1,16 +1,17 @@
 // src/app/profile/page.tsx
 import { redirect } from "next/navigation";
+import { and, count, desc, eq, gt, or } from "drizzle-orm";
 
-import { auth } from "@/features/auth/lib/auth";
+import { auth } from "@/lib/auth";
 import { SignOut } from "@/components/auth/sign-out";
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { dailyTypingActivity, playerProfiles, users } from "@/db/schema";
 import {
   getDefaultLongTermStats,
   getLongTermCumulativeStats,
   getSessionHistory,
 } from "@/helper/session-stats";
 import { getOverallKeyboardPerformance } from "@/helper/overall-keyboard-performance";
-import { Prisma } from "@prisma/client";
 import { getRankInfo } from "@/features/ranking/rating";
 import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
 import {
@@ -31,32 +32,28 @@ export default async function ProfilePage() {
     redirect("/auth?form=login");
   }
 
-  type ProfileDbUser = Prisma.UserGetPayload<{
-    select: {
-      id: true;
-      username: true;
-      usernameLastChangedAt: true;
-      email: true;
-      pendingEmail: true;
-      pendingEmailRequestedAt: true;
-      emailVerifyOtpSentAt: true;
-      emailVerified: true;
-      passwordHash: true;
-      image: true;
-      createdAt: true;
-      profile: {
-        select: {
-          level: true;
-          xp: true;
-          rating: true;
-          updatedAt: true;
-          hideFromLeaderboard: true;
-          achievements: true;
-          avatar: true;
-        };
-      };
-    };
-  }>;
+  type ProfileDbUser = {
+    id: string;
+    username: string;
+    usernameLastChangedAt: Date | null;
+    email: string;
+    pendingEmail: string | null;
+    pendingEmailRequestedAt: Date | null;
+    emailVerifyOtpSentAt: Date | null;
+    emailVerified: Date | null;
+    passwordHash: string | null;
+    image: string | null;
+    createdAt: Date;
+    profile: {
+      level: number;
+      xp: number;
+      rating: number;
+      updatedAt: Date;
+      hideFromLeaderboard: boolean;
+      achievements: unknown;
+      avatar: string | null;
+    } | null;
+  };
 
   type ProfilePageUser = Omit<ProfileDbUser, "passwordHash"> & {
     hasPassword: boolean;
@@ -65,9 +62,9 @@ export default async function ProfilePage() {
   let user: ProfilePageUser | null = null;
 
   try {
-    const dbUser = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: {
+    const dbUser = (await db.query.users.findFirst({
+      where: eq(users.id, session.user.id),
+      columns: {
         id: true,
         username: true,
         usernameLastChangedAt: true,
@@ -79,8 +76,10 @@ export default async function ProfilePage() {
         passwordHash: true,
         image: true,
         createdAt: true,
+      },
+      with: {
         profile: {
-          select: {
+          columns: {
             level: true,
             xp: true,
             rating: true,
@@ -91,7 +90,7 @@ export default async function ProfilePage() {
           },
         },
       },
-    });
+    })) as ProfileDbUser | undefined;
 
     if (dbUser) {
       const { passwordHash, ...safeUser } = dbUser;
@@ -144,7 +143,7 @@ export default async function ProfilePage() {
   let { profile } = user;
   if (!profile) {
     try {
-      profile = await ensurePlayerProfile({
+      profile = (await ensurePlayerProfile({
         userId: user.id,
         username: user.username,
         select: {
@@ -156,7 +155,7 @@ export default async function ProfilePage() {
           achievements: true,
           avatar: true,
         },
-      });
+      })) as NonNullable<ProfileDbUser["profile"]>;
     } catch (err) {
       const code = getPrismaErrorCode(err);
       console.error("/profile prisma.playerProfile.upsert failed", { code, err });
@@ -175,26 +174,29 @@ export default async function ProfilePage() {
   let isTopOnePercent = false;
   if (!profile.hideFromLeaderboard) {
     try {
-      const totalRanked = await prisma.playerProfile.count({
-        where: { hideFromLeaderboard: false },
-      });
+      const totalRankedRows = await db
+        .select({ value: count() })
+        .from(playerProfiles)
+        .where(eq(playerProfiles.hideFromLeaderboard, false));
+
+      const totalRanked = totalRankedRows[0]?.value ?? 0;
 
       const cutoff = Math.max(1, Math.ceil(totalRanked * 0.01));
 
-      const betterCount = await prisma.playerProfile.count({
-        where: {
-          hideFromLeaderboard: false,
-          OR: [
-            { rating: { gt: profile.rating } },
-            {
-              AND: [
-                { rating: { equals: profile.rating } },
-                { updatedAt: { gt: profile.updatedAt } },
-              ],
-            },
-          ],
-        },
-      });
+      const betterCountRows = await db
+        .select({ value: count() })
+        .from(playerProfiles)
+        .where(
+          and(
+            eq(playerProfiles.hideFromLeaderboard, false),
+            or(
+              gt(playerProfiles.rating, profile.rating),
+              and(eq(playerProfiles.rating, profile.rating), gt(playerProfiles.updatedAt, profile.updatedAt)),
+            ),
+          ),
+        );
+
+      const betterCount = betterCountRows[0]?.value ?? 0;
 
       const position = betterCount + 1;
       isTopOnePercent = position <= cutoff;
@@ -221,19 +223,19 @@ export default async function ProfilePage() {
   }> = [];
 
   try {
-    dailyActivity = await prisma.dailyTypingActivity.findMany({
-      where: { userId: user.id },
-      orderBy: { localDate: "desc" },
-      take: 370,
-      select: {
-        localDate: true,
-        sessionsCount: true,
-        totalTimeSpentSec: true,
-        sumWpm: true,
-        sumWpmTime: true,
-        sumAccuracy: true,
-      },
-    });
+    dailyActivity = await db
+      .select({
+        localDate: dailyTypingActivity.localDate,
+        sessionsCount: dailyTypingActivity.sessionsCount,
+        totalTimeSpentSec: dailyTypingActivity.totalTimeSpentSec,
+        sumWpm: dailyTypingActivity.sumWpm,
+        sumWpmTime: dailyTypingActivity.sumWpmTime,
+        sumAccuracy: dailyTypingActivity.sumAccuracy,
+      })
+      .from(dailyTypingActivity)
+      .where(eq(dailyTypingActivity.userId, user.id))
+      .orderBy(desc(dailyTypingActivity.localDate))
+      .limit(370);
   } catch {
     dailyActivity = [];
   }

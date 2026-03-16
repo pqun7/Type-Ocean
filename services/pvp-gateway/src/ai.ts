@@ -1,4 +1,7 @@
-import type { PrismaClient } from "@prisma/client";
+import { desc, eq } from "drizzle-orm";
+
+import { dailyTypingActivity, playerProfiles } from "../../../src/db/schema";
+import type { GatewayDb } from "./gateway-db";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -16,11 +19,14 @@ export type PlayerSkillEstimate = {
   avgAccuracy: number;
 };
 
-export async function estimatePlayerSkill(prisma: PrismaClient, userId: string): Promise<PlayerSkillEstimate> {
-  const profile = await prisma.playerProfile.findUnique({
-    where: { userId },
-    select: { longTermStats: true },
-  });
+export async function estimatePlayerSkill(db: GatewayDb, userId: string): Promise<PlayerSkillEstimate> {
+  const profileRows = await db
+    .select({ longTermStats: playerProfiles.longTermStats })
+    .from(playerProfiles)
+    .where(eq(playerProfiles.userId, userId))
+    .limit(1);
+
+  const profile = profileRows[0] ?? null;
 
   const longTerm: Record<string, unknown> | null =
     profile?.longTermStats && typeof profile.longTermStats === "object"
@@ -31,12 +37,16 @@ export async function estimatePlayerSkill(prisma: PrismaClient, userId: string):
   const longBestWpm = safeNumber(longTerm?.bestWPM) ?? Math.max(longAvgWpm + 10, 60);
   const longAvgAcc = safeNumber(longTerm?.averageAccuracy) ?? 95;
 
-  const recent = await prisma.dailyTypingActivity.findMany({
-    where: { userId },
-    orderBy: { localDate: "desc" },
-    take: 14,
-    select: { totalTimeSpentSec: true, sumWpmTime: true, sumAccuracy: true },
-  });
+  const recent = await db
+    .select({
+      totalTimeSpentSec: dailyTypingActivity.totalTimeSpentSec,
+      sumWpmTime: dailyTypingActivity.sumWpmTime,
+      sumAccuracy: dailyTypingActivity.sumAccuracy,
+    })
+    .from(dailyTypingActivity)
+    .where(eq(dailyTypingActivity.userId, userId))
+    .orderBy(desc(dailyTypingActivity.localDate))
+    .limit(14);
 
   let recentAvgWpm = longAvgWpm;
   let recentAvgAcc = longAvgAcc;

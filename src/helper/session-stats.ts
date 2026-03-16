@@ -3,9 +3,11 @@
 
 import "server-only";
 
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { playerProfiles } from "@/db/schema";
 import { redis } from "@/lib/redis";
 import { logging } from "@/log/ServerLogger";
-import prisma from "@/features/auth/lib/db";
 
 export const LONG_TERM_TTL = 2592000; // 30 days for session history
 export const MAX_SESSIONS_STORED = 100;
@@ -519,10 +521,13 @@ export async function getLongTermCumulativeStats(userId: string): Promise<LongTe
 
   // DB snapshot fallback (persisted on PlayerProfile)
   try {
-    const profile = await prisma.playerProfile.findUnique({
-      where: { userId },
-      select: { longTermStats: true },
-    });
+    const profileRows = await db
+      .select({ longTermStats: playerProfiles.longTermStats })
+      .from(playerProfiles)
+      .where(eq(playerProfiles.userId, userId))
+      .limit(1);
+
+    const profile = profileRows[0] ?? null;
 
     if (profile?.longTermStats && typeof profile.longTermStats === "object") {
       return {

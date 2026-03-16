@@ -2,8 +2,10 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { count, eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { pvpMatches, pvpRoomMembers, pvpRooms } from "@/db/schema";
 import { authorizeAdminRequest } from "@/app/api/shared.server";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
 
@@ -26,16 +28,19 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const existingRoom = await prisma.pvpRoom.findUnique({
-    where: { id: parsed.data.roomId },
-    select: {
-      id: true,
-      code: true,
-      status: true,
-      visibility: true,
-      hostUserId: true,
-    },
-  });
+  const existingRoomRows = await db
+    .select({
+      id: pvpRooms.id,
+      code: pvpRooms.code,
+      status: pvpRooms.status,
+      visibility: pvpRooms.visibility,
+      hostUserId: pvpRooms.hostUserId,
+    })
+    .from(pvpRooms)
+    .where(eq(pvpRooms.id, parsed.data.roomId))
+    .limit(1);
+
+  const existingRoom = existingRoomRows[0] ?? null;
 
   if (!existingRoom) {
     return NextResponse.json({ error: "Room not found" }, { status: 404 });
@@ -62,21 +67,35 @@ export async function PATCH(req: NextRequest) {
     },
   };
 
-  const updatedRoom = await prisma.pvpRoom.update({
-    where: { id: parsed.data.roomId },
-    data: patchByAction[parsed.data.action],
-    select: {
-      id: true,
-      code: true,
-      status: true,
-      visibility: true,
-      maxPlayers: true,
-      expiresAt: true,
-      autoStartAt: true,
-      updatedAt: true,
-      _count: { select: { members: true, matches: true } },
+  const updatedRows = await db
+    .update(pvpRooms)
+    .set({ ...(patchByAction[parsed.data.action] as Record<string, unknown>), updatedAt: new Date() })
+    .where(eq(pvpRooms.id, parsed.data.roomId))
+    .returning({
+      id: pvpRooms.id,
+      code: pvpRooms.code,
+      status: pvpRooms.status,
+      visibility: pvpRooms.visibility,
+      maxPlayers: pvpRooms.maxPlayers,
+      expiresAt: pvpRooms.expiresAt,
+      autoStartAt: pvpRooms.autoStartAt,
+      updatedAt: pvpRooms.updatedAt,
+    });
+
+  const updatedRoomBase = updatedRows[0]!;
+
+  const [memberCountRows, matchCountRows] = await Promise.all([
+    db.select({ value: count() }).from(pvpRoomMembers).where(eq(pvpRoomMembers.roomId, updatedRoomBase.id)),
+    db.select({ value: count() }).from(pvpMatches).where(eq(pvpMatches.roomId, updatedRoomBase.id)),
+  ]);
+
+  const updatedRoom = {
+    ...updatedRoomBase,
+    _count: {
+      members: Number(memberCountRows[0]?.value ?? 0),
+      matches: Number(matchCountRows[0]?.value ?? 0),
     },
-  });
+  };
 
   await createAdminAuditLog({
     actorUserId: adminUserId,

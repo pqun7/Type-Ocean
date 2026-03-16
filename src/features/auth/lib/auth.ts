@@ -4,11 +4,19 @@ import GitHub from "next-auth/providers/github";
 import Google from "next-auth/providers/google";   
 import Credentials from "next-auth/providers/credentials";
 import type { JWT } from "next-auth/jwt";
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import { Prisma } from "@prisma/client";
+import { DrizzleAdapter } from "@auth/drizzle-adapter";
+import { eq } from "drizzle-orm";
 import { loginSchema } from "@/schemas/authSchema";
 import { getUserFromDb } from "@/features/auth/utils/db";
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import {
+  accounts,
+  authenticators,
+  pendingSignups,
+  sessions,
+  users,
+  verificationTokens,
+} from "@/db/schema";
 import {
   normalizeUsernameForDisplay,
   sanitizeUsernameFromProvider,
@@ -32,7 +40,13 @@ import { ZodError } from "zod";
 //   }
 // }
 
-const prismaAdapter = PrismaAdapter(prisma);
+const drizzleAdapter = (DrizzleAdapter as any)(db, {
+  usersTable: users,
+  accountsTable: accounts,
+  sessionsTable: sessions,
+  verificationTokensTable: verificationTokens,
+  authenticatorsTable: authenticators,
+} as any);
 
 type AuthUserState = {
   username: string;
@@ -45,18 +59,33 @@ type AuthUserState = {
 };
 
 async function getAuthUserState(userId: string): Promise<AuthUserState | null> {
-  return prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      username: true,
-      email: true,
-      emailVerified: true,
-      image: true,
-      role: true,
-      banned: true,
-      isPrimaryAdmin: true,
-    },
-  });
+  const rows = await db
+    .select({
+      username: users.username,
+      email: users.email,
+      emailVerified: users.emailVerified,
+      image: users.image,
+      role: users.role,
+      banned: users.banned,
+      isPrimaryAdmin: users.isPrimaryAdmin,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const row = rows[0];
+
+  if (!row) return null;
+
+  return {
+    username: row.username,
+    email: row.email,
+    emailVerified: row.emailVerified,
+    image: row.image,
+    role: row.role,
+    banned: row.banned,
+    isPrimaryAdmin: row.isPrimaryAdmin,
+  };
 }
 
 function invalidateToken(token: JWT, reason: "missing" | "banned") {
@@ -76,11 +105,19 @@ function invalidateToken(token: JWT, reason: "missing" | "banned") {
 
 async function usernameExists(username: string): Promise<boolean> {
   const [existingUser, existingPending] = await Promise.all([
-    prisma.user.findUnique({ where: { username }, select: { id: true } }),
-    prisma.pendingSignup.findUnique({ where: { username }, select: { id: true } }),
+    db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1),
+    db
+      .select({ id: pendingSignups.id })
+      .from(pendingSignups)
+      .where(eq(pendingSignups.username, username))
+      .limit(1),
   ]);
 
-  return !!existingUser || !!existingPending;
+  return existingUser.length > 0 || existingPending.length > 0;
 }
 
 function withNumericSuffix(base: string, suffix: string): string {
@@ -108,13 +145,13 @@ async function findAvailableUsername(baseInput: string): Promise<string> {
 }
 
 function isUsernameUniqueViolation(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  if (error.code !== "P2002") return false;
+  if (typeof error !== "object" || error === null) return false;
 
-  const target = (error.meta as unknown as { target?: string[] | string } | undefined)?.target;
-  if (Array.isArray(target)) return target.includes("username");
-  if (typeof target === "string") return target.includes("username");
-  return false;
+  const code = (error as { code?: unknown }).code;
+  if (code !== "23505") return false;
+
+  const message = String((error as { message?: unknown }).message ?? "").toLowerCase();
+  return message.includes("username");
 }
 
 const allowDangerousEmailAccountLinking =
@@ -128,9 +165,9 @@ const googleClientSecret = process.env.AUTH_GOOGLE_SECRET;
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   adapter: {
-    ...prismaAdapter,
+    ...drizzleAdapter,
     async createUser(data) {
-      const createUserFn = prismaAdapter.createUser?.bind(prismaAdapter);
+      const createUserFn = drizzleAdapter.createUser?.bind(drizzleAdapter);
       if (!createUserFn) {
         throw new Error("ADAPTER_CREATE_USER_MISSING");
       }
@@ -147,6 +184,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         try {
           return await createUserFn({
             ...data,
+            // The User table uses `username` instead of the optional Auth.js `name` column.
+            name: undefined,
             username,
           });
         } catch (err) {
@@ -159,7 +198,20 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       // Give up after bounded retries.
       return await createUserFn({
         ...data,
+        name: undefined,
         username: await findAvailableUsername("user"),
+      });
+    },
+    async updateUser(data) {
+      const updateUserFn = drizzleAdapter.updateUser?.bind(drizzleAdapter);
+      if (!updateUserFn) {
+        throw new Error("ADAPTER_UPDATE_USER_MISSING");
+      }
+
+      return await updateUserFn({
+        ...data,
+        // Prevent writes to non-existent `name` column in the User table.
+        name: undefined,
       });
     },
   },
@@ -331,10 +383,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       }
     },
     async linkAccount({ user }) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { emailVerified: new Date() },
-      });
+      if (typeof user.id !== "string" || user.id.length === 0) return;
+      const linkedUserId: string = user.id;
+
+      await db
+        .update(users)
+        .set({ emailVerified: new Date(), updatedAt: new Date() })
+        .where(eq(users.id, linkedUserId));
     },
   },
   session: {

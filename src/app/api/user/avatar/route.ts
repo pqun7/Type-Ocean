@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { del, put } from "@vercel/blob";
+import { eq } from "drizzle-orm";
 
 import { env } from "@/env.mjs";
-import { auth } from "@/features/auth/lib/auth";
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { users } from "@/db/schema";
+import { auth } from "@/lib/auth";
 import { syncPlayerProfile } from "@/features/auth/server/player-profile";
 import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 import { rateLimiter } from "@/lib/rate-limiter";
@@ -88,12 +90,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Avatar file too large", requestId }, { status: 400 });
     }
 
-    const current = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: {
+    const current = await db.query.users.findFirst({
+      where: eq(users.id, session.user.id),
+      columns: {
         image: true,
         username: true,
-        profile: { select: { avatar: true } },
+      },
+      with: {
+        profile: {
+          columns: {
+            avatar: true,
+          },
+        },
       },
     });
 
@@ -120,11 +128,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: session.user.id },
-      data: { image: blob.url },
-      select: { username: true },
-    });
+    const updatedRows = await db
+      .update(users)
+      .set({ image: blob.url, updatedAt: new Date() })
+      .where(eq(users.id, session.user.id))
+      .returning({ username: users.username });
+
+    const updatedUser = updatedRows[0] ?? { username: current?.username ?? "user" };
 
     await syncPlayerProfile({
       userId: session.user.id,
@@ -182,3 +192,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

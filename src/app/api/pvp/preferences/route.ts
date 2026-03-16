@@ -1,9 +1,10 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { eq } from "drizzle-orm";
 
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
+import { pvpMatchmakingPreferences } from "@/db/schema";
 import { authorizeRequest } from "@/app/api/shared.server";
 import { logging } from "@/log/ServerLogger";
 import { rateLimiter } from "@/lib/rate-limiter";
@@ -20,11 +21,12 @@ let hasLoggedMissingPvpMatchmakingPreferenceTableWarning = false;
 let pvpMatchmakingPreferenceTableLastCheckedAt = 0;
 
 function isMissingPvpMatchmakingPreferenceTable(error: unknown) {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  if (error.code !== "P2021") return false;
+  if (typeof error !== "object" || error === null) return false;
 
-  const table = String(error.meta?.table ?? "").toLowerCase();
-  return table.includes("pvp_matchmaking_preference");
+  const code = String((error as { code?: unknown }).code ?? "");
+  const message = String((error as { message?: unknown }).message ?? "").toLowerCase();
+
+  return code === "42P01" || message.includes("pvp_matchmaking_preference") || message.includes("relation");
 }
 
 function buildDefaultPreferenceResponse(
@@ -79,12 +81,25 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const preference = await prisma.pvpMatchmakingPreference.upsert({
-      where: { userId },
-      update: {},
-      create: { userId },
-      select: { preferredMode: true, textDifficulty: true, updatedAt: true },
+    await db.insert(pvpMatchmakingPreferences).values({ userId }).onConflictDoNothing({
+      target: pvpMatchmakingPreferences.userId,
     });
+
+    const preferenceRows = await db
+      .select({
+        preferredMode: pvpMatchmakingPreferences.preferredMode,
+        textDifficulty: pvpMatchmakingPreferences.textDifficulty,
+        updatedAt: pvpMatchmakingPreferences.updatedAt,
+      })
+      .from(pvpMatchmakingPreferences)
+      .where(eq(pvpMatchmakingPreferences.userId, userId))
+      .limit(1);
+
+    const preference = preferenceRows[0] ?? {
+      preferredMode: DEFAULT_PVP_PREFERENCE.mode,
+      textDifficulty: DEFAULT_PVP_PREFERENCE.textDifficulty,
+      updatedAt: new Date(),
+    };
 
     hasPvpMatchmakingPreferenceTable = true;
     pvpMatchmakingPreferenceTableLastCheckedAt = Date.now();
@@ -138,19 +153,37 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
-    const preference = await prisma.pvpMatchmakingPreference.upsert({
-      where: { userId },
-      update: {
-        preferredMode: parsed.data.mode,
-        textDifficulty: parsed.data.textDifficulty,
-      },
-      create: {
+    await db
+      .insert(pvpMatchmakingPreferences)
+      .values({
         userId,
         preferredMode: parsed.data.mode,
         textDifficulty: parsed.data.textDifficulty,
-      },
-      select: { preferredMode: true, textDifficulty: true, updatedAt: true },
-    });
+      })
+      .onConflictDoUpdate({
+        target: pvpMatchmakingPreferences.userId,
+        set: {
+          preferredMode: parsed.data.mode,
+          textDifficulty: parsed.data.textDifficulty,
+          updatedAt: new Date(),
+        },
+      });
+
+    const preferenceRows = await db
+      .select({
+        preferredMode: pvpMatchmakingPreferences.preferredMode,
+        textDifficulty: pvpMatchmakingPreferences.textDifficulty,
+        updatedAt: pvpMatchmakingPreferences.updatedAt,
+      })
+      .from(pvpMatchmakingPreferences)
+      .where(eq(pvpMatchmakingPreferences.userId, userId))
+      .limit(1);
+
+    const preference = preferenceRows[0] ?? {
+      preferredMode: parsed.data.mode,
+      textDifficulty: parsed.data.textDifficulty,
+      updatedAt: new Date(),
+    };
 
     hasPvpMatchmakingPreferenceTable = true;
     pvpMatchmakingPreferenceTableLastCheckedAt = Date.now();

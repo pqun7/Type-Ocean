@@ -1,8 +1,9 @@
 "use server";
 
 import { Resend } from "resend";
+import { sql } from "drizzle-orm";
 import { logging } from "@/log/ServerLogger";
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
 import { randomBytes, createHash } from "crypto";
 
 // Configure the Resend library using the API Key
@@ -221,7 +222,13 @@ export async function generateResetToken(email: string) {
     throw new Error("INVALID_EMAIL");
   }
   
-  const user = await prisma.user.findUnique({ where: { email } });
+  const userResult = await db.execute<{ id: string; passwordHash: string | null }>(sql`
+    SELECT "id", "passwordHash"
+    FROM "User"
+    WHERE "email" = ${email}
+    LIMIT 1
+  `);
+  const user = (userResult.rows?.[0] as { id: string; passwordHash: string | null } | undefined) ?? null;
 
   if (!user) {
     logEmailOperation.error("generate_reset_token", new Error("User not found"), {
@@ -245,14 +252,15 @@ export async function generateResetToken(email: string) {
 
   const resetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
-  await prisma.user.update({
-    where: { email },
-    data: {
-      resetToken: hashedToken,
-      resetTokenExpiry,
-      passwordResetRequests: { increment: 1 },
-    },
-  });
+  await db.execute(sql`
+    UPDATE "User"
+    SET
+      "resetToken" = ${hashedToken},
+      "resetTokenExpiry" = ${resetTokenExpiry},
+      "passwordResetRequests" = "passwordResetRequests" + 1,
+      "updatedAt" = NOW()
+    WHERE "email" = ${email}
+  `);
 
   logEmailOperation.success("generate_reset_token", {
     requestId,
@@ -274,12 +282,14 @@ export async function validateResetToken(token: string) {
     hasToken: !!token
   });
 
-  const user = await prisma.user.findFirst({
-    where: {
-      resetToken: hashedToken,
-      resetTokenExpiry: { gt: new Date() },
-    },
-  });
+  const userResult = await db.execute<{ id: string }>(sql`
+    SELECT "id"
+    FROM "User"
+    WHERE "resetToken" = ${hashedToken}
+      AND "resetTokenExpiry" > NOW()
+    LIMIT 1
+  `);
+  const user = (userResult.rows?.[0] as { id: string } | undefined) ?? null;
 
   if (!user) {
     logEmailOperation.error("validate_reset_token", new Error("Invalid or expired token"), {
@@ -305,7 +315,13 @@ export async function generateEmailVerificationToken(email: string): Promise<str
     email
   });
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const userResult = await db.execute<{ id: string; emailVerified: Date | null }>(sql`
+    SELECT "id", "emailVerified"
+    FROM "User"
+    WHERE "email" = ${email}
+    LIMIT 1
+  `);
+  const user = (userResult.rows?.[0] as { id: string; emailVerified: Date | null } | undefined) ?? null;
   
   if (!user) {
     logEmailOperation.error("generate_email_verification_token", new Error("User not found"), {
@@ -329,14 +345,15 @@ export async function generateEmailVerificationToken(email: string): Promise<str
 
   const tokenExpiry = new Date(Date.now() + 24 * 3600 * 1000);
 
-  await prisma.user.update({
-    where: { email },
-    data: {
-      emailVerifyToken: hashedToken,
-      emailVerifyTokenExpiry: tokenExpiry,
-      emailVerificationAttempts: { increment: 1 },
-    },
-  });
+  await db.execute(sql`
+    UPDATE "User"
+    SET
+      "emailVerifyToken" = ${hashedToken},
+      "emailVerifyTokenExpiry" = ${tokenExpiry},
+      "emailVerificationAttempts" = COALESCE("emailVerificationAttempts", 0) + 1,
+      "updatedAt" = NOW()
+    WHERE "email" = ${email}
+  `);
 
   logEmailOperation.success("generate_email_verification_token", {
     requestId,
@@ -358,12 +375,14 @@ export async function validateEmailToken(token: string) {
 
   const hashedToken = createHash("sha256").update(token).digest("hex");
   
-  const user = await prisma.user.findFirst({
-    where: {
-      emailVerifyToken: hashedToken,
-      emailVerifyTokenExpiry: { gt: new Date() }
-    }
-  });
+  const userResult = await db.execute<{ id: string }>(sql`
+    SELECT "id"
+    FROM "User"
+    WHERE "emailVerifyToken" = ${hashedToken}
+      AND "emailVerifyTokenExpiry" > NOW()
+    LIMIT 1
+  `);
+  const user = (userResult.rows?.[0] as { id: string } | undefined) ?? null;
 
   if (!user) {
     logEmailOperation.error("validate_email_token", new Error("Invalid or expired token"), {

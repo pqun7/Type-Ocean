@@ -1,7 +1,9 @@
 "use server";
 
-import { auth } from "@/features/auth/lib/auth";
-import prisma from "@/features/auth/lib/db";
+import { auth } from "@/lib/auth";
+import { eq, sql } from "drizzle-orm";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import { headers } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
@@ -43,16 +45,19 @@ export async function requestEmailVerificationOtp(): Promise<
     const { allowed } = await checkRateLimit("/api/auth/email-otp/request", ip);
     if (!allowed) return { success: false, error: "TOO_MANY_REQUESTS" };
 
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: {
-        id: true,
-        email: true,
-        pendingEmail: true,
-        emailVerified: true,
-        emailVerifyOtpSentAt: true,
-      },
-    });
+    const userRows = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        pendingEmail: users.pendingEmail,
+        emailVerified: users.emailVerified,
+        emailVerifyOtpSentAt: users.emailVerifyOtpSentAt,
+      })
+      .from(users)
+      .where(eq(users.id, session.user.id))
+      .limit(1);
+
+    const user = userRows[0] ?? null;
 
     if (!user) return { success: false, error: "USER_NOT_FOUND" };
 
@@ -73,16 +78,17 @@ export async function requestEmailVerificationOtp(): Promise<
 
     const sentAt = now();
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
+    await db
+      .update(users)
+      .set({
         emailVerifyOtpHash: hashed,
         emailVerifyOtpExpiry: expiry,
         emailVerifyOtpSentAt: sentAt,
         emailVerifyOtpFailedAttempts: 0,
-        emailVerificationAttempts: { increment: 1 },
-      },
-    });
+        emailVerificationAttempts: sql`${users.emailVerificationAttempts} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, user.id));
 
     const { success, error } = await sendVerificationOtpEmail(destination, otp, OTP_TTL_MINUTES);
     if (!success) {
@@ -100,3 +106,4 @@ export async function requestEmailVerificationOtp(): Promise<
     return { success: false, error: "SERVER_ERROR" };
   }
 }
+

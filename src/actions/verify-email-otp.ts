@@ -1,7 +1,9 @@
 "use server";
 
-import { auth } from "@/features/auth/lib/auth";
-import prisma from "@/features/auth/lib/db";
+import { auth } from "@/lib/auth";
+import { and, eq, ne, or } from "drizzle-orm";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 import { createHash, timingSafeEqual } from "crypto";
 import { redirect } from "next/navigation";
 import { logging } from "@/log/ServerLogger";
@@ -41,18 +43,21 @@ export async function verifyEmailOtp(prevState: { success: boolean; error: strin
       return { success: false, error: "INVALID_CODE" };
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: {
-        id: true,
-        email: true,
-        pendingEmail: true,
-        emailVerified: true,
-        emailVerifyOtpHash: true,
-        emailVerifyOtpExpiry: true,
-        emailVerifyOtpFailedAttempts: true,
-      },
-    });
+    const userRows = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        pendingEmail: users.pendingEmail,
+        emailVerified: users.emailVerified,
+        emailVerifyOtpHash: users.emailVerifyOtpHash,
+        emailVerifyOtpExpiry: users.emailVerifyOtpExpiry,
+        emailVerifyOtpFailedAttempts: users.emailVerifyOtpFailedAttempts,
+      })
+      .from(users)
+      .where(eq(users.id, session.user.id))
+      .limit(1);
+
+    const user = userRows[0] ?? null;
 
     if (!user) return { success: false, error: "USER_NOT_FOUND" };
 
@@ -62,20 +67,18 @@ export async function verifyEmailOtp(prevState: { success: boolean; error: strin
     }
 
     if (expiry.getTime() <= Date.now()) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          // Cancel any in-progress email change.
+      await db
+        .update(users)
+        .set({
           pendingEmail: null,
           pendingEmailRequestedAt: null,
-
-          // Clear OTP state.
           emailVerifyOtpHash: null,
           emailVerifyOtpExpiry: null,
           emailVerifyOtpSentAt: null,
           emailVerifyOtpFailedAttempts: 0,
-        },
-      });
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
 
       return { success: false, error: "OTP_EXPIRED" };
     }
@@ -87,27 +90,25 @@ export async function verifyEmailOtp(prevState: { success: boolean; error: strin
       const failed = (user.emailVerifyOtpFailedAttempts ?? 0) + 1;
 
       if (failed >= MAX_FAILED_ATTEMPTS) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            // Cancel any in-progress email change.
+        await db
+          .update(users)
+          .set({
             pendingEmail: null,
             pendingEmailRequestedAt: null,
-
-            // Clear OTP state.
             emailVerifyOtpHash: null,
             emailVerifyOtpExpiry: null,
             emailVerifyOtpSentAt: null,
             emailVerifyOtpFailedAttempts: 0,
-          },
-        });
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
         return { success: false, error: "TOO_MANY_ATTEMPTS" };
       }
 
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { emailVerifyOtpFailedAttempts: failed },
-      });
+      await db
+        .update(users)
+        .set({ emailVerifyOtpFailedAttempts: failed, updatedAt: new Date() })
+        .where(eq(users.id, user.id));
 
       return { success: false, error: "INVALID_CODE" };
     }
@@ -115,21 +116,26 @@ export async function verifyEmailOtp(prevState: { success: boolean; error: strin
     // Apply pending email (if any) and verify.
     const destinationEmail = (user.pendingEmail ?? user.email).toLowerCase().trim();
 
-    const conflict = await prisma.user.findFirst({
-      where: {
-        id: { not: user.id },
-        OR: [{ email: destinationEmail }, { pendingEmail: destinationEmail }],
-      },
-      select: { id: true },
-    });
+    const conflictRows = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          ne(users.id, user.id),
+          or(eq(users.email, destinationEmail), eq(users.pendingEmail, destinationEmail)),
+        ),
+      )
+      .limit(1);
+
+    const conflict = conflictRows[0] ?? null;
 
     if (conflict) {
       return { success: false, error: "EMAIL_ALREADY_IN_USE" };
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
+    await db
+      .update(users)
+      .set({
         email: destinationEmail,
         pendingEmail: null,
         pendingEmailRequestedAt: null,
@@ -138,13 +144,12 @@ export async function verifyEmailOtp(prevState: { success: boolean; error: strin
         emailVerifyOtpExpiry: null,
         emailVerifyOtpSentAt: null,
         emailVerifyOtpFailedAttempts: 0,
-
-        // Clear legacy link-token fields if present.
         emailVerifyToken: null,
         emailVerifyTokenExpiry: null,
         emailVerificationAttempts: 0,
-      },
-    });
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, user.id));
 
     logging.info("Email verified via OTP", { requestId, userId: user.id });
 
@@ -159,3 +164,4 @@ export async function verifyEmailOtp(prevState: { success: boolean; error: strin
     return { success: false, error: "SERVER_ERROR" };
   }
 }
+

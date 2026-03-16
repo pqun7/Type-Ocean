@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
+import { sql } from "drizzle-orm";
 
 import PvpMatchClient from "@/components/pvp/PvpMatchClient";
 import { auth } from "@/features/auth/lib/auth";
-import prisma from "@/features/auth/lib/db";
+import { db } from "@/db";
 import { canOpenPvpMatchPage } from "@/features/pvp/server/match-access";
 import { isPrismaTemporarilyUnavailableError } from "@/lib/prisma-error-utils";
 
@@ -22,25 +23,25 @@ export default async function Page({ params }: { params: Promise<{ matchId: stri
   } | null = null;
 
   try {
-    participant = await prisma.pvpParticipant.findUnique({
-      where: {
-        matchId_userId: {
-          matchId,
-          userId: session.user.id,
-        },
-      },
-      select: {
-        userId: true,
-        match: {
-          select: {
-            status: true,
-          },
-        },
-      },
-    });
+    const result = await db.execute<{ userId: string; status: string }>(sql`
+      SELECT p."userId", m."status"
+      FROM "pvp_participant" p
+      INNER JOIN "pvp_match" m ON m."id" = p."matchId"
+      WHERE p."matchId" = ${matchId}
+        AND p."userId" = ${session.user.id}
+      LIMIT 1
+    `);
+
+    const row = (result.rows?.[0] as { userId: string; status: string } | undefined) ?? null;
+    participant = row
+      ? {
+          userId: row.userId,
+          match: { status: row.status },
+        }
+      : null;
   } catch (error) {
     const isTemporary = isPrismaTemporarilyUnavailableError(error);
-    console.error("/pvp/match/[matchId] prisma.pvpParticipant.findUnique failed", {
+    console.error("/pvp/match/[matchId] participant query failed", {
       isTemporary,
       error,
     });

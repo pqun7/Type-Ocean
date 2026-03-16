@@ -1,6 +1,9 @@
 import "server-only";
 
-import prisma from "@/features/auth/lib/db";
+import { eq } from "drizzle-orm";
+
+import { db } from "@/db";
+import { playerProfiles } from "@/db/schema";
 import { connectIfNeeded, redis } from "@/lib/redis";
 import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 import type { KeyboardPerformanceData } from "@/components/TypingTest/utils/keyboardPerformance";
@@ -172,10 +175,13 @@ async function readFromProfileSnapshot(
   userId: string
 ): Promise<OverallKeyboardPerformanceSnapshot | null> {
   try {
-    const profile = await prisma.playerProfile.findUnique({
-      where: { userId },
-      select: { longTermStats: true },
-    });
+    const profileRows = await db
+      .select({ longTermStats: playerProfiles.longTermStats })
+      .from(playerProfiles)
+      .where(eq(playerProfiles.userId, userId))
+      .limit(1);
+
+    const profile = profileRows[0] ?? null;
 
     if (!profile?.longTermStats || typeof profile.longTermStats !== "object") return null;
     const raw = (profile.longTermStats as Record<string, unknown>)[SNAPSHOT_FIELD];
@@ -195,10 +201,13 @@ async function writeToRedis(userId: string, snapshot: OverallKeyboardPerformance
 }
 
 async function writeDbSnapshot(userId: string, snapshot: OverallKeyboardPerformanceSnapshot) {
-  const profile = await prisma.playerProfile.findUnique({
-    where: { userId },
-    select: { longTermStats: true },
-  });
+  const profileRows = await db
+    .select({ longTermStats: playerProfiles.longTermStats })
+    .from(playerProfiles)
+    .where(eq(playerProfiles.userId, userId))
+    .limit(1);
+
+  const profile = profileRows[0] ?? null;
 
   if (!profile) return;
 
@@ -207,15 +216,16 @@ async function writeDbSnapshot(userId: string, snapshot: OverallKeyboardPerforma
       ? (profile.longTermStats as Record<string, unknown>)
       : {};
 
-  await prisma.playerProfile.update({
-    where: { userId },
-    data: {
+  await db
+    .update(playerProfiles)
+    .set({
       longTermStats: {
         ...current,
         [SNAPSHOT_FIELD]: snapshot,
       },
-    },
-  });
+      updatedAt: new Date(),
+    })
+    .where(eq(playerProfiles.userId, userId));
 }
 
 export async function getOverallKeyboardPerformance(
