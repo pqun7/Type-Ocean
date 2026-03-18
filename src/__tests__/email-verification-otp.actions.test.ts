@@ -3,12 +3,12 @@
 import { requestEmailVerificationOtp } from "@/actions/email-verification-otp";
 import { verifyEmailOtp } from "@/actions/verify-email-otp";
 
-import prisma from "@/features/auth/lib/db";
+import dbClient from "@/features/auth/lib/db";
 import { auth } from "@/features/auth/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import { sendVerificationOtpEmail } from "@/features/auth/providers/nodemailer";
 
-type PrismaMock = {
+type DbMock = {
   user: {
     findUnique: jest.Mock;
     update: jest.Mock;
@@ -16,10 +16,10 @@ type PrismaMock = {
   };
 };
 
-const prismaMock = prisma as unknown as PrismaMock;
+const dbMock = dbClient as unknown as DbMock;
 
 jest.mock("@/features/auth/lib/db", () => {
-  const prismaMock = {
+  const dbMock = {
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -29,7 +29,7 @@ jest.mock("@/features/auth/lib/db", () => {
 
   return {
     __esModule: true,
-    default: prismaMock,
+    default: dbMock,
   };
 });
 
@@ -92,7 +92,7 @@ describe("email verification OTP actions", () => {
       const result = await requestEmailVerificationOtp();
 
       expect(result).toEqual({ success: false, error: "NOT_AUTHENTICATED" });
-      expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+      expect(dbMock.user.findUnique).not.toHaveBeenCalled();
     });
 
     it("returns TOO_MANY_REQUESTS when rate limited", async () => {
@@ -102,14 +102,14 @@ describe("email verification OTP actions", () => {
       const result = await requestEmailVerificationOtp();
 
       expect(result).toEqual({ success: false, error: "TOO_MANY_REQUESTS" });
-      expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+      expect(dbMock.user.findUnique).not.toHaveBeenCalled();
     });
 
     it("returns OTP_COOLDOWN with retryAfterSeconds during cooldown", async () => {
       (auth as jest.Mock).mockResolvedValue({ user: { id: "u1" } });
 
       const sentAt = new Date(Date.now() - 10_000); // 10s ago
-      prismaMock.user.findUnique.mockResolvedValue({
+      dbMock.user.findUnique.mockResolvedValue({
         id: "u1",
         email: "old@example.com",
         pendingEmail: "new@example.com",
@@ -124,7 +124,7 @@ describe("email verification OTP actions", () => {
         expect(result.error).toBe("OTP_COOLDOWN");
         expect("retryAfterSeconds" in result ? result.retryAfterSeconds : 0).toBeGreaterThan(0);
       }
-      expect(prismaMock.user.update).not.toHaveBeenCalled();
+      expect(dbMock.user.update).not.toHaveBeenCalled();
       expect(sendVerificationOtpEmail).not.toHaveBeenCalled();
     });
 
@@ -133,7 +133,7 @@ describe("email verification OTP actions", () => {
       randomInt.mockReturnValue(123); // => 000123
 
       (auth as jest.Mock).mockResolvedValue({ user: { id: "u1" } });
-      prismaMock.user.findUnique.mockResolvedValue({
+      dbMock.user.findUnique.mockResolvedValue({
         id: "u1",
         email: "old@example.com",
         pendingEmail: "new@example.com",
@@ -141,7 +141,7 @@ describe("email verification OTP actions", () => {
         emailVerifyOtpSentAt: null,
       });
 
-      prismaMock.user.update.mockResolvedValue({ id: "u1" });
+      dbMock.user.update.mockResolvedValue({ id: "u1" });
 
       const result = await requestEmailVerificationOtp();
 
@@ -150,8 +150,8 @@ describe("email verification OTP actions", () => {
         expect(typeof result.sentAt).toBe("string");
       }
 
-      expect(prismaMock.user.update).toHaveBeenCalledTimes(1);
-      const updateArgs = prismaMock.user.update.mock.calls[0]?.[0];
+      expect(dbMock.user.update).toHaveBeenCalledTimes(1);
+      const updateArgs = dbMock.user.update.mock.calls[0]?.[0];
       expect(updateArgs.where).toEqual({ id: "u1" });
       expect(updateArgs.data.emailVerifyOtpHash).toEqual(expect.any(String));
       expect(updateArgs.data.emailVerifyOtpExpiry).toBeInstanceOf(Date);
@@ -183,7 +183,7 @@ describe("email verification OTP actions", () => {
     it("on expired OTP: clears OTP and cancels any in-progress email change", async () => {
       (auth as jest.Mock).mockResolvedValue({ user: { id: "u1" } });
 
-      prismaMock.user.findUnique.mockResolvedValue({
+      dbMock.user.findUnique.mockResolvedValue({
         id: "u1",
         email: "old@example.com",
         pendingEmail: "new@example.com",
@@ -193,7 +193,7 @@ describe("email verification OTP actions", () => {
         emailVerifyOtpFailedAttempts: 0,
       });
 
-      prismaMock.user.update.mockResolvedValue({ id: "u1" });
+      dbMock.user.update.mockResolvedValue({ id: "u1" });
 
       const formData = new FormData();
       formData.set("code", "000123");
@@ -202,9 +202,9 @@ describe("email verification OTP actions", () => {
       const result = await verifyEmailOtp({ success: false, error: null }, formData);
 
       expect(result).toEqual({ success: false, error: "OTP_EXPIRED" });
-      expect(prismaMock.user.update).toHaveBeenCalledTimes(1);
+      expect(dbMock.user.update).toHaveBeenCalledTimes(1);
 
-      const updateArgs = prismaMock.user.update.mock.calls[0]?.[0];
+      const updateArgs = dbMock.user.update.mock.calls[0]?.[0];
       expect(updateArgs.where).toEqual({ id: "u1" });
       expect(updateArgs.data.pendingEmail).toBeNull();
       expect(updateArgs.data.pendingEmailRequestedAt).toBeNull();
@@ -217,7 +217,7 @@ describe("email verification OTP actions", () => {
     it("on too many attempts: cancels request and clears OTP state", async () => {
       (auth as jest.Mock).mockResolvedValue({ user: { id: "u1" } });
 
-      prismaMock.user.findUnique.mockResolvedValue({
+      dbMock.user.findUnique.mockResolvedValue({
         id: "u1",
         email: "old@example.com",
         pendingEmail: "new@example.com",
@@ -227,7 +227,7 @@ describe("email verification OTP actions", () => {
         emailVerifyOtpFailedAttempts: 4,
       });
 
-      prismaMock.user.update.mockResolvedValue({ id: "u1" });
+      dbMock.user.update.mockResolvedValue({ id: "u1" });
 
       const formData = new FormData();
       formData.set("code", "999999");
@@ -238,7 +238,7 @@ describe("email verification OTP actions", () => {
       expect(result).toEqual({ success: false, error: "TOO_MANY_ATTEMPTS" });
 
       // When lockout triggers, it should clear OTP + pending email.
-      const updateArgs = prismaMock.user.update.mock.calls[0]?.[0];
+      const updateArgs = dbMock.user.update.mock.calls[0]?.[0];
       expect(updateArgs.data.pendingEmail).toBeNull();
       expect(updateArgs.data.emailVerifyOtpHash).toBeNull();
       expect(updateArgs.data.emailVerifyOtpFailedAttempts).toBe(0);
@@ -255,7 +255,7 @@ describe("email verification OTP actions", () => {
 
       (auth as jest.Mock).mockResolvedValue({ user: { id: "u1" } });
 
-      prismaMock.user.findUnique.mockResolvedValue({
+      dbMock.user.findUnique.mockResolvedValue({
         id: "u1",
         email: "old@example.com",
         pendingEmail: "new@example.com",
@@ -265,8 +265,8 @@ describe("email verification OTP actions", () => {
         emailVerifyOtpFailedAttempts: 0,
       });
 
-      prismaMock.user.findFirst.mockResolvedValue(null);
-      prismaMock.user.update.mockResolvedValue({ id: "u1" });
+      dbMock.user.findFirst.mockResolvedValue(null);
+      dbMock.user.update.mockResolvedValue({ id: "u1" });
 
       const formData = new FormData();
       formData.set("code", code);
@@ -276,7 +276,7 @@ describe("email verification OTP actions", () => {
 
       expect(result).toEqual({ success: true, error: null });
 
-      const updateArgs = prismaMock.user.update.mock.calls[0]?.[0];
+      const updateArgs = dbMock.user.update.mock.calls[0]?.[0];
       expect(updateArgs.data.email).toBe("new@example.com");
       expect(updateArgs.data.pendingEmail).toBeNull();
       expect(updateArgs.data.emailVerifyOtpHash).toBeNull();
@@ -294,7 +294,7 @@ describe("email verification OTP actions", () => {
 
       (auth as jest.Mock).mockResolvedValue({ user: { id: "u1" } });
 
-      prismaMock.user.findUnique.mockResolvedValue({
+      dbMock.user.findUnique.mockResolvedValue({
         id: "u1",
         email: "old@example.com",
         pendingEmail: "new@example.com",
@@ -304,7 +304,7 @@ describe("email verification OTP actions", () => {
         emailVerifyOtpFailedAttempts: 0,
       });
 
-      prismaMock.user.findFirst.mockResolvedValue({ id: "other" });
+      dbMock.user.findFirst.mockResolvedValue({ id: "other" });
 
       const formData = new FormData();
       formData.set("code", code);
@@ -313,7 +313,7 @@ describe("email verification OTP actions", () => {
       const result = await verifyEmailOtp({ success: false, error: null }, formData);
 
       expect(result).toEqual({ success: false, error: "EMAIL_ALREADY_IN_USE" });
-      expect(prismaMock.user.update).not.toHaveBeenCalled();
+      expect(dbMock.user.update).not.toHaveBeenCalled();
     });
   });
 });

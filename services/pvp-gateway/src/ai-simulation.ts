@@ -7,6 +7,7 @@ import type { MatchRepository } from "./match-repository";
 import type { InMemoryState } from "./state";
 import { incrementGatewayMetric, setGatewayGauge } from "./metrics";
 import type { GatewayDb } from "./gateway-db";
+import { gatewayLogger } from "../../../src/log/gatewayLogger";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -25,8 +26,21 @@ function envNumber(name: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function aiLogDebug(message: string, meta?: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "development") return;
+  gatewayLogger.debug(`[PVP-GATEWAY][AI] ${message}`, meta);
+}
+
+function aiLogInfo(message: string, meta?: Record<string, unknown>) {
+  gatewayLogger.info(`[PVP-GATEWAY][AI] ${message}`, meta);
+}
+
+function aiLogWarn(message: string, meta?: Record<string, unknown>) {
+  gatewayLogger.warn(`[PVP-GATEWAY][AI] ${message}`, meta);
+}
+
 type AdaptiveAiParams = {
-  prisma: GatewayDb;
+  db: GatewayDb;
   wss: WebSocketServer;
   matchCache: MatchCache | null;
   matchRepository: MatchRepository;
@@ -51,7 +65,14 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
   const human = match.participants.get(params.humanId);
   if (!ai || !human) return;
 
-  const skill = await estimatePlayerSkill(params.prisma, params.humanId);
+  aiLogInfo("Starting adaptive AI simulation", {
+    matchId: params.matchId,
+    aiUserId: params.aiUserId,
+    humanId: params.humanId,
+    snapshotIntervalMs: params.snapshotIntervalMs,
+  });
+
+  const skill = await estimatePlayerSkill(params.db, params.humanId);
   const seed = Array.from(params.matchId).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
   const rand = mulberry32(seed);
   const profile = createAiProfile(skill, Math.floor(rand() * 1_000_000));
@@ -96,6 +117,13 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
   const stopSimulation = () => {
     params.state.clearAiInterval(params.matchId);
     params.matchCache?.clearAiTickState(params.matchId);
+    aiLogDebug("Stopped adaptive AI simulation", {
+      matchId: params.matchId,
+      expectedRevision,
+      dbFlushCount,
+      consecutiveDbFailures,
+      consecutiveSkips,
+    });
   };
 
   const persistAiProgress = async (nowMs: number, force = false) => {
@@ -135,6 +163,11 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
         const latest = await params.matchRepository.load(params.matchId);
         if (!latest) return false;
         expectedRevision = latest.revision;
+        aiLogDebug("Adaptive AI progress CAS conflict", {
+          matchId: params.matchId,
+          expectedRevision,
+          reloadedRevision: latest.revision,
+        });
         return false;
       }
 
@@ -150,6 +183,11 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
     } catch {
       consecutiveDbFailures += 1;
       incrementGatewayMetric("pvp_ai_db_write_failed_total", { phase: "update_ai_progress" });
+      aiLogWarn("Adaptive AI progress persistence failed", {
+        matchId: params.matchId,
+        consecutiveDbFailures,
+        expectedRevision,
+      });
       if (consecutiveDbFailures >= 3) {
         stopSimulation();
         return false;
@@ -196,6 +234,10 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
     }
 
     if (current.state !== "live") {
+      aiLogDebug("Adaptive AI simulation halted because match is not live", {
+        matchId: params.matchId,
+        state: current.state,
+      });
       stopSimulation();
       return;
     }
@@ -203,6 +245,11 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
     const aiNow = current.participants.get(params.aiUserId);
     const humanNow = current.participants.get(params.humanId);
     if (!aiNow || !humanNow) {
+      aiLogWarn("Adaptive AI simulation missing participant state", {
+        matchId: params.matchId,
+        aiPresent: Boolean(aiNow),
+        humanPresent: Boolean(humanNow),
+      });
       stopSimulation();
       return;
     }
@@ -263,6 +310,11 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
     if (aiNow.finishedAt != null) {
       await persistAiProgress(nowMs, true);
       await params.onFinalizeMatchIfComplete(current.matchId);
+      aiLogInfo("Adaptive AI completed text and requested finalization", {
+        matchId: params.matchId,
+        aiInputLength: aiNow.input.length,
+        textLength: current.textSnapshot.length,
+      });
       stopSimulation();
       return;
     }

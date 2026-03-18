@@ -4,7 +4,7 @@ describe("createGatewayHealthController", () => {
   it("reports ready when dependencies are healthy", async () => {
     const controller = createGatewayHealthController({
       instanceId: "gateway-test",
-      prisma: {
+      db: {
         execute: jest.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] }),
       },
       getRedisClient: () => ({
@@ -22,13 +22,13 @@ describe("createGatewayHealthController", () => {
     expect(response.body.status).toBe("ok");
     expect(response.body.ready).toBe(true);
     expect(response.body.acceptingTraffic).toBe(true);
-    expect(response.body.dependencies).toEqual({ prisma: true, redis: true });
+    expect(response.body.dependencies).toEqual({ db: true, redis: true });
   });
 
   it("reports not ready while draining", async () => {
     const controller = createGatewayHealthController({
       instanceId: "gateway-test",
-      prisma: {
+      db: {
         execute: jest.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] }),
       },
       getRedisClient: () => null,
@@ -51,7 +51,7 @@ describe("createGatewayHealthController", () => {
   it("reports degraded health when overloaded", async () => {
     const controller = createGatewayHealthController({
       instanceId: "gateway-test",
-      prisma: {
+      db: {
         execute: jest.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] }),
       },
       getRedisClient: () => null,

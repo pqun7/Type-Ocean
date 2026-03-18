@@ -6,7 +6,7 @@ describe("anti-cheat flagging", () => {
   it("does not persist below the flag threshold", async () => {
     const upsert = jest.fn();
     const result = await recordCheatAssessment({
-      prisma: { cheatFlag: { upsert } } as never,
+      db: { cheatFlag: { upsert } } as never,
       userId: "user-1",
       matchId: "match-1",
       confidence: FLAG_THRESHOLD - 0.1,
@@ -20,7 +20,7 @@ describe("anti-cheat flagging", () => {
   it("persists flags once the threshold is reached", async () => {
     const upsert = jest.fn().mockResolvedValue(null);
     const result = await recordCheatAssessment({
-      prisma: { cheatFlag: { upsert } } as never,
+      db: { cheatFlag: { upsert } } as never,
       userId: "user-2",
       matchId: "match-2",
       confidence: FLAG_THRESHOLD,
@@ -34,7 +34,7 @@ describe("anti-cheat flagging", () => {
   it("marks high-confidence assessments as sanction candidates without banning", async () => {
     const upsert = jest.fn().mockResolvedValue(null);
     const result = await recordCheatAssessment({
-      prisma: { cheatFlag: { upsert } } as never,
+      db: { cheatFlag: { upsert } } as never,
       userId: "user-3",
       matchId: "match-3",
       confidence: AUTO_SANCTION_THRESHOLD,

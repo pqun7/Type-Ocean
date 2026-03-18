@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 
 import { incrementGatewayMetric } from "./metrics";
 import type { GatewayDb } from "./gateway-db";
-import { users } from "@/src/db/schema";
+import { users } from "../../../src/db/schema";
 import { hashPvpFingerprint } from "../../../src/lib/pvp/fingerprint";
 import { sanitizeUserAgent } from "../../../src/lib/sanitize";
 
@@ -28,7 +28,7 @@ type VerifyWsTokenFastParams = {
 };
 
 type VerifyWsTokenStrictParams = VerifyWsTokenFastParams & {
-  prisma: GatewayDb;
+  db: GatewayDb;
 };
 
 function getSecretKey() {
@@ -96,8 +96,8 @@ export async function verifyWsTokenFast(token: string, params: VerifyWsTokenFast
   return parseAndVerifyToken(token, params);
 }
 
-export async function assertWsTokenState(prisma: GatewayDb, context: WsAuthContext): Promise<void> {
-  const rows = await prisma
+export async function assertWsTokenState(db: GatewayDb, context: WsAuthContext): Promise<void> {
+  const rows = await db
     .select({
       banned: users.banned,
       pvpWsTokenVersion: users.pvpWsTokenVersion,
@@ -128,6 +128,6 @@ export async function assertWsTokenState(prisma: GatewayDb, context: WsAuthConte
 
 export async function verifyWsTokenStrict(token: string, params: VerifyWsTokenStrictParams): Promise<WsAuthContext> {
   const context = await parseAndVerifyToken(token, params);
-  await assertWsTokenState(params.prisma, context);
+  await assertWsTokenState(params.db, context);
   return context;
 }

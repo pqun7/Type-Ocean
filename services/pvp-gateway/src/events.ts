@@ -62,7 +62,7 @@ export function createGatewayEventBus() {
 
   // Future persistence hook:
   // bus.on("match:finished", (event) => {
-  //   // A later phase can persist critical lifecycle events to Redis/Prisma here
+  //   // A later phase can persist critical lifecycle events to Redis/db here
   //   // once distributed authoritative state is introduced.
   // });
 

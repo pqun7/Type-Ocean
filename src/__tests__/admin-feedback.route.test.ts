@@ -2,22 +2,22 @@
 
 import { NextRequest } from "next/server";
 import { PATCH } from "@/app/api/admin/feedback/route";
-import prisma from "@/features/auth/lib/db";
+import dbClient from "@/features/auth/lib/db";
 import { authorizeAdminActor } from "@/app/api/shared.server";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
 import { setAdminNotice } from "@/features/admin/server/admin-notices";
 
-type PrismaMock = {
+type DbMock = {
   userFeedback: {
     findUnique: jest.Mock;
     update: jest.Mock;
   };
 };
 
-const prismaMock = prisma as unknown as PrismaMock;
+const dbMock = dbClient as unknown as DbMock;
 
 jest.mock("@/features/auth/lib/db", () => {
-  const prismaMock = {
+  const dbMock = {
     userFeedback: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -26,7 +26,7 @@ jest.mock("@/features/auth/lib/db", () => {
 
   return {
     __esModule: true,
-    default: prismaMock,
+    default: dbMock,
   };
 });
 
@@ -70,7 +70,7 @@ describe("admin feedback route", () => {
   });
 
   it("updates feedback status without creating a user notice", async () => {
-    prismaMock.userFeedback.findUnique.mockResolvedValue({
+    dbMock.userFeedback.findUnique.mockResolvedValue({
       id: "feedback-1",
       userId: "user-1",
       subject: "Latency spike",
@@ -81,7 +81,7 @@ describe("admin feedback route", () => {
       },
     });
 
-    prismaMock.userFeedback.update.mockResolvedValue({
+    dbMock.userFeedback.update.mockResolvedValue({
       id: "feedback-1",
       category: "bug",
       status: "IN_REVIEW",
@@ -129,7 +129,7 @@ describe("admin feedback route", () => {
   });
 
   it("creates a notice and audit entry when replying to feedback", async () => {
-    prismaMock.userFeedback.findUnique.mockResolvedValue({
+    dbMock.userFeedback.findUnique.mockResolvedValue({
       id: "feedback-2",
       userId: "user-2",
       subject: "Report outcome",
@@ -140,7 +140,7 @@ describe("admin feedback route", () => {
       },
     });
 
-    prismaMock.userFeedback.update.mockResolvedValue({
+    dbMock.userFeedback.update.mockResolvedValue({
       id: "feedback-2",
       category: "complaint",
       status: "REPLIED",

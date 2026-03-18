@@ -25,9 +25,9 @@ function tryLoadEnvFile(baseDir: string, filePath: string) {
   }
 }
 
-// dist runtime: .../services/pvp-gateway/dist
+// Always prefer workspace cwd when started via npm scripts from repo root.
 const gatewayDir = path.resolve(__dirname, "..");
-const repoRoot = path.resolve(gatewayDir, "..", "..", "..");
+const repoRoot = process.cwd();
 
 // Match Next.js precedence: .env then .env.local
 tryLoadEnvFile(repoRoot, path.join(repoRoot, ".env"));

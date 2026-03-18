@@ -11,9 +11,9 @@ import { passwordValidation } from "@/features/auth/utils/password-policy";
 import { logging } from "@/log/ServerLogger";
 import { rateLimiter } from "@/lib/rate-limiter";
 import {
-  isPrismaAccountHoldError,
-  isPrismaTemporarilyUnavailableError,
-} from "@/lib/prisma-error-utils";
+  isDatabaseAccountHoldError,
+  isDatabaseTemporarilyUnavailableError,
+} from "@/lib/db-error-utils";
 
 const SERVICE_TYPE = "USER-PASSWORD-API";
 
@@ -122,8 +122,8 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ message: "Password updated successfully" });
   } catch (error) {
-    if (isPrismaAccountHoldError(error)) {
-      logging.warn("Password update blocked by Prisma account hold", {
+    if (isDatabaseAccountHoldError(error)) {
+      logging.warn("Password update blocked by database provider account hold", {
         requestId,
         service: SERVICE_TYPE,
       });
@@ -143,7 +143,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (isPrismaTemporarilyUnavailableError(error)) {
+    if (isDatabaseTemporarilyUnavailableError(error)) {
       return NextResponse.json(
         {
           error: "Password update is temporarily unavailable",

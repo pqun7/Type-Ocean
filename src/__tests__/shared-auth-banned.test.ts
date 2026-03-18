@@ -2,21 +2,21 @@
 
 import { NextRequest } from "next/server";
 import { authorizeRequest, resolveExistingUserId } from "@/app/api/shared.server";
-import prisma from "@/features/auth/lib/db";
+import dbClient from "@/features/auth/lib/db";
 import { getToken } from "next-auth/jwt";
 
-type PrismaMock = {
+type DbMock = {
   user: {
     findUnique: jest.Mock;
   };
 };
 
-const prismaMock = prisma as unknown as PrismaMock;
+const dbMock = dbClient as unknown as DbMock;
 
 jest.mock("server-only", () => ({}));
 
 jest.mock("@/features/auth/lib/db", () => {
-  const prismaMock = {
+  const dbMock = {
     user: {
       findUnique: jest.fn(),
     },
@@ -24,7 +24,7 @@ jest.mock("@/features/auth/lib/db", () => {
 
   return {
     __esModule: true,
-    default: prismaMock,
+    default: dbMock,
   };
 });
 
@@ -57,14 +57,14 @@ describe("shared auth guards for banned users", () => {
   });
 
   it("resolveExistingUserId returns null for banned users", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ id: "u-banned", banned: true });
+    dbMock.user.findUnique.mockResolvedValue({ id: "u-banned", banned: true });
 
     await expect(resolveExistingUserId("u-banned")).resolves.toBeNull();
   });
 
   it("authorizeRequest rejects a banned user from NextAuth token resolution", async () => {
     (getToken as jest.Mock).mockResolvedValue({ id: "u-banned" });
-    prismaMock.user.findUnique.mockResolvedValue({ id: "u-banned", banned: true });
+    dbMock.user.findUnique.mockResolvedValue({ id: "u-banned", banned: true });
 
     const req = new NextRequest("http://localhost:3000/api/profile/progress");
 
@@ -74,7 +74,7 @@ describe("shared auth guards for banned users", () => {
 
   it("authorizeRequest allows an existing non-banned user", async () => {
     (getToken as jest.Mock).mockResolvedValue({ id: "u-ok" });
-    prismaMock.user.findUnique.mockResolvedValue({ id: "u-ok", banned: false });
+    dbMock.user.findUnique.mockResolvedValue({ id: "u-ok", banned: false });
 
     const req = new NextRequest("http://localhost:3000/api/profile/progress");
 

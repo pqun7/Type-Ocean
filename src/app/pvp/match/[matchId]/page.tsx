@@ -5,7 +5,7 @@ import PvpMatchClient from "@/components/pvp/PvpMatchClient";
 import { auth } from "@/features/auth/lib/auth";
 import { db } from "@/db";
 import { canOpenPvpMatchPage } from "@/features/pvp/server/match-access";
-import { isPrismaTemporarilyUnavailableError } from "@/lib/prisma-error-utils";
+import { isDatabaseTemporarilyUnavailableError } from "@/lib/db-error-utils";
 
 export default async function Page({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
@@ -40,7 +40,7 @@ export default async function Page({ params }: { params: Promise<{ matchId: stri
         }
       : null;
   } catch (error) {
-    const isTemporary = isPrismaTemporarilyUnavailableError(error);
+    const isTemporary = isDatabaseTemporarilyUnavailableError(error);
     console.error("/pvp/match/[matchId] participant query failed", {
       isTemporary,
       error,

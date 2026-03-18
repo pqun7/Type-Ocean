@@ -5,7 +5,7 @@ import crypto from "crypto";
 import fs from "fs";
 import http from "http";
 import https from "https";
-import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, or, placeholder, sql } from "drizzle-orm";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 
 import { safeParseClientMessage, toJson, type ServerMessage } from "./protocol";
@@ -38,7 +38,7 @@ import { invalidatePvpSelfCaches } from "./pvp-rating-cache";
 import { assessMatch } from "./anti-cheat/anomaly";
 import { recordCheatAssessment } from "./anti-cheat/flagging";
 import { clearReplayProtection, registerAcceptedReplaySeq, registerReplayNonce, validateReplayProtectedInput } from "./anti-cheat/replay";
-import { getDisconnectForfeitPolicy, getStaleMatchAbortReason, shouldRejectDuplicateMatchTab, shouldScheduleDisconnectForfeit } from "./match-session-guards";
+import { getDisconnectForfeitPolicy, getStaleMatchAbortReason, shouldDeferDisconnectForfeitForJoin, shouldRejectDuplicateMatchTab, shouldScheduleDisconnectForfeit } from "./match-session-guards";
 import { buildRoomReconnectKey, getPublicRoomStartCondition, isRoomReadyToStart, selectNextRoomHost } from "./rooms/lifecycle";
 import { selectRankedText } from "./anti-cheat/text-selection";
 import { createGatewayMetrics, type GatewayMetrics } from "./observability/metrics";
@@ -47,15 +47,13 @@ import { MatchRepository } from "./match-repository";
 import { createInitialLiveState, type MatchLiveState } from "./match-live-state";
 import { startAiSimulationAdaptive } from "./ai-simulation";
 import { UserCache } from "./user-cache";
-import { gatewayDb } from "./gateway-db";
-import { playerProfiles, pvpMatchmakingPreferences, pvpMatches, pvpParticipants, pvpRatingChanges, pvpRatings, pvpRoomMembers, pvpRooms, users } from "../../../src/db/schema";
+import { gatewayDb, isGatewayDbConfigured, runGatewayTransaction, type GatewayDb } from "./gateway-db";
+import { playerProfiles, pvpMatches, pvpParticipants, pvpRatingChanges, pvpRatings, pvpRoomMembers, pvpRooms, users } from "../../../src/db/schema";
 import { sanitizeAvatarUrl, sanitizeDisplayName, sanitizeRoomCode, sanitizeUserAgent } from "../../../src/lib/sanitize";
 import { PVP_ERROR_CODES, type PvpErrorPayload } from "../../../src/features/pvp/shared/error-codes";
 import { gatewayLogger } from "../../../src/log/gatewayLogger";
 import { canJoinPvpMatchSocket, isTerminalPvpMatchStatus } from "../../../src/features/pvp/server/match-access";
 import { getPvpRankInfo } from "../../../src/features/pvp/rank";
-
-type PrismaClient = any;
 
 const IS_PROD = process.env.NODE_ENV === "production";
 const TRUST_PROXY_TLS = envBool("PVP_TRUST_PROXY_TLS", false);
@@ -84,8 +82,17 @@ const ROOM_INACTIVITY_TTL_MS = envMs("PVP_ROOM_INACTIVITY_TTL_MS", 60 * 60 * 100
 const ROOM_RECONNECT_GRACE_MS = envMs("PVP_ROOM_RECONNECT_GRACE_MS", 30_000);
 const ROOM_SWEEP_INTERVAL_MS = envMs("PVP_ROOM_SWEEP_INTERVAL_MS", 2_000);
 const PUBLIC_ROOM_AUTO_START_MS = envMs("PVP_PUBLIC_ROOM_AUTO_START_MS", 50_000);
-const RANKED_MATCH_START_DELAY_MS = envMs("PVP_RANKED_MATCH_START_DELAY_MS", 3_000);
-const ROOM_MATCH_START_DELAY_MS = envMs("PVP_ROOM_MATCH_START_DELAY_MS", 3_000);
+const DEV_MODE = process.env.NODE_ENV !== "production";
+const TEST_BYPASS = process.env.PVP_TEST_BYPASS_AUTH === "true" && process.env.NODE_ENV !== "production";
+const FORCE_BOT_MATCH_LOCAL = DEV_MODE && envBool("PVP_TEST_FORCE_BOT_MATCH", false);
+const RANKED_MATCH_START_DELAY_MS = envMs(
+  "PVP_RANKED_MATCH_START_DELAY_MS",
+  FORCE_BOT_MATCH_LOCAL ? 1_200 : 3_000,
+);
+const ROOM_MATCH_START_DELAY_MS = envMs(
+  "PVP_ROOM_MATCH_START_DELAY_MS",
+  FORCE_BOT_MATCH_LOCAL ? 1_500 : 3_000,
+);
 const ROOM_SWEEP_LOCK_KEY = "pvp:room:sweep:lock";
 const matchFinalizationLocks = new Set<string>();
 const matchCleanupTimers = new Map<string, NodeJS.Timeout>();
@@ -94,6 +101,7 @@ let hasPvpMatchmakingPreferenceTable: boolean | null = null;
 let pvpMatchmakingPreferenceTableLastCheckedAt = 0;
 let hasLoggedMissingPvpMatchmakingPreferenceTableWarning = false;
 const PVP_PREFERENCE_TABLE_RETRY_MS = 60_000;
+const PVP_MATCHMAKING_PREFERENCES_TABLE = "pvp_matchmaking_preferences";
 
 function gatewayLogDebug(message: string, meta?: Record<string, unknown>) {
   if (process.env.NODE_ENV !== "development") return;
@@ -116,9 +124,12 @@ function isMissingPvpMatchmakingPreferenceTable(error: unknown) {
   const table = String(candidate.meta?.table ?? "").toLowerCase();
   const message = String(candidate.message ?? "").toLowerCase();
 
-  if (code === "P2021" && table.includes("pvp_matchmaking_preference")) return true;
-  if (code === "42P01" && message.includes("pvp_matchmaking_preference")) return true;
-  return message.includes("pvp_matchmaking_preference") && message.includes("does not exist");
+  if (code === "42P01") {
+    if (table.includes(PVP_MATCHMAKING_PREFERENCES_TABLE)) return true;
+    if (message.includes(PVP_MATCHMAKING_PREFERENCES_TABLE)) return true;
+  }
+
+  return message.includes(`relation \"${PVP_MATCHMAKING_PREFERENCES_TABLE}\"`) && message.includes("does not exist");
 }
 
 function logMissingGatewayPreferenceTableOnce() {
@@ -126,7 +137,7 @@ function logMissingGatewayPreferenceTableOnce() {
 
   hasLoggedMissingPvpMatchmakingPreferenceTableWarning = true;
   gatewayLogWarn("Using default matchmaking preferences because the preference table is missing", {
-    migrationHint: "Run Prisma migrations to add pvp_matchmaking_preference",
+    migrationHint: `Run db migrations to add ${PVP_MATCHMAKING_PREFERENCES_TABLE}`,
   });
 }
 
@@ -168,9 +179,90 @@ function toClientErrorPayload(error: unknown, fallback?: Partial<PvpErrorPayload
   };
 }
 
+function decodeJwtPayloadUnsafe(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padding = base64.length % 4 === 0 ? "" : "=".repeat(4 - (base64.length % 4));
+    const payload = Buffer.from(`${base64}${padding}`, "base64").toString("utf8");
+    const parsed = JSON.parse(payload);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildBypassWsAuthContext(token: string, connectionId: string): WsAuthContext {
+  const decoded = decodeJwtPayloadUnsafe(token);
+  const fallbackSub = `test-bypass-${crypto.createHash("sha256").update(`${token}:${connectionId}`).digest("hex").slice(0, 24)}`;
+
+  const userId = typeof decoded?.sub === "string" && decoded.sub.trim().length > 0 ? decoded.sub : fallbackSub;
+  const username = typeof decoded?.username === "string" && decoded.username.trim().length > 0 ? decoded.username : "test-bypass-user";
+  const avatar = typeof decoded?.avatar === "string" ? decoded.avatar : null;
+  const pvpRating = Number.isFinite(decoded?.pvpRating) ? Math.round(Number(decoded?.pvpRating)) : 1500;
+  const pvpDeviation = Number.isFinite(decoded?.pvpDeviation) ? Math.round(Number(decoded?.pvpDeviation)) : 350;
+  const tokenVersion = Number.isFinite(decoded?.tv) ? Math.trunc(Number(decoded?.tv)) : 1;
+  const validAfter = Number.isFinite(decoded?.va) ? Math.trunc(Number(decoded?.va)) : 0;
+  const issuedAt = Number.isFinite(decoded?.iat) ? Math.trunc(Number(decoded?.iat)) : Math.floor(Date.now() / 1000);
+
+  return {
+    userId,
+    username,
+    avatar,
+    pvpRating,
+    pvpDeviation,
+    tokenVersion,
+    validAfter,
+    issuedAt,
+  };
+}
+
+function mapHelloAuthFailure(error: unknown): PvpErrorPayload {
+  const rawMessage = error instanceof Error ? error.message : "Authentication failed";
+  const message = rawMessage.toLowerCase();
+
+  if (message.includes("expired") || message.includes("jwt expired")) {
+    return {
+      code: PVP_ERROR_CODES.TOKEN_EXPIRED,
+      message: "Websocket token expired. Please refresh and try again.",
+      retryable: true,
+    };
+  }
+
+  if (message.includes("fingerprint") || message.includes("client secret")) {
+    return {
+      code: PVP_ERROR_CODES.BAD_SECRET,
+      message: "Invalid websocket client secret.",
+      retryable: false,
+    };
+  }
+
+  if (
+    message.includes("invalid token") ||
+    message.includes("subject") ||
+    message.includes("security claims") ||
+    message.includes("jws") ||
+    message.includes("jwt")
+  ) {
+    return {
+      code: PVP_ERROR_CODES.INVALID_TOKEN,
+      message: "Invalid websocket token.",
+      retryable: false,
+    };
+  }
+
+  return {
+    code: PVP_ERROR_CODES.AUTH_FAILED,
+    message: "Authentication failed.",
+    retryable: false,
+  };
+}
+
 type WsConn = WebSocket & {
   connectionId?: string;
   user?: ConnectionUser & Pick<WsAuthContext, "tokenVersion" | "validAfter" | "issuedAt">;
+  authBypass?: boolean;
   matchId?: string;
   matchSessionKey?: string;
   roomCode?: string;
@@ -391,6 +483,13 @@ function sendImmediate(ws: WsConn, type: ServerMessage["type"], payload: unknown
       type,
       batching: "immediate",
     });
+    if (type === "ERROR") {
+      gatewayLogWarn("Sending websocket ERROR message", {
+        userId: ws.user?.userId ?? null,
+        matchId: ws.matchId ?? null,
+        payload,
+      });
+    }
     ws.send(serialized);
   } catch {
     // ignore
@@ -418,14 +517,16 @@ function send(ws: WsConn, type: ServerMessage["type"], payload: unknown) {
 }
 
 function getAuthedSocketsForUser(wss: WebSocketServer, userId: string) {
+  void wss;
   const conns: WsConn[] = [];
-  wss.clients.forEach((client: WebSocket) => {
-    const c = client as WsConn;
-    if (!c.user) return;
-    if (c.user.userId !== userId) return;
-    if (c.readyState !== WebSocket.OPEN) return;
+  const cachedSockets = matchCache?.getUserSockets(userId);
+  if (!cachedSockets || cachedSockets.size === 0) return conns;
+
+  for (const socket of cachedSockets) {
+    const c = socket as WsConn;
+    if (c.readyState !== WebSocket.OPEN) continue;
     conns.push(c);
-  });
+  }
   return conns;
 }
 
@@ -444,11 +545,15 @@ function broadcastRoom(wss: WebSocketServer, roomCode: string, type: ServerMessa
     void redisBus.publish(roomChannel(roomCode), { type, payload });
     return;
   }
-  wss.clients.forEach((client: WebSocket) => {
-    const c = client as WsConn;
-    if (c.roomCode !== roomCode) return;
+  void wss;
+  const roomSockets = matchCache?.getRoomSockets(roomCode);
+  if (!roomSockets || roomSockets.size === 0) return;
+
+  for (const socket of roomSockets) {
+    const c = socket as WsConn;
+    if (c.readyState !== WebSocket.OPEN) continue;
     send(c, type, payload);
-  });
+  }
 }
 
 function broadcastMatch(wss: WebSocketServer, matchId: string, type: ServerMessage["type"], payload: unknown) {
@@ -617,10 +722,10 @@ function appendMatchDelta(
 }
 
 async function tryBeginMatchFinalizationWithDbLock(params: {
-  prisma: PrismaClient;
+  db: GatewayDb;
   match: InMemoryState["matches"] extends Map<string, infer T> ? T : never;
 }) {
-  const repository = new MatchRepository(params.prisma);
+  const repository = new MatchRepository(params.db);
 
   return repository.withTransaction(async (tx) => {
     const locked = await repository.loadForUpdate(tx, params.match.matchId);
@@ -642,11 +747,11 @@ async function tryBeginMatchFinalizationWithDbLock(params: {
 }
 
 async function clearTerminalMatchLiveState(params: {
-  prisma: PrismaClient;
+  db: GatewayDb;
   matchId: string;
   status: "FINISHED" | "ABORTED";
 }) {
-  const repository = new MatchRepository(params.prisma);
+  const repository = new MatchRepository(params.db);
 
   await repository.withTransaction(async (tx) => {
     const locked = await repository.loadForUpdate(tx, params.matchId);
@@ -669,6 +774,16 @@ function tryBeginMatchFinalization(matchId: string) {
 
 function endMatchFinalization(matchId: string) {
   matchFinalizationLocks.delete(matchId);
+}
+
+async function runWithMatchFinalizationLock(matchId: string, work: () => Promise<void>) {
+  if (!tryBeginMatchFinalization(matchId)) return false;
+  try {
+    await work();
+    return true;
+  } finally {
+    endMatchFinalization(matchId);
+  }
 }
 
 function clearScheduledMatchCleanup(matchId: string) {
@@ -700,7 +815,10 @@ function scheduleMatchCleanup(state: InMemoryState, matchId: string, delayMs = M
 }
 
 function maybeBroadcastMatchSnapshot(wss: WebSocketServer, match: InMemoryState["matches"] extends Map<string, infer T> ? T : never, nowMs: number, intervalMs: number) {
-  if (!shouldBroadcastPeriodicMatchSnapshot(match, nowMs, intervalMs)) return false;
+  if (!shouldBroadcastPeriodicMatchSnapshot(match, nowMs, intervalMs)) {
+    incrementGatewayMetric("pvp_match_snapshot_skip_total", { state: match.state });
+    return false;
+  }
   markMatchSnapshotBroadcast(match, nowMs);
   incrementGatewayMetric("pvp_match_snapshots_total", { state: match.state });
   const payload = buildMatchStatePayload(match, nowMs);
@@ -830,8 +948,22 @@ function nextRoomExpiryDate() {
   return new Date(Date.now() + ROOM_INACTIVITY_TTL_MS);
 }
 
-async function touchRoomExpiry(prisma: PrismaClient, roomId: string) {
-  await prisma
+function toEpochMs(value: unknown, fallbackMs: number) {
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : fallbackMs;
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : fallbackMs;
+  }
+
+  return fallbackMs;
+}
+
+async function touchRoomExpiry(db: GatewayDb, roomId: string) {
+  await db
     .update(pvpRooms)
     .set({ expiresAt: nextRoomExpiryDate(), updatedAt: new Date() })
     .where(eq(pvpRooms.id, roomId));
@@ -860,41 +992,50 @@ function buildMatchFoundPlayerPayload(user: Pick<ConnectionUser, "userId" | "use
   };
 }
 
-async function loadRoomStatePayload(prisma: PrismaClient, roomCode: string) {
-  const roomRows = await prisma
-    .select({
-      id: pvpRooms.id,
-      code: pvpRooms.code,
-      status: pvpRooms.status,
-      visibility: pvpRooms.visibility,
-      minPlayers: pvpRooms.minPlayers,
-      maxPlayers: pvpRooms.maxPlayers,
-      hostUserId: pvpRooms.hostUserId,
-      autoStartAt: pvpRooms.autoStartAt,
-      expiresAt: pvpRooms.expiresAt,
-    })
-    .from(pvpRooms)
-    .where(eq(pvpRooms.code, roomCode))
-    .limit(1);
+async function loadRoomStatePayload(db: GatewayDb, roomCode: string) {
+  const room = await db.query.pvpRooms.findFirst({
+    columns: {
+      id: true,
+      code: true,
+      status: true,
+      visibility: true,
+      minPlayers: true,
+      maxPlayers: true,
+      hostUserId: true,
+      autoStartAt: true,
+      expiresAt: true,
+    },
+    where: eq(pvpRooms.code, roomCode),
+    with: {
+      members: {
+        columns: {
+          userId: true,
+          colorSlot: true,
+          readyAt: true,
+          joinedAt: true,
+          leftAt: true,
+        },
+        where: isNull(pvpRoomMembers.leftAt),
+        orderBy: asc(pvpRoomMembers.joinedAt),
+        with: {
+          user: {
+            columns: {
+              username: true,
+            },
+            with: {
+              profile: {
+                columns: {
+                  avatar: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
 
-  const room = roomRows[0] ?? null;
   if (!room) return null;
-
-  const members = await prisma
-    .select({
-      userId: pvpRoomMembers.userId,
-      colorSlot: pvpRoomMembers.colorSlot,
-      readyAt: pvpRoomMembers.readyAt,
-      joinedAt: pvpRoomMembers.joinedAt,
-      leftAt: pvpRoomMembers.leftAt,
-      username: users.username,
-      avatar: playerProfiles.avatar,
-    })
-    .from(pvpRoomMembers)
-    .innerJoin(users, eq(pvpRoomMembers.userId, users.id))
-    .leftJoin(playerProfiles, eq(pvpRoomMembers.userId, playerProfiles.userId))
-    .where(and(eq(pvpRoomMembers.roomId, room.id), isNull(pvpRoomMembers.leftAt)))
-    .orderBy(asc(pvpRoomMembers.joinedAt));
 
   return {
     roomId: room.id,
@@ -907,10 +1048,10 @@ async function loadRoomStatePayload(prisma: PrismaClient, roomCode: string) {
       hostUserId: room.hostUserId,
       autoStartAt: room.autoStartAt?.toISOString() ?? null,
       expiresAt: room.expiresAt?.toISOString() ?? null,
-      members: members.map((member) => ({
+      members: room.members.map((member) => ({
         userId: member.userId,
-        username: sanitizeDisplayName(member.username, 32) || "user",
-        avatar: sanitizeAvatarUrl(member.avatar ?? null),
+        username: sanitizeDisplayName(member.user.username, 32) || "user",
+        avatar: sanitizeAvatarUrl(member.user.profile?.avatar ?? null),
         slot: member.colorSlot,
         ready: !!member.readyAt,
         joinedAt: member.joinedAt,
@@ -920,8 +1061,8 @@ async function loadRoomStatePayload(prisma: PrismaClient, roomCode: string) {
   };
 }
 
-async function broadcastRoomState(prisma: PrismaClient, wss: WebSocketServer, roomCode: string) {
-  const payload = await loadRoomStatePayload(prisma, roomCode);
+async function broadcastRoomState(db: GatewayDb, wss: WebSocketServer, roomCode: string) {
+  const payload = await loadRoomStatePayload(db, roomCode);
   if (!payload) return null;
 
   broadcastRoom(wss, roomCode, "ROOM_STATE", {
@@ -947,31 +1088,32 @@ async function broadcastRoomState(prisma: PrismaClient, wss: WebSocketServer, ro
   return payload;
 }
 
-async function transferRoomHostIfNeeded(prisma: PrismaClient, roomId: string) {
-  const roomRows = await prisma
-    .select({ hostUserId: pvpRooms.hostUserId })
-    .from(pvpRooms)
-    .where(eq(pvpRooms.id, roomId))
-    .limit(1);
+async function transferRoomHostIfNeeded(db: GatewayDb, roomId: string) {
+  const room = await db.query.pvpRooms.findFirst({
+    columns: {
+      id: true,
+      hostUserId: true,
+    },
+    where: eq(pvpRooms.id, roomId),
+    with: {
+      members: {
+        columns: {
+          userId: true,
+          joinedAt: true,
+          readyAt: true,
+          leftAt: true,
+        },
+        orderBy: asc(pvpRoomMembers.joinedAt),
+      },
+    },
+  });
 
-  const room = roomRows[0] ?? null;
   if (!room) return null;
 
-  const members = await prisma
-    .select({
-      userId: pvpRoomMembers.userId,
-      joinedAt: pvpRoomMembers.joinedAt,
-      readyAt: pvpRoomMembers.readyAt,
-      leftAt: pvpRoomMembers.leftAt,
-    })
-    .from(pvpRoomMembers)
-    .where(eq(pvpRoomMembers.roomId, roomId))
-    .orderBy(asc(pvpRoomMembers.joinedAt));
-
-  const nextHostUserId = selectNextRoomHost(members, room.hostUserId);
+  const nextHostUserId = selectNextRoomHost(room.members, room.hostUserId);
   if (!nextHostUserId || nextHostUserId === room.hostUserId) return nextHostUserId;
 
-  await prisma
+  await db
     .update(pvpRooms)
     .set({ hostUserId: nextHostUserId, updatedAt: new Date() })
     .where(eq(pvpRooms.id, roomId));
@@ -988,7 +1130,7 @@ async function tryAcquireRoomSweepLock() {
 }
 
 async function sweepRoomLifecycle(
-  prisma: PrismaClient,
+  db: GatewayDb,
   wss: WebSocketServer,
   onPublicRoomReady?: (roomCode: string) => Promise<unknown>
 ) {
@@ -997,55 +1139,42 @@ async function sweepRoomLifecycle(
   if (!acquired) return;
 
   const now = Date.now();
-  const rooms = await prisma
-    .select({
-      id: pvpRooms.id,
-      code: pvpRooms.code,
-      status: pvpRooms.status,
-      visibility: pvpRooms.visibility,
-      minPlayers: pvpRooms.minPlayers,
-      maxPlayers: pvpRooms.maxPlayers,
-      autoStartAt: pvpRooms.autoStartAt,
-      expiresAt: pvpRooms.expiresAt,
-      hostUserId: pvpRooms.hostUserId,
-    })
-    .from(pvpRooms)
-    .where(or(eq(pvpRooms.status, "OPEN"), lte(pvpRooms.expiresAt, new Date(now))));
-
-  const roomIds = rooms.map((room) => room.id);
-  const membersByRoomId = new Map<string, Array<{ userId: string; joinedAt: Date; readyAt: Date | null; leftAt: Date | null }>>();
-
-  if (roomIds.length > 0) {
-    const members = await prisma
-      .select({
-        roomId: pvpRoomMembers.roomId,
-        userId: pvpRoomMembers.userId,
-        joinedAt: pvpRoomMembers.joinedAt,
-        readyAt: pvpRoomMembers.readyAt,
-        leftAt: pvpRoomMembers.leftAt,
-      })
-      .from(pvpRoomMembers)
-      .where(inArray(pvpRoomMembers.roomId, roomIds))
-      .orderBy(asc(pvpRoomMembers.joinedAt));
-
-    for (const member of members) {
-      const list = membersByRoomId.get(member.roomId) ?? [];
-      list.push({
-        userId: member.userId,
-        joinedAt: member.joinedAt,
-        readyAt: member.readyAt,
-        leftAt: member.leftAt,
-      });
-      membersByRoomId.set(member.roomId, list);
-    }
-  }
+  const rooms = await db.query.pvpRooms.findMany({
+    columns: {
+      id: true,
+      code: true,
+      visibility: true,
+      expiresAt: true,
+      status: true,
+    },
+    where: or(eq(pvpRooms.status, "OPEN"), lte(pvpRooms.expiresAt, new Date(now))),
+    with: {
+      members: {
+        columns: {
+          userId: true,
+          joinedAt: true,
+          readyAt: true,
+          leftAt: true,
+        },
+        orderBy: asc(pvpRoomMembers.joinedAt),
+      },
+    },
+  });
 
   for (const room of rooms) {
-    const roomMembers = membersByRoomId.get(room.id) ?? [];
+    const roomMembers = room.members;
 
     if (room.expiresAt && room.expiresAt.getTime() <= now) {
       broadcastRoom(wss, room.code, "ERROR", { message: "Room expired" });
-      await prisma.delete(pvpRooms).where(eq(pvpRooms.id, room.id)).catch(() => null);
+      try {
+        await db.delete(pvpRooms).where(eq(pvpRooms.id, room.id));
+      } catch (error) {
+        gatewayLogError("Failed to delete expired room", error, {
+          roomId: room.id,
+          roomCode: room.code,
+        });
+        throw error;
+      }
       continue;
     }
 
@@ -1057,7 +1186,7 @@ async function sweepRoomLifecycle(
       const isOnline = redis ? (await redis.exists(`${ONLINE_KEY_PREFIX}${member.userId}`)) === 1 : getAuthedSocketsForUser(wss, member.userId).length > 0;
       if (isOnline || hasReconnectLease) continue;
 
-      await prisma
+      await db
         .update(pvpRoomMembers)
         .set({ leftAt: new Date() })
         .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, member.userId)));
@@ -1066,8 +1195,8 @@ async function sweepRoomLifecycle(
     }
 
     if (changed) {
-      await transferRoomHostIfNeeded(prisma, room.id);
-      await broadcastRoomState(prisma, wss, room.code);
+      await transferRoomHostIfNeeded(db, room.id);
+      await broadcastRoomState(db, wss, room.code);
     }
 
     if (room.visibility === "PUBLIC") {
@@ -1076,8 +1205,8 @@ async function sweepRoomLifecycle(
   }
 }
 
-async function restoreRoomAfterMatch(prisma: PrismaClient, wss: WebSocketServer, roomCode: string) {
-  const roomRows = await prisma
+async function restoreRoomAfterMatch(db: GatewayDb, wss: WebSocketServer, roomCode: string) {
+  const roomRows = await db
     .select({
       id: pvpRooms.id,
       code: pvpRooms.code,
@@ -1092,7 +1221,7 @@ async function restoreRoomAfterMatch(prisma: PrismaClient, wss: WebSocketServer,
   const room = roomRows[0] ?? null;
   if (!room) return;
 
-  await prisma.transaction(async (tx: PrismaClient) => {
+  await runGatewayTransaction(db, async (tx) => {
     await tx
       .update(pvpRooms)
       .set({
@@ -1109,11 +1238,11 @@ async function restoreRoomAfterMatch(prisma: PrismaClient, wss: WebSocketServer,
       .where(and(eq(pvpRoomMembers.roomId, room.id), isNull(pvpRoomMembers.leftAt)));
   });
 
-  await broadcastRoomState(prisma, wss, roomCode);
+  await broadcastRoomState(db, wss, roomCode);
 }
 
 async function finalizeMatchResults(params: {
-  prisma: PrismaClient;
+  db: GatewayDb;
   wss: WebSocketServer;
   state: InMemoryState;
   eventBus: ReturnType<typeof createGatewayEventBus>;
@@ -1126,7 +1255,7 @@ async function finalizeMatchResults(params: {
   if (match.state === "finished" || match.state === "aborted") return;
 
   const dbLock = await tryBeginMatchFinalizationWithDbLock({
-    prisma: params.prisma,
+    db: params.db,
     match,
   });
   if (!dbLock) return;
@@ -1146,7 +1275,7 @@ async function finalizeMatchResults(params: {
   });
   params.state.clearAiInterval(match.matchId);
 
-  await params.prisma
+  await params.db
     .update(pvpMatches)
     .set({
       status: matchStateToDbStatus("finished"),
@@ -1159,22 +1288,30 @@ async function finalizeMatchResults(params: {
   await Promise.all(
     params.placements
       .filter((placement) => !isAiUserId(placement.userId))
-      .map((placement) =>
-        params.prisma
-          .update(pvpParticipants)
-          .set({
-            finalWpm: placement.wpm,
-            finalAccuracy: placement.accuracy,
-            finalErrors: placement.errors,
-            timeSpentSec: Math.max(0, Math.floor(placement.timeMs / 1000)),
-            completedAt: new Date(match.serverStartAtMs + placement.timeMs),
-            ...(params.reason === "opponent_disconnected" && match.forfeitedUserId === placement.userId
-              ? { disconnectCount: sql`${pvpParticipants.disconnectCount} + 1` }
-              : {}),
-          })
-          .where(and(eq(pvpParticipants.matchId, match.matchId), eq(pvpParticipants.userId, placement.userId)))
-          .catch(() => null)
-      )
+      .map(async (placement) => {
+        try {
+          await params.db
+            .update(pvpParticipants)
+            .set({
+              finalWpm: placement.wpm,
+              finalAccuracy: placement.accuracy,
+              finalErrors: placement.errors,
+              timeSpentSec: Math.max(0, Math.floor(placement.timeMs / 1000)),
+              completedAt: new Date(match.serverStartAtMs + placement.timeMs),
+              ...(params.reason === "opponent_disconnected" && match.forfeitedUserId === placement.userId
+                ? { disconnectCount: sql`${pvpParticipants.disconnectCount} + 1` }
+                : {}),
+            })
+            .where(and(eq(pvpParticipants.matchId, match.matchId), eq(pvpParticipants.userId, placement.userId)));
+        } catch (error) {
+          gatewayLogError("Failed to persist participant final stats", error, {
+            matchId: match.matchId,
+            userId: placement.userId,
+            reason: params.reason,
+          });
+          throw error;
+        }
+      })
   );
 
   let ratingChanges: Array<{ userId: string; before: number; after: number; delta: number }> = [];
@@ -1186,12 +1323,12 @@ async function finalizeMatchResults(params: {
     const humanId = humans[0]!.userId;
     const humanWon = params.placements[0]!.userId === humanId;
 
-    await params.prisma
+    await params.db
       .insert(pvpRatings)
       .values({ userId: humanId })
       .onConflictDoNothing({ target: pvpRatings.userId });
 
-    const humanRows = await params.prisma
+    const humanRows = await params.db
       .select({ rating: pvpRatings.rating, deviation: pvpRatings.deviation })
       .from(pvpRatings)
       .where(eq(pvpRatings.userId, humanId))
@@ -1208,25 +1345,38 @@ async function finalizeMatchResults(params: {
       b: { rating: aiRating, deviation: 180 },
       aScore: humanWon ? 1 : 0,
     });
+    
+    //  Human vs AI
+    await runGatewayTransaction(params.db, async (tx) => {
+      await tx.execute(sql`SAVEPOINT pvp_rating_updates`);
+      try {
+        await tx
+          .update(pvpRatings)
+          .set({
+            rating: upd.nextA.rating,
+            deviation: upd.nextA.deviation,
+            gamesPlayed: sql`${pvpRatings.gamesPlayed} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(pvpRatings.userId, humanId));
 
-    await params.prisma.transaction(async (tx: PrismaClient) => {
-      await tx
-        .update(pvpRatings)
-        .set({
-          rating: upd.nextA.rating,
-          deviation: upd.nextA.deviation,
-          gamesPlayed: sql`${pvpRatings.gamesPlayed} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(eq(pvpRatings.userId, humanId));
+        await tx.insert(pvpRatingChanges).values({
+          matchId: match.matchId,
+          userId: humanId,
+          beforeRating: humanRow.rating,
+          afterRating: upd.nextA.rating,
+          delta: upd.deltaA,
+        });
 
-      await tx.insert(pvpRatingChanges).values({
-        matchId: match.matchId,
-        userId: humanId,
-        beforeRating: humanRow.rating,
-        afterRating: upd.nextA.rating,
-        delta: upd.deltaA,
-      });
+        await tx.execute(sql`RELEASE SAVEPOINT pvp_rating_updates`);
+      } catch (error) {
+        await tx.execute(sql`ROLLBACK TO SAVEPOINT pvp_rating_updates`);
+        gatewayLogError("Failed to persist rating update (human vs AI)", error, {
+          matchId: match.matchId,
+          userId: humanId,
+        });
+        throw error;
+      }
     });
 
     ratingChanges = [{ userId: humanId, before: humanRow.rating, after: upd.nextA.rating, delta: upd.deltaA }];
@@ -1235,17 +1385,17 @@ async function finalizeMatchResults(params: {
     const loserId = params.placements[1]!.userId;
 
     await Promise.all([
-      params.prisma.insert(pvpRatings).values({ userId: winnerId }).onConflictDoNothing({ target: pvpRatings.userId }),
-      params.prisma.insert(pvpRatings).values({ userId: loserId }).onConflictDoNothing({ target: pvpRatings.userId }),
+      params.db.insert(pvpRatings).values({ userId: winnerId }).onConflictDoNothing({ target: pvpRatings.userId }),
+      params.db.insert(pvpRatings).values({ userId: loserId }).onConflictDoNothing({ target: pvpRatings.userId }),
     ]);
 
     const [winnerRows, loserRows] = await Promise.all([
-      params.prisma
+      params.db
         .select({ rating: pvpRatings.rating, deviation: pvpRatings.deviation })
         .from(pvpRatings)
         .where(eq(pvpRatings.userId, winnerId))
         .limit(1),
-      params.prisma
+      params.db
         .select({ rating: pvpRatings.rating, deviation: pvpRatings.deviation })
         .from(pvpRatings)
         .where(eq(pvpRatings.userId, loserId))
@@ -1263,47 +1413,60 @@ async function finalizeMatchResults(params: {
       b: { rating: loserRow.rating, deviation: loserRow.deviation },
       aScore: 1,
     });
+    // Human vs Human 
+    await runGatewayTransaction(params.db, async (tx) => {
+      await tx.execute(sql`SAVEPOINT pvp_rating_updates`);
+      try {
+        await tx
+          .update(pvpRatings)
+          .set({
+            rating: upd.nextA.rating,
+            deviation: upd.nextA.deviation,
+            gamesPlayed: sql`${pvpRatings.gamesPlayed} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(pvpRatings.userId, winnerId));
 
-    await params.prisma.transaction(async (tx: PrismaClient) => {
-      await tx
-        .update(pvpRatings)
-        .set({
-          rating: upd.nextA.rating,
-          deviation: upd.nextA.deviation,
-          gamesPlayed: sql`${pvpRatings.gamesPlayed} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(eq(pvpRatings.userId, winnerId));
+        await tx
+          .update(pvpRatings)
+          .set({
+            rating: upd.nextB.rating,
+            deviation: upd.nextB.deviation,
+            gamesPlayed: sql`${pvpRatings.gamesPlayed} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(pvpRatings.userId, loserId));
 
-      await tx
-        .update(pvpRatings)
-        .set({
-          rating: upd.nextB.rating,
-          deviation: upd.nextB.deviation,
-          gamesPlayed: sql`${pvpRatings.gamesPlayed} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(eq(pvpRatings.userId, loserId));
+        await tx
+          .insert(pvpRatingChanges)
+          .values([
+            {
+              matchId: match.matchId,
+              userId: winnerId,
+              beforeRating: winnerRow.rating,
+              afterRating: upd.nextA.rating,
+              delta: upd.deltaA,
+            },
+            {
+              matchId: match.matchId,
+              userId: loserId,
+              beforeRating: loserRow.rating,
+              afterRating: upd.nextB.rating,
+              delta: upd.deltaB,
+            },
+          ])
+          .onConflictDoNothing({ target: [pvpRatingChanges.matchId, pvpRatingChanges.userId] });
 
-      await tx
-        .insert(pvpRatingChanges)
-        .values([
-          {
-            matchId: match.matchId,
-            userId: winnerId,
-            beforeRating: winnerRow.rating,
-            afterRating: upd.nextA.rating,
-            delta: upd.deltaA,
-          },
-          {
-            matchId: match.matchId,
-            userId: loserId,
-            beforeRating: loserRow.rating,
-            afterRating: upd.nextB.rating,
-            delta: upd.deltaB,
-          },
-        ])
-        .onConflictDoNothing({ target: [pvpRatingChanges.matchId, pvpRatingChanges.userId] });
+        await tx.execute(sql`RELEASE SAVEPOINT pvp_rating_updates`);
+      } catch (error) {
+        await tx.execute(sql`ROLLBACK TO SAVEPOINT pvp_rating_updates`);
+        gatewayLogError("Failed to persist rating update (human vs human)", error, {
+          matchId: match.matchId,
+          winnerId,
+          loserId,
+        });
+        throw error;
+      }
     });
 
     ratingChanges = [
@@ -1321,7 +1484,7 @@ async function finalizeMatchResults(params: {
     });
 
     await recordCheatAssessment({
-      prisma: params.prisma,
+      db: params.db,
       userId: participant.userId,
       matchId: match.matchId,
       confidence: assessment.confidence,
@@ -1360,7 +1523,7 @@ async function finalizeMatchResults(params: {
 
   match.finalizedAtMs = Date.now();
   await clearTerminalMatchLiveState({
-    prisma: params.prisma,
+    db: params.db,
     matchId: match.matchId,
     status: "FINISHED",
   });
@@ -1369,12 +1532,12 @@ async function finalizeMatchResults(params: {
   scheduleMatchCleanup(params.state, match.matchId);
 
   if (match.roomCode) {
-    await restoreRoomAfterMatch(params.prisma, params.wss, match.roomCode);
+    await restoreRoomAfterMatch(params.db, params.wss, match.roomCode);
   }
 }
 
 async function finalizeMatchIfComplete(params: {
-  prisma: PrismaClient;
+  db: GatewayDb;
   wss: WebSocketServer;
   state: InMemoryState;
   eventBus: ReturnType<typeof createGatewayEventBus>;
@@ -1386,7 +1549,20 @@ async function finalizeMatchIfComplete(params: {
 
   const all = Array.from(match.participants.values());
   const finished = all.filter((p0) => p0.finishedAt != null);
-  if (finished.length < Math.max(2, all.length)) return;
+  if (finished.length < Math.max(2, all.length)) {
+    incrementGatewayMetric("pvp_match_finalize_skip_total", {
+      reason: "waiting_for_participants",
+      finished: finished.length,
+      total: all.length,
+    });
+    gatewayLogDebug("Finalize skipped because not all participants finished", {
+      matchId: params.matchId,
+      finishedParticipants: finished.length,
+      totalParticipants: all.length,
+      state: match.state,
+    });
+    return;
+  }
 
   const placements: Placement[] = [...all]
     .sort((a, b) => (a.finishedAt! - b.finishedAt!))
@@ -1400,11 +1576,14 @@ async function finalizeMatchIfComplete(params: {
       timeMs: (p0.finishedAt ?? Date.now()) - match.serverStartAtMs,
     }));
 
-  if (!tryBeginMatchFinalization(params.matchId)) return;
-
-  try {
+  await runWithMatchFinalizationLock(params.matchId, async () => {
+    gatewayLogInfo("Finalizing ranked match results", {
+      matchId: params.matchId,
+      participants: all.length,
+      placements: placements.map((placement) => ({ userId: placement.userId, position: placement.position })),
+    });
     await finalizeMatchResults({
-      prisma: params.prisma,
+      db: params.db,
       wss: params.wss,
       state: params.state,
       eventBus: params.eventBus,
@@ -1412,13 +1591,11 @@ async function finalizeMatchIfComplete(params: {
       placements,
       reason: "completed",
     });
-  } finally {
-    endMatchFinalization(params.matchId);
-  }
+  });
 }
 
 async function finalizeMatchByDisconnectForfeit(params: {
-  prisma: PrismaClient;
+  db: GatewayDb;
   wss: WebSocketServer;
   state: InMemoryState;
   eventBus: ReturnType<typeof createGatewayEventBus>;
@@ -1428,9 +1605,7 @@ async function finalizeMatchByDisconnectForfeit(params: {
   const match = params.state.matches.get(params.matchId);
   if (!match) return;
   if (match.state === "finished" || match.state === "aborted") return;
-  if (!tryBeginMatchFinalization(params.matchId)) return;
-
-  try {
+  await runWithMatchFinalizationLock(params.matchId, async () => {
     const outcome = buildDisconnectForfeitOutcome({
       match,
       forfeitedUserId: params.forfeitedUserId,
@@ -1457,22 +1632,20 @@ async function finalizeMatchByDisconnectForfeit(params: {
       },
       finalizeResults: () =>
         finalizeMatchResults({
-          prisma: params.prisma,
+          db: params.db,
           wss: params.wss,
           state: params.state,
           eventBus: params.eventBus,
-          matchId: match.matchId,
+          matchId: params.matchId,
           placements: outcome.placements,
           reason: "opponent_disconnected",
         }),
     });
-  } finally {
-    endMatchFinalization(params.matchId);
-  }
+  });
 }
 
 async function abortMatchLifecycle(params: {
-  prisma: PrismaClient;
+  db: GatewayDb;
   wss: WebSocketServer;
   state: InMemoryState;
   eventBus: ReturnType<typeof createGatewayEventBus>;
@@ -1483,18 +1656,13 @@ async function abortMatchLifecycle(params: {
   const match = params.state.matches.get(params.matchId);
   if (!match) return;
   if (match.state === "finished" || match.state === "aborted") return;
-  if (!tryBeginMatchFinalization(params.matchId)) return;
+  await runWithMatchFinalizationLock(params.matchId, async () => {
+    const dbLock = await tryBeginMatchFinalizationWithDbLock({
+      db: params.db,
+      match,
+    });
+    if (!dbLock) return;
 
-  const dbLock = await tryBeginMatchFinalizationWithDbLock({
-    prisma: params.prisma,
-    match,
-  });
-  if (!dbLock) {
-    endMatchFinalization(params.matchId);
-    return;
-  }
-
-  try {
     const reasonCode = params.reasonCode ?? "aborted";
     match.endedReason = reasonCode;
     const transitioned = applyMatchTransition({
@@ -1507,7 +1675,7 @@ async function abortMatchLifecycle(params: {
 
     params.state.clearAiInterval(match.matchId);
 
-    await params.prisma
+    await params.db
       .update(pvpMatches)
       .set({
         status: matchStateToDbStatus("aborted"),
@@ -1537,7 +1705,7 @@ async function abortMatchLifecycle(params: {
 
     match.finalizedAtMs = Date.now();
     await clearTerminalMatchLiveState({
-      prisma: params.prisma,
+      db: params.db,
       matchId: match.matchId,
       status: "ABORTED",
     });
@@ -1546,17 +1714,15 @@ async function abortMatchLifecycle(params: {
     scheduleMatchCleanup(params.state, match.matchId);
 
     if (match.roomCode) {
-      await restoreRoomAfterMatch(params.prisma, params.wss, match.roomCode);
+      await restoreRoomAfterMatch(params.db, params.wss, match.roomCode);
     }
-  } finally {
-    endMatchFinalization(params.matchId);
-  }
+  });
 }
 
 async function main() {
   const PORT = envInt("PORT", 8787);
-  const prisma: PrismaClient = gatewayDb as unknown as PrismaClient;
-  const matchRepository = new MatchRepository(prisma);
+  const db: GatewayDb = gatewayDb as unknown as GatewayDb;
+  const matchRepository = new MatchRepository(db);
   const state = new InMemoryState();
   matchCache = new MatchCache();
   const eventBus = createGatewayEventBus();
@@ -1578,10 +1744,10 @@ async function main() {
     instanceId: INSTANCE_ID,
   });
 
-  const AI_QUEUE_TIMEOUT_MS = envMs("PVP_AI_QUEUE_TIMEOUT_MS", 25_000);
   const WS_PING_INTERVAL_MS = envInt("PVP_WS_PING_INTERVAL_MS", 15_000);
   const DEV = process.env.NODE_ENV !== "production";
   const TEST_FORCE_BOT_MATCH = DEV && envBool("PVP_TEST_FORCE_BOT_MATCH", false);
+  const AI_QUEUE_TIMEOUT_MS = envMs("PVP_AI_QUEUE_TIMEOUT_MS", TEST_FORCE_BOT_MATCH ? 2_000 : 8_000);
   const ENABLE_PROMETHEUS_METRICS = envBool("PVP_PROMETHEUS_METRICS_ENABLED", true);
   const WS_SOFT_CONNECTION_LIMIT = envInt("PVP_WS_SOFT_CONNECTION_LIMIT", 1_000);
   const SHUTDOWN_GRACE_MS = envMs("PVP_GRACEFUL_SHUTDOWN_TIMEOUT_MS", 30_000);
@@ -1606,7 +1772,7 @@ async function main() {
   });
   gatewayHealthController = createGatewayHealthController({
     instanceId: INSTANCE_ID,
-    prisma,
+    db,
     getRedisClient: () => redisBus?.redis ?? null,
     getConnectionCount: () => wss?.clients.size ?? 0,
     getActiveMatchCount,
@@ -1629,59 +1795,6 @@ async function main() {
     }
   });
 
-  let testBot: ConnectionUser | null = null;
-  async function ensureTestBot(): Promise<ConnectionUser> {
-    if (testBot) return testBot;
-    const botEmail = process.env.PVP_TEST_BOT_EMAIL ?? "pvp_test_bot@local.test";
-    const botUsername = process.env.PVP_TEST_BOT_USERNAME ?? "pvp_test_bot";
-
-    await prisma
-      .insert(users)
-      .values({
-        email: botEmail,
-        username: botUsername,
-        passwordHash: null,
-      })
-      .onConflictDoNothing({ target: users.email });
-
-    const userRows = await prisma
-      .select({ id: users.id, username: users.username, avatar: playerProfiles.avatar })
-      .from(users)
-      .leftJoin(playerProfiles, eq(playerProfiles.userId, users.id))
-      .where(eq(users.email, botEmail))
-      .limit(1);
-
-    const user = userRows[0] ?? null;
-    if (!user) {
-      throw new Error("Failed to ensure test bot user");
-    }
-
-    await prisma
-      .insert(pvpRatings)
-      .values({ userId: user.id })
-      .onConflictDoNothing({ target: pvpRatings.userId });
-
-    const ratingRows = await prisma
-      .select({ rating: pvpRatings.rating, deviation: pvpRatings.deviation })
-      .from(pvpRatings)
-      .where(eq(pvpRatings.userId, user.id))
-      .limit(1);
-
-    const rating = ratingRows[0] ?? null;
-    if (!rating) {
-      throw new Error("Failed to ensure test bot rating");
-    }
-
-    testBot = {
-      userId: user.id,
-      username: user.username,
-      avatar: user.avatar ?? null,
-      pvpRating: rating.rating,
-      pvpDeviation: rating.deviation,
-    };
-    return testBot;
-  }
-
   const server = createGatewayServer();
 
   const WS_MAX_PAYLOAD_BYTES = envInt("PVP_WS_MAX_PAYLOAD_BYTES", 64 * 1024);
@@ -1689,16 +1802,50 @@ async function main() {
   const WS_MAX_MSG_BURST = envInt("PVP_WS_MAX_MSG_BURST", 80);
   const WS_MAX_INPUT_MSG_PER_SEC = envInt("PVP_WS_MAX_INPUT_MSG_PER_SEC", 25);
   const WS_MAX_INPUT_MSG_BURST = envInt("PVP_WS_MAX_INPUT_MSG_BURST", 50);
-  const WS_MAX_CONNECTIONS_PER_IP = envInt("PVP_WS_MAX_CONNECTIONS_PER_IP", 5);
-  const WS_CONNECTION_ATTEMPTS_PER_MIN = envInt("PVP_WS_CONNECTION_ATTEMPTS_PER_MIN", 20);
-  const WS_CONNECTION_ATTEMPTS_BURST = envInt("PVP_WS_CONNECTION_ATTEMPTS_BURST", 10);
+  const LOCAL_RELAXED_WS_LIMITS = envBool("PVP_WS_LOCAL_RELAXED_LIMITS", DEV);
+  const localMinConnectionsPerIp = TEST_FORCE_BOT_MATCH ? 400 : 200;
+  const localMinAttemptsPerMin = TEST_FORCE_BOT_MATCH ? 12_000 : 4_000;
+  const localMinAttemptsBurst = TEST_FORCE_BOT_MATCH ? 2_000 : 600;
+  // Keep strict defaults in production; relax local/dev defaults so load tests do not fail on connection admission.
+  const configuredWsMaxConnectionsPerIp = envInt(
+    "PVP_WS_MAX_CONNECTIONS_PER_IP",
+    TEST_FORCE_BOT_MATCH || LOCAL_RELAXED_WS_LIMITS ? 400 : 5,
+  );
+  const configuredWsConnectionAttemptsPerMin = envInt(
+    "PVP_WS_CONNECTION_ATTEMPTS_PER_MIN",
+    TEST_FORCE_BOT_MATCH || LOCAL_RELAXED_WS_LIMITS ? 12_000 : 20,
+  );
+  const configuredWsConnectionAttemptsBurst = envInt(
+    "PVP_WS_CONNECTION_ATTEMPTS_BURST",
+    TEST_FORCE_BOT_MATCH || LOCAL_RELAXED_WS_LIMITS ? 2_000 : 10,
+  );
+  const WS_MAX_CONNECTIONS_PER_IP = LOCAL_RELAXED_WS_LIMITS
+    ? Math.max(configuredWsMaxConnectionsPerIp, localMinConnectionsPerIp)
+    : configuredWsMaxConnectionsPerIp;
+  const WS_CONNECTION_ATTEMPTS_PER_MIN = LOCAL_RELAXED_WS_LIMITS
+    ? Math.max(configuredWsConnectionAttemptsPerMin, localMinAttemptsPerMin)
+    : configuredWsConnectionAttemptsPerMin;
+  const WS_CONNECTION_ATTEMPTS_BURST = LOCAL_RELAXED_WS_LIMITS
+    ? Math.max(configuredWsConnectionAttemptsBurst, localMinAttemptsBurst)
+    : configuredWsConnectionAttemptsBurst;
   const WS_GLOBAL_CONNECTIONS_PER_SEC = envInt("PVP_WS_GLOBAL_CONNECTIONS_PER_SEC", 0);
   const WS_GLOBAL_CONNECTIONS_BURST = envInt("PVP_WS_GLOBAL_CONNECTIONS_BURST", 200);
+  const ALLOW_PARTICIPANT_PERSIST_FALLBACK = DEV && envBool("PVP_ALLOW_PARTICIPANT_PERSIST_FALLBACK", true);
   const WS_TICK_MS = envMs("PVP_WS_TICK_MS", 60);
   const MATCH_SNAPSHOT_INTERVAL_MS = envMs("PVP_MATCH_SNAPSHOT_INTERVAL_MS", 2_000);
   const ROOM_ACTION_COOLDOWN_MS = envMs("PVP_ROOM_ACTION_COOLDOWN_MS", 2_000);
   const CONNECTION_SPIKE_ALERT_THRESHOLD = envInt("PVP_WS_CONNECTION_SPIKE_ALERT_THRESHOLD", 30);
   const METRIC_SNAPSHOT_INTERVAL_MS = envMs("PVP_METRIC_SNAPSHOT_INTERVAL_MS", 5_000);
+
+  gatewayLogInfo("Gateway runtime tuning", {
+    testForceBotMatch: TEST_FORCE_BOT_MATCH,
+    localRelaxedWsLimits: LOCAL_RELAXED_WS_LIMITS,
+    aiQueueTimeoutMs: AI_QUEUE_TIMEOUT_MS,
+    rankedMatchStartDelayMs: RANKED_MATCH_START_DELAY_MS,
+    wsMaxConnectionsPerIp: WS_MAX_CONNECTIONS_PER_IP,
+    wsConnectionAttemptsPerMin: WS_CONNECTION_ATTEMPTS_PER_MIN,
+    allowParticipantPersistFallback: ALLOW_PARTICIPANT_PERSIST_FALLBACK,
+  });
 
   const wss = new WebSocketServer({ server, maxPayload: WS_MAX_PAYLOAD_BYTES });
   messageBatcher = createMessageBatcher<WsConn>({
@@ -1724,10 +1871,36 @@ async function main() {
       : null;
   const roomActionLastSeen = new Map<string, number>();
   const activeMatchSessions = new Map<string, WsConn>();
+  const inFlightMatchJoins = new Map<string, number>();
   const noShowTimers = new Map<string, NodeJS.Timeout>();
   const pendingInputUpdatesByMatch = new Map<string, PendingInputUpdateBatch>();
+  const inputUpdateFlushRetriesByMatch = new Map<string, number>();
   let inputUpdateFlushInProgress = false;
   let inputUpdateFlushRequested = false;
+  const INPUT_UPDATE_FLUSH_MAX_RETRIES = envInt("PVP_INPUT_UPDATE_FLUSH_MAX_RETRIES", 8);
+  const DISCONNECT_FORFEIT_JOIN_DEFER_MS = envMs("PVP_DISCONNECT_FORFEIT_JOIN_DEFER_MS", 500);
+
+  const getMatchJoinSessionKey = (matchId: string, userId: string) => `${matchId}:${userId}`;
+
+  const beginMatchJoinInFlight = (matchId: string, userId: string) => {
+    const key = getMatchJoinSessionKey(matchId, userId);
+    const next = (inFlightMatchJoins.get(key) ?? 0) + 1;
+    inFlightMatchJoins.set(key, next);
+  };
+
+  const endMatchJoinInFlight = (matchId: string, userId: string) => {
+    const key = getMatchJoinSessionKey(matchId, userId);
+    const next = (inFlightMatchJoins.get(key) ?? 0) - 1;
+    if (next > 0) {
+      inFlightMatchJoins.set(key, next);
+      return;
+    }
+    inFlightMatchJoins.delete(key);
+  };
+
+  const isMatchJoinInFlight = (matchId: string, userId: string) => {
+    return (inFlightMatchJoins.get(getMatchJoinSessionKey(matchId, userId)) ?? 0) > 0;
+  };
 
   const getPendingInputQueueStats = () => {
     const nowMs = Date.now();
@@ -1863,17 +2036,31 @@ async function main() {
         for (const [matchId, batch] of batches) {
           try {
             await persistInputUpdateBatch(matchId, batch);
+            inputUpdateFlushRetriesByMatch.delete(matchId);
           } catch (error) {
             // Requeue on transient failures to avoid dropping accepted local progress.
+            const retries = (inputUpdateFlushRetriesByMatch.get(matchId) ?? 0) + 1;
+            inputUpdateFlushRetriesByMatch.set(matchId, retries);
             mergePendingInputBatch(matchId, batch);
+            inputUpdateFlushRequested = true;
             incrementGatewayMetric("pvp_input_update_requeue_total", { reason });
             gatewayLogWarn("INPUT_UPDATE batch flush failed; requeued", {
               matchId,
               reason,
+              retries,
+              maxRetries: INPUT_UPDATE_FLUSH_MAX_RETRIES,
               enqueuedCount: batch.enqueuedCount,
               ageMs: Date.now() - batch.firstEnqueuedAtMs,
               error: error instanceof Error ? error.message : String(error),
             });
+
+            if (retries >= INPUT_UPDATE_FLUSH_MAX_RETRIES) {
+              gatewayLogWarn("INPUT_UPDATE batch reached retry threshold; keeping latest seq in queue", {
+                matchId,
+                retries,
+                maxRetries: INPUT_UPDATE_FLUSH_MAX_RETRIES,
+              });
+            }
           }
         }
       } while (inputUpdateFlushRequested && pendingInputUpdatesByMatch.size > 0);
@@ -1945,7 +2132,19 @@ async function main() {
     if (match.state !== "waiting_for_both") return false;
 
     const readyCount = getReadyParticipantCount(match.matchId, match);
-    if (readyCount < match.participants.size) return false;
+    if (readyCount < match.participants.size) {
+      incrementGatewayMetric("pvp_match_countdown_blocked_total", {
+        reason: "participants_not_ready",
+        opponent_type: getMatchOpponentType(match),
+      });
+      gatewayLogDebug("Ranked countdown waiting for participants", {
+        matchId: match.matchId,
+        readyParticipants: readyCount,
+        totalParticipants: match.participants.size,
+        state: match.state,
+      });
+      return false;
+    }
 
     const lockResult = await matchRepository.withTransaction(async (tx) => {
       const locked = await matchRepository.loadForUpdate(tx, match.matchId);
@@ -1992,7 +2191,13 @@ async function main() {
       };
     });
 
-    if (!lockResult.started) return false;
+    if (!lockResult.started) {
+      incrementGatewayMetric("pvp_match_countdown_blocked_total", {
+        reason: "db_lock_or_revision",
+        opponent_type: getMatchOpponentType(match),
+      });
+      return false;
+    }
 
     incrementGatewayMetric("pvp_match_waiting_ready_total", {
       opponent_type: getMatchOpponentType(match),
@@ -2015,6 +2220,14 @@ async function main() {
       if (isAiUserId(participant.userId)) continue;
       sendToUser(wss, participant.userId, "MATCH_STATE", buildMatchStatePayload(match));
     }
+
+    gatewayLogInfo("Ranked countdown started", {
+      matchId: match.matchId,
+      serverStartAtMs: lockResult.serverStartAtMs,
+      delayMs: Math.max(0, lockResult.serverStartAtMs - Date.now()),
+      participants: match.participants.size,
+      opponentType: getMatchOpponentType(match),
+    });
 
     return true;
   };
@@ -2056,7 +2269,7 @@ async function main() {
       }
 
       void abortMatchLifecycle({
-        prisma,
+        db,
         wss,
         state,
         eventBus,
@@ -2104,10 +2317,16 @@ async function main() {
     });
   };
 
-  const scheduleDisconnectForfeit = (matchId: string, userId: string) => {
+  const scheduleDisconnectForfeit = (matchId: string, userId: string, delayMs = DISCONNECT_FORFEIT_GRACE_MS) => {
     clearDisconnectForfeitTimer(matchId, userId);
     const timer = setTimeout(() => {
       disconnectForfeitTimers.delete(getDisconnectForfeitKey(matchId, userId));
+
+      if (shouldDeferDisconnectForfeitForJoin({ joinInFlight: isMatchJoinInFlight(matchId, userId) })) {
+        scheduleDisconnectForfeit(matchId, userId, DISCONNECT_FORFEIT_JOIN_DEFER_MS);
+        return;
+      }
+
       const activeMatch = state.matches.get(matchId);
       if (!activeMatch) return;
       if (
@@ -2126,7 +2345,7 @@ async function main() {
       }
 
       void finalizeMatchByDisconnectForfeit({
-        prisma,
+        db,
         wss,
         state,
         eventBus,
@@ -2135,7 +2354,7 @@ async function main() {
       }).catch(() => {
         // ignore
       });
-    }, DISCONNECT_FORFEIT_GRACE_MS);
+    }, delayMs);
 
     if (typeof timer.unref === "function") {
       timer.unref();
@@ -2184,6 +2403,19 @@ async function main() {
     ws.matchSessionKey = undefined;
   };
 
+  const updateSocketRoomSubscription = (ws: WsConn, nextRoomCode?: string) => {
+    const previousRoomCode = ws.roomCode;
+    if (previousRoomCode && previousRoomCode !== nextRoomCode) {
+      matchCache?.removeRoomSocket(previousRoomCode, ws);
+    }
+
+    ws.roomCode = nextRoomCode;
+
+    if (nextRoomCode) {
+      matchCache?.addRoomSocket(nextRoomCode, ws);
+    }
+  };
+
   const claimMatchSession = (matchId: string, userId: string, ws: WsConn) => {
     const key = `${matchId}:${userId}`;
     const existing = activeMatchSessions.get(key);
@@ -2229,7 +2461,7 @@ async function main() {
   const sweepStaleMatches = async () => {
     const now = Date.now();
 
-    const staleDbRows = await prisma
+    const staleDbRows = await db
       .select({ id: pvpMatches.id })
       .from(pvpMatches)
       .where(
@@ -2247,7 +2479,8 @@ async function main() {
         const locked = await matchRepository.loadForUpdate(tx, row.id);
         if (!locked) return false;
 
-        const stateAgeMs = now - locked.updatedAt.getTime();
+        const updatedAtMs = toEpochMs(locked.updatedAt, now);
+        const stateAgeMs = Math.max(0, now - updatedAtMs);
         const staleReason = getStaleMatchAbortReason({
           state: matchStateFromDbStatus(locked.status),
           stateAgeMs,
@@ -2352,7 +2585,7 @@ async function main() {
           clearParticipantMetricAccumulator(matchId, userId);
         }
         await abortMatchLifecycle({
-          prisma,
+          db,
           wss,
           state,
           eventBus,
@@ -2370,8 +2603,18 @@ async function main() {
 
     for (const matchId of rematchAcceptedByMatchId.keys()) {
       if (!state.matches.has(matchId)) {
-        rematchAcceptedByMatchId.delete(matchId);
+        clearRematchAccepted(matchId);
       }
+    }
+
+    for (const [matchId, touchedAtMs] of rematchAcceptedTouchedAtByMatchId.entries()) {
+      if (now - touchedAtMs < REMATCH_ACCEPTED_TTL_MS) continue;
+      clearRematchAccepted(matchId);
+    }
+
+    for (const [userId, refuseUntilMs] of aiRematchRefuseUntilByHumanId.entries()) {
+      if (now < refuseUntilMs) continue;
+      aiRematchRefuseUntilByHumanId.delete(userId);
     }
   };
 
@@ -2384,13 +2627,20 @@ async function main() {
     staleMatchSweepInterval.unref();
   }
 
-  const roomLifecycleSweepInterval = setInterval(() => {
-    void sweepRoomLifecycle(prisma, wss, maybeAutoStartPublicRoom).catch((error) => {
-      gatewayLogError("Failed to sweep room lifecycle", error);
+  let roomLifecycleSweepInterval: NodeJS.Timeout | null = null;
+  if (isGatewayDbConfigured) {
+    roomLifecycleSweepInterval = setInterval(() => {
+      void sweepRoomLifecycle(db, wss, maybeAutoStartPublicRoom).catch((error) => {
+        gatewayLogError("Failed to sweep room lifecycle", error);
+      });
+    }, ROOM_SWEEP_INTERVAL_MS);
+    if (typeof roomLifecycleSweepInterval.unref === "function") {
+      roomLifecycleSweepInterval.unref();
+    }
+  } else {
+    gatewayLogWarn("Room lifecycle sweep disabled because DATABASE_URL is missing or malformed", {
+      intervalMs: ROOM_SWEEP_INTERVAL_MS,
     });
-  }, ROOM_SWEEP_INTERVAL_MS);
-  if (typeof roomLifecycleSweepInterval.unref === "function") {
-    roomLifecycleSweepInterval.unref();
   }
 
   const snapshotGatewayMetrics = () => {
@@ -2448,11 +2698,13 @@ async function main() {
       }
       if (channel.startsWith("pvp:room:")) {
         const roomCode = channel.slice("pvp:room:".length);
-        wss.clients.forEach((client: WebSocket) => {
-          const c = client as WsConn;
-          if (c.roomCode !== roomCode) return;
+        const roomSockets = matchCache?.getRoomSockets(roomCode);
+        if (!roomSockets || roomSockets.size === 0) return;
+        for (const socket of roomSockets) {
+          const c = socket as WsConn;
+          if (c.readyState !== WebSocket.OPEN) continue;
           send(c, msg.type as ServerMessage["type"], msg.payload);
-        });
+        }
       }
     });
   }
@@ -2589,6 +2841,17 @@ return nil
   const AI_REMATCH_COOLDOWN_MS = envMs("PVP_AI_REMATCH_COOLDOWN_MS", 20 * 60 * 1000);
   const aiRematchRefuseUntilByHumanId = new Map<string, number>();
   const rematchAcceptedByMatchId = new Map<string, Set<string>>();
+  const rematchAcceptedTouchedAtByMatchId = new Map<string, number>();
+  const REMATCH_ACCEPTED_TTL_MS = envMs("PVP_REMATCH_ACCEPTED_TTL_MS", 10 * 60 * 1000);
+
+  const touchRematchAccepted = (matchId: string) => {
+    rematchAcceptedTouchedAtByMatchId.set(matchId, Date.now());
+  };
+
+  const clearRematchAccepted = (matchId: string) => {
+    rematchAcceptedByMatchId.delete(matchId);
+    rematchAcceptedTouchedAtByMatchId.delete(matchId);
+  };
 
   const startRoomMatch = async (params: {
     roomId: string;
@@ -2608,7 +2871,7 @@ return nil
     }
 
     const serverStartAtMs = Date.now() + (params.startDelayMs ?? ROOM_MATCH_START_DELAY_MS);
-    const createdMatchRows = await prisma
+    const createdMatchRows = await db
       .insert(pvpMatches)
       .values({
         status: "COUNTDOWN",
@@ -2644,13 +2907,13 @@ return nil
       atMs: local.stateChangedAt,
     });
 
-    await prisma
+    await db
       .update(pvpMatches)
       .set({ textSnapshot: local.textSnapshot, updatedAt: new Date() })
       .where(eq(pvpMatches.id, match.id));
 
     if (activeMembers.length > 0) {
-      await prisma
+      await db
         .insert(pvpParticipants)
         .values(
           activeMembers.map((member) => ({
@@ -2662,7 +2925,7 @@ return nil
         .onConflictDoNothing({ target: [pvpParticipants.matchId, pvpParticipants.userId] });
     }
 
-    await prisma
+    await db
       .update(pvpRooms)
       .set({ status: "IN_MATCH", autoStartAt: null, updatedAt: new Date() })
       .where(eq(pvpRooms.id, params.roomId));
@@ -2683,7 +2946,7 @@ return nil
   };
 
   const maybeAutoStartPublicRoom = async (roomCode: string) => {
-    const roomRows = await prisma
+    const roomRows = await db
       .select({
         id: pvpRooms.id,
         code: pvpRooms.code,
@@ -2702,7 +2965,7 @@ return nil
       return false;
     }
 
-    const memberRows = await prisma
+    const memberRows = await db
       .select({
         userId: pvpRoomMembers.userId,
         colorSlot: pvpRoomMembers.colorSlot,
@@ -2749,6 +3012,59 @@ return nil
     return true;
   };
 
+  const loadConnectionUserWithPreferencePrepared = db.query.users
+    .findFirst({
+      columns: {
+        username: true,
+        banned: true,
+      },
+      where: eq(users.id, placeholder("userId")),
+      with: {
+        profile: {
+          columns: {
+            avatar: true,
+            longTermStats: true,
+          },
+        },
+        pvpRating: {
+          columns: {
+            rating: true,
+            deviation: true,
+          },
+        },
+        pvpMatchmakingPreference: {
+          columns: {
+            preferredMode: true,
+          },
+        },
+      },
+    })
+    .prepare("pvp_gateway_load_connection_user_with_preference");
+
+  const loadConnectionUserWithoutPreferencePrepared = db.query.users
+    .findFirst({
+      columns: {
+        username: true,
+        banned: true,
+      },
+      where: eq(users.id, placeholder("userId")),
+      with: {
+        profile: {
+          columns: {
+            avatar: true,
+            longTermStats: true,
+          },
+        },
+        pvpRating: {
+          columns: {
+            rating: true,
+            deviation: true,
+          },
+        },
+      },
+    })
+    .prepare("pvp_gateway_load_connection_user_without_preference");
+
   async function loadConnectionUser(userId: string): Promise<ConnectionUser> {
     const cache = connectionUserCache;
     if (!cache) {
@@ -2760,80 +3076,15 @@ return nil
         hasPvpMatchmakingPreferenceTable === false &&
         Date.now() - pvpMatchmakingPreferenceTableLastCheckedAt < PVP_PREFERENCE_TABLE_RETRY_MS;
 
-      let user:
-        | {
-            username: string | null;
-            banned: boolean;
-            profile: { avatar: string | null; longTermStats?: unknown } | null;
-            pvpRating: { rating: number; deviation: number } | null;
-            pvpMatchmakingPreference?: {
-              preferredMode: string;
-            } | null;
-          }
-        | null;
-
       const loadUserWithoutPreference = async () => {
-        const rows = await prisma
-          .select({
-            username: users.username,
-            banned: users.banned,
-            avatar: playerProfiles.avatar,
-            longTermStats: playerProfiles.longTermStats,
-            rating: pvpRatings.rating,
-            deviation: pvpRatings.deviation,
-          })
-          .from(users)
-          .leftJoin(playerProfiles, eq(playerProfiles.userId, users.id))
-          .leftJoin(pvpRatings, eq(pvpRatings.userId, users.id))
-          .where(eq(users.id, userId))
-          .limit(1);
-
-        const row = rows[0] ?? null;
-        if (!row) return null;
-
-        return {
-          username: row.username,
-          banned: row.banned,
-          profile:
-            row.avatar !== null || row.longTermStats !== null
-              ? { avatar: row.avatar, longTermStats: row.longTermStats ?? undefined }
-              : null,
-          pvpRating: row.rating !== null && row.deviation !== null ? { rating: row.rating, deviation: row.deviation } : null,
-        };
+        return loadConnectionUserWithoutPreferencePrepared.execute({ userId });
       };
 
       const loadUserWithPreference = async () => {
-        const rows = await prisma
-          .select({
-            username: users.username,
-            banned: users.banned,
-            avatar: playerProfiles.avatar,
-            longTermStats: playerProfiles.longTermStats,
-            rating: pvpRatings.rating,
-            deviation: pvpRatings.deviation,
-            preferredMode: pvpMatchmakingPreferences.preferredMode,
-          })
-          .from(users)
-          .leftJoin(playerProfiles, eq(playerProfiles.userId, users.id))
-          .leftJoin(pvpRatings, eq(pvpRatings.userId, users.id))
-          .leftJoin(pvpMatchmakingPreferences, eq(pvpMatchmakingPreferences.userId, users.id))
-          .where(eq(users.id, userId))
-          .limit(1);
-
-        const row = rows[0] ?? null;
-        if (!row) return null;
-
-        return {
-          username: row.username,
-          banned: row.banned,
-          profile:
-            row.avatar !== null || row.longTermStats !== null
-              ? { avatar: row.avatar, longTermStats: row.longTermStats ?? undefined }
-              : null,
-          pvpRating: row.rating !== null && row.deviation !== null ? { rating: row.rating, deviation: row.deviation } : null,
-          pvpMatchmakingPreference: row.preferredMode ? { preferredMode: row.preferredMode } : null,
-        };
+        return loadConnectionUserWithPreferencePrepared.execute({ userId });
       };
+
+      let user: Awaited<ReturnType<typeof loadUserWithPreference>> | null;
 
       if (shouldSkipPreferenceLookup) {
         user = await loadUserWithoutPreference();
@@ -2894,10 +3145,33 @@ return nil
     const hasAiParticipant = params.users.some((user) => isAiUserId(user.userId));
     const initialState: MatchLifecycleState = hasAiParticipant ? "countdown" : "waiting_for_both";
     const initialDbStatus = hasAiParticipant ? "COUNTDOWN" : "PENDING";
+    const requestedPersistUserIds = Array.from(new Set(params.persistUserIds.filter((userId) => !isAiUserId(userId))));
+    let persistUserIds = requestedPersistUserIds;
+
+    if (requestedPersistUserIds.length > 0) {
+      const existingUsers = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(inArray(users.id, requestedPersistUserIds));
+
+      const existingUserIds = new Set(existingUsers.map((row) => row.id));
+      persistUserIds = requestedPersistUserIds.filter((userId) => existingUserIds.has(userId));
+
+      if (persistUserIds.length !== requestedPersistUserIds.length) {
+        incrementGatewayMetric("pvp_match_participant_persist_skipped_total", {
+          reason: "user_not_found",
+        });
+        gatewayLogWarn("Skipping non-persistable ranked participants", {
+          matchId,
+          requestedPersistUserIds,
+          persistedUserIds: persistUserIds,
+        });
+      }
+    }
 
     const rankedText = await selectRankedText({
       matchId,
-      userIds: params.persistUserIds.filter((userId) => !isAiUserId(userId)),
+      userIds: persistUserIds,
       redis,
     });
     const inputNonce = createInputNonce();
@@ -2908,7 +3182,7 @@ return nil
 
     const serverStartAtMs = Date.now() + (params.startDelayMs ?? RANKED_MATCH_START_DELAY_MS);
 
-    await prisma.transaction(async (tx: PrismaClient) => {
+    await runGatewayTransaction(db, async (tx) => {
       await tx.insert(pvpMatches).values({
         id: matchId,
         status: initialDbStatus,
@@ -2919,19 +3193,35 @@ return nil
         revision: 1,
         instanceId: INSTANCE_ID,
         liveState: liveState as unknown,
-      });
+      }).onConflictDoNothing({ target: [pvpMatches.id] });
 
-      if (params.persistUserIds.length) {
-        await tx
-          .insert(pvpParticipants)
-          .values(
-            params.persistUserIds.map((userId) => ({
-              matchId,
-              userId,
-              slot: params.users.find((u) => u.userId === userId)?.slot ?? 0,
-            }))
-          )
-          .onConflictDoNothing({ target: [pvpParticipants.matchId, pvpParticipants.userId] });
+      if (persistUserIds.length) {
+        try {
+          await tx
+            .insert(pvpParticipants)
+            .values(
+              persistUserIds.map((userId) => ({
+                matchId,
+                userId,
+                slot: params.users.find((u) => u.userId === userId)?.slot ?? 0,
+              }))
+            )
+            .onConflictDoNothing({ target: [pvpParticipants.matchId, pvpParticipants.userId] });
+        } catch (error) {
+          if (!ALLOW_PARTICIPANT_PERSIST_FALLBACK) {
+            throw error;
+          }
+
+          incrementGatewayMetric("pvp_match_participant_persist_skipped_total", {
+            reason: "insert_failure",
+          });
+
+          gatewayLogWarn("Skipping participant persistence for ranked match after insert failure", {
+            matchId,
+            persistUserIds,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     });
 
@@ -2976,6 +3266,17 @@ return nil
       scheduleNoShowTimeout(matchId);
     }
 
+    gatewayLogInfo("Created ranked 1v1 match", {
+      matchId,
+      hasAiParticipant,
+      initialState,
+      initialDbStatus,
+      userIds: params.users.map((user) => user.userId),
+      requestedPersistUserIds,
+      persistedUserIds: persistUserIds,
+      serverStartDelayMs: Math.max(0, serverStartAtMs - Date.now()),
+    });
+
     return { matchId, local, serverStartAtMs, payload };
   }
 
@@ -3006,6 +3307,12 @@ return nil
     if (!gatewayHealthController?.canAcceptTraffic()) {
       gatewayMetrics?.incrementWsHandshake("rejected");
       incrementGatewayMetric("ws_connection_rejected", { reason: "gateway_not_ready" });
+      gatewayLogWarn("Rejected websocket connection because gateway cannot accept traffic", {
+        ip: ws.ip ?? getClientIp(req),
+        ready: gatewayHealthController?.isReady() ?? false,
+        draining: gatewayHealthController?.isDraining() ?? false,
+        activeConnections: wss.clients.size,
+      });
       ws.close(1013, "Gateway not ready");
       return;
     }
@@ -3030,6 +3337,11 @@ return nil
     if (globalConnectionBucket && !tryConsume(globalConnectionBucket, 1, Date.now())) {
       gatewayMetrics?.incrementWsHandshake("rejected");
       incrementGatewayMetric("ws_connection_rejected", { reason: "global_connection_rate_limit" });
+      gatewayLogWarn("Rejected websocket connection by global connection rate limit", {
+        ip,
+        refillPerSec: WS_GLOBAL_CONNECTIONS_PER_SEC,
+        burst: WS_GLOBAL_CONNECTIONS_BURST,
+      });
       ws.close(1013, "Gateway busy");
       return;
     }
@@ -3053,6 +3365,11 @@ return nil
     if (!tryConsume(attemptBucket, 1, Date.now())) {
       gatewayMetrics?.incrementWsHandshake("rejected");
       incrementGatewayMetric("ws_connection_rejected", { reason: "connection_attempt_rate_limit", ip });
+      gatewayLogWarn("Rejected websocket connection by per-IP connection attempt rate limit", {
+        ip,
+        attemptsPerMin: WS_CONNECTION_ATTEMPTS_PER_MIN,
+        burst: WS_CONNECTION_ATTEMPTS_BURST,
+      });
       ws.close(1013, "Too many connection attempts");
       return;
     }
@@ -3061,6 +3378,11 @@ return nil
     if (activeForIp >= WS_MAX_CONNECTIONS_PER_IP) {
       gatewayMetrics?.incrementWsHandshake("rejected");
       incrementGatewayMetric("ws_connection_rejected", { reason: "connection_cap", ip });
+      gatewayLogWarn("Rejected websocket connection by per-IP active connection cap", {
+        ip,
+        activeForIp,
+        maxConnectionsPerIp: WS_MAX_CONNECTIONS_PER_IP,
+      });
       ws.close(1013, "Too many active connections");
       return;
     }
@@ -3119,6 +3441,13 @@ return nil
         incrementGatewayMetric("ws_rate_limit_rejected", { reason: "general_message_rate" });
         ws.rawMsgStrikes = (ws.rawMsgStrikes ?? 0) + 1;
         if ((ws.rawMsgStrikes ?? 0) >= 3) {
+          gatewayLogWarn("Closing websocket due to repeated general message rate limit violations", {
+            ip: ws.ip ?? "unknown",
+            userId: ws.user?.userId ?? null,
+            strikes: ws.rawMsgStrikes,
+            wsMaxMsgPerSec: WS_MAX_MSG_PER_SEC,
+            wsMaxMsgBurst: WS_MAX_MSG_BURST,
+          });
           ws.close(1013, "Rate limit");
         }
         return;
@@ -3143,10 +3472,41 @@ return nil
 
       try {
         if (msg.type === "HELLO") {
-          const authed = await verifyWsTokenFast(msg.payload.token, {
-            clientSecret: msg.payload.clientSecret,
-            userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
-          });
+          let authed: WsAuthContext;
+
+          if (TEST_BYPASS) {
+            authed = buildBypassWsAuthContext(msg.payload.token, ws.connectionId ?? crypto.randomUUID());
+            ws.authBypass = true;
+            gatewayLogWarn("Accepted HELLO using PVP_TEST_BYPASS_AUTH in non-production", {
+              connectionId: ws.connectionId,
+              userId: authed.userId,
+              ip: ws.ip ?? "unknown",
+            });
+          } else {
+            try {
+              authed = await verifyWsTokenFast(msg.payload.token, {
+                clientSecret: msg.payload.clientSecret,
+                userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
+              });
+            } catch (authError) {
+              const mapped = mapHelloAuthFailure(authError);
+              gatewayLogWarn("Rejected HELLO authentication", {
+                code: mapped.code,
+                reason: authError instanceof Error ? authError.message : "unknown",
+                requestId: msg.requestId,
+                connectionId: ws.connectionId,
+                ip: ws.ip ?? "unknown",
+              });
+              throw new PvpClientVisibleError({
+                ...mapped,
+                details: {
+                  requestId: msg.requestId,
+                  phase: "hello_auth",
+                },
+              });
+            }
+          }
+
           ws.user = {
             userId: authed.userId,
             username: authed.username,
@@ -3163,6 +3523,8 @@ return nil
             userId: ws.user.userId,
             ip: ws.ip ?? "unknown",
           });
+
+          matchCache?.addUserSocket(ws);
 
           await markOnline(ws.user.userId);
           if (redis) {
@@ -3189,7 +3551,7 @@ return nil
           }
 
           const refreshed = await verifyWsTokenStrict(msg.payload.token, {
-            prisma,
+            db,
             clientSecret: msg.payload.clientSecret,
             userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
             expectedUserId: ws.user.userId,
@@ -3220,16 +3582,18 @@ return nil
         }
 
         if (msg.type === "QUEUE_JOIN" || msg.type === "MATCH_JOIN") {
-          await assertWsTokenState(prisma, {
-            userId: ws.user.userId,
-            username: ws.user.username,
-            avatar: ws.user.avatar,
-            pvpRating: ws.user.pvpRating,
-            pvpDeviation: ws.user.pvpDeviation,
-            tokenVersion: ws.user.tokenVersion,
-            validAfter: ws.user.validAfter,
-            issuedAt: ws.user.issuedAt,
-          });
+          if (!ws.authBypass) {
+            await assertWsTokenState(db, {
+              userId: ws.user.userId,
+              username: ws.user.username,
+              avatar: ws.user.avatar,
+              pvpRating: ws.user.pvpRating,
+              pvpDeviation: ws.user.pvpDeviation,
+              tokenVersion: ws.user.tokenVersion,
+              validAfter: ws.user.validAfter,
+              issuedAt: ws.user.issuedAt,
+            });
+          }
         }
 
         const idempotency = await loadIdempotencyHit({
@@ -3272,9 +3636,8 @@ return nil
             ...queueLogContext,
             useRedis: Boolean(redis),
           });
-          // Dev TEST: force a match vs a real DB-backed bot user (exercise human-vs-human path).
+          // Dev TEST: force a match vs a synthetic AI user to guarantee ai: semantics.
           if (TEST_FORCE_BOT_MATCH) {
-            const bot = await ensureTestBot();
             const me = await loadConnectionUser(ws.user.userId);
             ws.user = {
               ...me,
@@ -3282,11 +3645,8 @@ return nil
               validAfter: ws.user.validAfter,
               issuedAt: ws.user.issuedAt,
             };
-
-            if (me.userId === bot.userId) {
-              send(ws, "ERROR", { message: "TEST bot cannot match itself" });
-              return;
-            }
+            const aiUserId = process.env.PVP_TEST_AI_USER_ID ?? "ai:test-bot";
+            const aiUsername = process.env.PVP_TEST_AI_USERNAME ?? "Kai";
 
             state.removeFromQueue(me.userId);
             state.clearQueueTimeout(me.userId);
@@ -3294,26 +3654,33 @@ return nil
             const created = await createRanked1v1Match({
               users: [
                 { ...me, slot: 0 },
-                { ...bot, slot: 1 },
+                {
+                  userId: aiUserId,
+                  username: aiUsername,
+                  avatar: null,
+                  pvpRating: me.pvpRating,
+                  pvpDeviation: 180,
+                  slot: 1,
+                },
               ],
-              persistUserIds: [me.userId, bot.userId],
+              persistUserIds: [me.userId],
               startDelayMs: RANKED_MATCH_START_DELAY_MS,
             });
 
             await startAiSimulationAdaptive({
-              prisma,
+              db,
               wss,
               matchCache,
               matchRepository,
               matchId: created.matchId,
               humanId: me.userId,
-              aiUserId: bot.userId,
+              aiUserId,
               snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
               state,
-              forceFinishHumanAfterMs: 0,
+              forceFinishHumanAfterMs: envMs("PVP_FORCE_BOT_FINISH_HUMAN_AFTER_MS", 10_000),
               onFinalizeMatchIfComplete: (matchId) =>
                 finalizeMatchIfComplete({
-                  prisma,
+                  db,
                   wss,
                   state,
                   eventBus,
@@ -3435,6 +3802,10 @@ return nil
               }
 
               void (async () => {
+                gatewayLogInfo("Ranked queue AI fallback timer fired", {
+                  ...queueLogContext,
+                  timeoutMs: AI_QUEUE_TIMEOUT_MS,
+                });
                 const removed = await queueLeave(userId);
                 if (removed === 0) {
                   gatewayLogDebug("Skipped ranked queue AI fallback because the user was no longer queued", queueLogContext);
@@ -3464,9 +3835,10 @@ return nil
                   matchId: created.matchId,
                   queuedForMs: queuedMeta ? Math.max(0, Date.now() - queuedMeta.joinedAtMs) : undefined,
                 });
+                incrementGatewayMetric("pvp_queue_ai_fallback_total", { queue_mode: "redis" });
 
                 await startAiSimulationAdaptive({
-                  prisma,
+                  db,
                   wss,
                   matchCache,
                   matchRepository,
@@ -3477,7 +3849,7 @@ return nil
                   state,
                   onFinalizeMatchIfComplete: (matchId) =>
                     finalizeMatchIfComplete({
-                      prisma,
+                      db,
                       wss,
                       state,
                       eventBus,
@@ -3503,6 +3875,10 @@ return nil
             }, AI_QUEUE_TIMEOUT_MS);
 
             state.queueTimeouts.set(me.userId, timeout);
+            gatewayLogDebug("Scheduled ranked queue AI fallback timer", {
+              ...queueLogContext,
+              timeoutMs: AI_QUEUE_TIMEOUT_MS,
+            });
             send(ws, "QUEUE_STATUS", { status: "SEARCHING" });
             return;
           }
@@ -3592,6 +3968,10 @@ return nil
               state.clearQueueTimeout(userId);
 
               void (async () => {
+                gatewayLogInfo("Local ranked queue AI fallback timer fired", {
+                  ...queueLogContext,
+                  timeoutMs: AI_QUEUE_TIMEOUT_MS,
+                });
                 const human = stillQueued.user;
                 const aiUserId = `ai:${crypto.randomUUID()}`;
                 const created = await createRanked1v1Match({
@@ -3621,9 +4001,10 @@ return nil
                   matchId: created.matchId,
                   queuedForMs: Math.max(0, Date.now() - stillQueued.joinedAtMs),
                 });
+                incrementGatewayMetric("pvp_queue_ai_fallback_total", { queue_mode: "local" });
 
                 await startAiSimulationAdaptive({
-                  prisma,
+                  db,
                   wss,
                   matchCache,
                   matchRepository,
@@ -3634,7 +4015,7 @@ return nil
                   state,
                   onFinalizeMatchIfComplete: (matchId) =>
                     finalizeMatchIfComplete({
-                      prisma,
+                      db,
                       wss,
                       state,
                       eventBus,
@@ -3659,6 +4040,10 @@ return nil
               });
             }, AI_QUEUE_TIMEOUT_MS);
             state.queueTimeouts.set(ws.user!.userId, timeout);
+            gatewayLogDebug("Scheduled local ranked queue AI fallback timer", {
+              ...queueLogContext,
+              timeoutMs: AI_QUEUE_TIMEOUT_MS,
+            });
             localQueueResponseType = "QUEUE_STATUS";
             localQueueResponsePayload = { status: "SEARCHING" };
             shouldSendLocalQueueResponse = true;
@@ -3712,16 +4097,12 @@ return nil
             userId: ws.user.userId,
             matchId: msg.payload.matchId,
           });
+          beginMatchJoinInFlight(msg.payload.matchId, ws.user.userId);
 
-          // Cancel the disconnect-forfeit timer BEFORE the async DB lookup.
-          // Without this, the timer can fire during the ~200-300ms await window and
-          // finalise the match before clearDisconnectForfeitTimer is ever reached
-          // below, causing a spurious "match_closed" rejection on a legitimate rejoin.
-          clearDisconnectForfeitTimer(msg.payload.matchId, ws.user.userId);
-
-          await matchJoinLock.runExclusive(async () => {
-            const sessionKey = `${msg.payload.matchId}:${ws.user!.userId}`;
-            const cachedMatch = state.matches.get(msg.payload.matchId);
+          try {
+            await matchJoinLock.runExclusive(async () => {
+              const sessionKey = `${msg.payload.matchId}:${ws.user!.userId}`;
+              const cachedMatch = state.matches.get(msg.payload.matchId);
 
             if (
               ws.matchId === msg.payload.matchId &&
@@ -3747,6 +4128,7 @@ return nil
 
             const joinSnapshot = await matchRepository.withTransaction(async (tx) => {
               const dbMatch = await matchRepository.loadForUpdate(tx, msg.payload.matchId);
+              const fallbackLiveParticipant = dbMatch?.liveState?.participants?.[ws.user!.userId] ?? null;
 
               const participantRows = await tx
                 .select({
@@ -3760,7 +4142,15 @@ return nil
                 .where(and(eq(pvpParticipants.matchId, msg.payload.matchId), eq(pvpParticipants.userId, ws.user!.userId)))
                 .limit(1);
 
-              const participantRow = participantRows[0] ?? null;
+              const participantRow =
+                participantRows[0] ??
+                (ALLOW_PARTICIPANT_PERSIST_FALLBACK && fallbackLiveParticipant
+                  ? {
+                      slot: fallbackLiveParticipant.slot,
+                      username: fallbackLiveParticipant.username,
+                      avatar: fallbackLiveParticipant.avatar,
+                    }
+                  : null);
 
               const matchJoinAccess = canJoinPvpMatchSocket({
                 status: dbMatch?.status ?? "FINISHED",
@@ -3806,6 +4196,15 @@ return nil
                   })),
                 });
 
+              const participantsFromLiveState = Object.values(liveState.participants ?? {}).map((participant) => ({
+                userId: participant.userId,
+                slot: participant.slot,
+                username: participant.username,
+                avatar: participant.avatar,
+              }));
+              const effectiveParticipants =
+                participants.length > 0 ? participants : participantsFromLiveState;
+
               const participantState = liveState.participants[ws.user!.userId];
               if (participantState) {
                 participantState.lastInputAtMs = Date.now();
@@ -3837,7 +4236,7 @@ return nil
               return {
                 ok: true as const,
                 dbMatch,
-                participants,
+                participants: effectiveParticipants,
                 participantRow,
                 liveState,
                 revision: updateResult.applied ? updateResult.nextRevision : dbMatch.revision,
@@ -3887,8 +4286,8 @@ return nil
                 for (const participant of joinSnapshot.participants) {
                   hydrated.participants.set(participant.userId, {
                     userId: participant.userId,
-                    username: sanitizeDisplayName(participant.user.username ?? "user", 32) || "user",
-                    avatar: sanitizeAvatarUrl(participant.user.profile?.avatar ?? null),
+                    username: sanitizeDisplayName(participant.username ?? "user", 32) || "user",
+                    avatar: sanitizeAvatarUrl(participant.avatar ?? null),
                     slot: participant.slot,
                     input: joinSnapshot.liveState.participants[participant.userId]?.input ?? "",
                     seq: joinSnapshot.liveState.participants[participant.userId]?.seq ?? 0,
@@ -3919,7 +4318,7 @@ return nil
             effective.recentDeltas = joinSnapshot.liveState.deltas ?? effective.recentDeltas ?? [];
             const effectiveAccess = canJoinPvpMatchSocket({
               status: effective.status,
-              participantExists: Boolean(participantRow),
+              participantExists: Boolean(participantRow) || effective.participants.has(ws.user!.userId),
               userId: ws.user!.userId,
               forfeitedUserId: effective.forfeitedUserId,
               endedReason: effective.endedReason,
@@ -3951,8 +4350,9 @@ return nil
               });
             }
 
-            ws.matchId = msg.payload.matchId;
-            claimMatchSession(msg.payload.matchId, ws.user!.userId, ws);
+              ws.matchId = msg.payload.matchId;
+              claimMatchSession(msg.payload.matchId, ws.user!.userId, ws);
+              clearDisconnectForfeitTimer(msg.payload.matchId, ws.user!.userId);
 
             if (effective.roomCode === null && effective.state === "waiting_for_both") {
               await maybeStartRankedCountdown(effective);
@@ -3984,7 +4384,10 @@ return nil
                 send(ws, "PROGRESS", deltaPayload);
               }
             }
-          });
+            });
+          } finally {
+            endMatchJoinInFlight(msg.payload.matchId, ws.user.userId);
+          }
 
           return;
         }
@@ -4008,7 +4411,7 @@ return nil
           if (match.participants.size === 2 && !isTerminalPvpMatchStatus(match.status)) {
             if (match.state === "live") {
               await finalizeMatchByDisconnectForfeit({
-                prisma,
+                db,
                 wss,
                 state,
                 eventBus,
@@ -4017,7 +4420,7 @@ return nil
               });
             } else {
               await abortMatchLifecycle({
-                prisma,
+                db,
                 wss,
                 state,
                 eventBus,
@@ -4067,30 +4470,56 @@ return nil
           });
           if (!inputDecision.accept) return;
 
-          const replayDecision = await validateReplayProtectedInput({
-            redis,
-            matchId: match.matchId,
-            userId: ws.user.userId,
-            seq: msg.payload.seq,
-            inputNonce: msg.payload.inputNonce,
-            expectedNonce: match.inputNonce,
-          });
-          if (!replayDecision.accept) {
-            incrementGatewayMetric("pvp_anti_cheat_nonce_reject_total", {
-              reason:
-                replayDecision.reason === "missing_nonce"
-                  ? "missing"
-                  : replayDecision.reason === "mismatch_nonce"
-                    ? "mismatch"
-                    : "replayed_seq",
+          if (!msg.payload.inputNonce && !IS_PROD) {
+            gatewayLogWarn("Accepted INPUT_UPDATE without inputNonce in non-production", {
+              matchId: match.matchId,
+              userId: ws.user.userId,
+              seq: msg.payload.seq,
+              requestId: msg.requestId,
             });
-            send(ws, "ERROR", {
-              message:
-                replayDecision.reason === "replayed_seq"
-                  ? "This PvP input was already processed. Please refresh and try again."
-                  : "This PvP client is out of date. Please refresh and try again.",
+          } else {
+            const replayDecision = await validateReplayProtectedInput({
+              redis,
+              matchId: match.matchId,
+              userId: ws.user.userId,
+              seq: msg.payload.seq,
+              inputNonce: msg.payload.inputNonce,
+              expectedNonce: match.inputNonce,
             });
-            return;
+            if (!replayDecision.accept) {
+              gatewayLogWarn("Rejected INPUT_UPDATE by replay validation", {
+                matchId: match.matchId,
+                userId: ws.user.userId,
+                reason: replayDecision.reason,
+                seq: msg.payload.seq,
+                inputNonce: msg.payload.inputNonce ?? null,
+                expectedNonce: match.inputNonce ?? null,
+              });
+              incrementGatewayMetric("pvp_anti_cheat_nonce_reject_total", {
+                reason:
+                  replayDecision.reason === "missing_nonce"
+                    ? "missing"
+                    : replayDecision.reason === "mismatch_nonce"
+                      ? "mismatch"
+                      : "replayed_seq",
+              });
+              send(ws, "ERROR", {
+                code:
+                  replayDecision.reason === "missing_nonce"
+                    ? PVP_ERROR_CODES.INPUT_NONCE_MISSING
+                    : PVP_ERROR_CODES.INPUT_NONCE_INVALID,
+                message:
+                  replayDecision.reason === "replayed_seq"
+                    ? "This PvP input was already processed. Please refresh and try again."
+                    : "This PvP client is out of date. Please refresh and try again.",
+                retryable: false,
+                details: {
+                  requestId: msg.requestId,
+                  phase: "input_update_replay",
+                },
+              });
+              return;
+            }
           }
 
           // Anti-cheat: input must evolve by append or backspace only.
@@ -4182,7 +4611,7 @@ return nil
             value: { processedSeq: msg.payload.seq },
           });
 
-          await finalizeMatchIfComplete({ prisma, wss, state, eventBus, matchId: match.matchId });
+          await finalizeMatchIfComplete({ db, wss, state, eventBus, matchId: match.matchId });
 
           return;
         }
@@ -4205,7 +4634,7 @@ return nil
           }
 
           // Persist participant final stats best-effort
-          await prisma
+          await db
             .update(pvpParticipants)
             .set({
               finalWpm: participant.wpm,
@@ -4224,7 +4653,7 @@ return nil
             value: { processedSeq: participant.seq },
           });
 
-          await finalizeMatchIfComplete({ prisma, wss, state, eventBus, matchId: match.matchId });
+          await finalizeMatchIfComplete({ db, wss, state, eventBus, matchId: match.matchId });
 
           return;
         }
@@ -4267,6 +4696,9 @@ return nil
           if (isAiUserId(other.userId)) {
             const now = Date.now();
             const refuseUntil = aiRematchRefuseUntilByHumanId.get(meId) ?? 0;
+            if (refuseUntil > 0 && now >= refuseUntil) {
+              aiRematchRefuseUntilByHumanId.delete(meId);
+            }
             if (now < refuseUntil) {
               sendToUser(wss, meId, "REMATCH_DECLINED", {
                 matchId: msg.payload.matchId,
@@ -4290,7 +4722,7 @@ return nil
             aiRematchRefuseUntilByHumanId.set(meId, now + AI_REMATCH_COOLDOWN_MS);
 
             // Start a new AI match immediately.
-            const createdRows = await prisma
+            const createdRows = await db
               .insert(pvpMatches)
               .values({ status: "PENDING", textSnapshot: "placeholder" })
               .returning({ id: pvpMatches.id });
@@ -4340,7 +4772,7 @@ return nil
 
             await registerReplayNonce(redis, matchRow.id, local.inputNonce);
 
-            await prisma
+            await db
               .update(pvpMatches)
               .set({
                 status: "COUNTDOWN",
@@ -4352,10 +4784,10 @@ return nil
               })
               .where(eq(pvpMatches.id, matchRow.id));
 
-            await prisma
+            await db
               .insert(pvpParticipants)
               .values([{ matchId: matchRow.id, userId: ws.user.userId, slot: me.slot }])
-              .onConflictDoNothing({ target: [pvpParticipants.matchId, pvpParticipants.userId] });
+              .onConflictDoNothing();
 
             sendToUser(wss, meId, "MATCH_FOUND", {
               matchId: matchRow.id,
@@ -4372,7 +4804,7 @@ return nil
             });
 
             await startAiSimulationAdaptive({
-              prisma,
+              db,
               wss,
               matchCache,
               matchRepository,
@@ -4383,7 +4815,7 @@ return nil
               state,
               onFinalizeMatchIfComplete: (matchId) =>
                 finalizeMatchIfComplete({
-                  prisma,
+                  db,
                   wss,
                   state,
                   eventBus,
@@ -4405,6 +4837,7 @@ return nil
             accepted = new Set<string>();
             rematchAcceptedByMatchId.set(match.matchId, accepted);
           }
+          touchRematchAccepted(match.matchId);
 
           accepted.add(meId);
 
@@ -4414,7 +4847,7 @@ return nil
           sendToUser(wss, other.userId, "REMATCH_STATUS", { matchId: match.matchId, acceptedUserIds });
 
           if (accepted.size >= 2) {
-            rematchAcceptedByMatchId.delete(match.matchId);
+            clearRematchAccepted(match.matchId);
 
             const [aConn, bConn] = await Promise.all([
               loadConnectionUser(meId),
@@ -4469,7 +4902,7 @@ return nil
           const other = participants.find((p) => p.userId !== meId)!;
 
           if (!msg.payload.accept) {
-            rematchAcceptedByMatchId.delete(match.matchId);
+            clearRematchAccepted(match.matchId);
             sendToUser(wss, other.userId, "REMATCH_DECLINED", {
               matchId: match.matchId,
               byUserId: meId,
@@ -4488,6 +4921,7 @@ return nil
             accepted = new Set<string>();
             rematchAcceptedByMatchId.set(match.matchId, accepted);
           }
+          touchRematchAccepted(match.matchId);
 
           accepted.add(meId);
           const acceptedUserIds = Array.from(accepted);
@@ -4495,7 +4929,7 @@ return nil
           sendToUser(wss, other.userId, "REMATCH_STATUS", { matchId: match.matchId, acceptedUserIds });
 
           if (accepted.size >= 2) {
-            rematchAcceptedByMatchId.delete(match.matchId);
+            clearRematchAccepted(match.matchId);
 
             const [aConn, bConn] = await Promise.all([
               loadConnectionUser(meId),
@@ -4534,9 +4968,9 @@ return nil
             send(ws, "ERROR", { message: "Invalid room code" });
             return;
           }
-          ws.roomCode = code;
+          const previousRoomCode = ws.roomCode;
 
-          const roomRows = await prisma
+          const roomRows = await db
             .select({
               id: pvpRooms.id,
               code: pvpRooms.code,
@@ -4567,7 +5001,7 @@ return nil
           }
 
           // Determine color slot
-          const members = await prisma
+          const members = await db
             .select({
               userId: pvpRoomMembers.userId,
               colorSlot: pvpRoomMembers.colorSlot,
@@ -4597,7 +5031,7 @@ return nil
           const reconnectKey = buildRoomReconnectKey(room.id, ws.user.userId);
           const restoringMembership = redis ? (await redis.exists(reconnectKey)) === 1 : false;
 
-          await prisma
+          await db
             .insert(pvpRoomMembers)
             .values({ roomId: room.id, userId: ws.user.userId, colorSlot: slot, leftAt: null, readyAt: null })
             .onConflictDoUpdate({
@@ -4609,16 +5043,25 @@ return nil
             await redis.del(reconnectKey);
           }
 
-          await touchRoomExpiry(prisma, room.id);
+          updateSocketRoomSubscription(ws, code);
+          if (previousRoomCode && previousRoomCode !== code) {
+            gatewayLogDebug("Socket room subscription moved", {
+              userId: ws.user.userId,
+              fromRoom: previousRoomCode,
+              toRoom: code,
+            });
+          }
+
+          await touchRoomExpiry(db, room.id);
 
           if (!room.hostUserId) {
-            await prisma
+            await db
               .update(pvpRooms)
               .set({ hostUserId: ws.user.userId, updatedAt: new Date() })
               .where(eq(pvpRooms.id, room.id));
           }
 
-          await broadcastRoomState(prisma, wss, code);
+          await broadcastRoomState(db, wss, code);
           if (room.visibility === "PUBLIC") {
             await maybeAutoStartPublicRoom(code);
           }
@@ -4651,7 +5094,7 @@ return nil
             return;
           }
 
-          const roomRows = await prisma
+          const roomRows = await db
             .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, maxPlayers: pvpRooms.maxPlayers })
             .from(pvpRooms)
             .where(eq(pvpRooms.code, code))
@@ -4666,13 +5109,13 @@ return nil
             return;
           }
 
-          await prisma
+          await db
             .update(pvpRoomMembers)
             .set({ readyAt: new Date() })
             .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user.userId)));
 
-          await touchRoomExpiry(prisma, room.id);
-          await broadcastRoomState(prisma, wss, code);
+          await touchRoomExpiry(db, room.id);
+          await broadcastRoomState(db, wss, code);
           if (room.visibility === "PUBLIC") {
             await maybeAutoStartPublicRoom(code);
           }
@@ -4695,7 +5138,7 @@ return nil
             return;
           }
 
-          const roomRows = await prisma
+          const roomRows = await db
             .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, hostUserId: pvpRooms.hostUserId })
             .from(pvpRooms)
             .where(eq(pvpRooms.code, code))
@@ -4718,7 +5161,7 @@ return nil
             return;
           }
 
-          const memberRows = await prisma
+          const memberRows = await db
             .select({
               userId: pvpRoomMembers.userId,
               colorSlot: pvpRoomMembers.colorSlot,
@@ -4773,7 +5216,7 @@ return nil
             return;
           }
 
-          const roomRows = await prisma
+          const roomRows = await db
             .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, hostUserId: pvpRooms.hostUserId })
             .from(pvpRooms)
             .where(eq(pvpRooms.code, code))
@@ -4796,20 +5239,29 @@ return nil
             return;
           }
 
-          await prisma
-            .update(pvpRoomMembers)
-            .set({ leftAt: new Date(), readyAt: null })
-            .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, msg.payload.userId)))
-            .catch(() => null);
+          try {
+            await db
+              .update(pvpRoomMembers)
+              .set({ leftAt: new Date(), readyAt: null })
+              .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, msg.payload.userId)));
+          } catch (error) {
+            gatewayLogError("Failed to kick room member", error, {
+              roomId: room.id,
+              roomCode: room.code,
+              actorUserId: ws.user.userId,
+              targetUserId: msg.payload.userId,
+            });
+            throw error;
+          }
 
           if (redis) {
             await redis.del(buildRoomReconnectKey(room.id, msg.payload.userId));
           }
 
           sendToUser(wss, msg.payload.userId, "ERROR", { message: "Kicked from room" });
-          await transferRoomHostIfNeeded(prisma, room.id);
-          await touchRoomExpiry(prisma, room.id);
-          await broadcastRoomState(prisma, wss, code);
+          await transferRoomHostIfNeeded(db, room.id);
+          await touchRoomExpiry(db, room.id);
+          await broadcastRoomState(db, wss, code);
 
           await storeIdempotencyHit({
             redis,
@@ -4829,7 +5281,7 @@ return nil
             return;
           }
 
-          const roomRows = await prisma
+          const roomRows = await db
             .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility })
             .from(pvpRooms)
             .where(eq(pvpRooms.code, code))
@@ -4840,20 +5292,28 @@ return nil
             return;
           }
 
-          await prisma
-            .update(pvpRoomMembers)
-            .set({ leftAt: new Date(), readyAt: null })
-            .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user.userId)))
-            .catch(() => null);
+          try {
+            await db
+              .update(pvpRoomMembers)
+              .set({ leftAt: new Date(), readyAt: null })
+              .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user.userId)));
+          } catch (error) {
+            gatewayLogError("Failed to mark room leave", error, {
+              roomId: room.id,
+              roomCode: room.code,
+              userId: ws.user.userId,
+            });
+            throw error;
+          }
 
           if (redis) {
             await redis.del(buildRoomReconnectKey(room.id, ws.user.userId));
           }
 
-          ws.roomCode = undefined;
-          await transferRoomHostIfNeeded(prisma, room.id);
-          await touchRoomExpiry(prisma, room.id);
-          await broadcastRoomState(prisma, wss, code);
+          updateSocketRoomSubscription(ws, undefined);
+          await transferRoomHostIfNeeded(db, room.id);
+          await touchRoomExpiry(db, room.id);
+          await broadcastRoomState(db, wss, code);
           if (room.visibility === "PUBLIC") {
             await maybeAutoStartPublicRoom(code);
           }
@@ -4925,9 +5385,10 @@ return nil
         state.removeFromQueue(ws.user.userId);
         state.clearQueueTimeout(ws.user.userId);
         void queueLeave(ws.user.userId);
+        matchCache?.removeUserSocket(ws);
         releaseMatchSession(ws);
-        if (ws.matchId) {
-          matchCache?.removeSocket(ws.matchId, ws);
+        if (ws.roomCode) {
+          matchCache?.removeRoomSocket(ws.roomCode, ws);
         }
 
         const otherSockets = getAuthedSocketsForUser(wss, ws.user.userId).filter((socket) => socket !== ws);
@@ -4964,7 +5425,7 @@ return nil
       if (ws.user && ws.roomCode) {
         const code = ws.roomCode;
         void (async () => {
-          const roomRows = await prisma
+          const roomRows = await db
             .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility })
             .from(pvpRooms)
             .where(eq(pvpRooms.code, code))
@@ -4982,14 +5443,22 @@ return nil
             return;
           }
 
-          await prisma
-            .update(pvpRoomMembers)
-            .set({ leftAt: new Date() })
-            .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user!.userId)))
-            .catch(() => null);
+          try {
+            await db
+              .update(pvpRoomMembers)
+              .set({ leftAt: new Date() })
+              .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user!.userId)));
+          } catch (error) {
+            gatewayLogError("Failed to mark room member offline on socket close", error, {
+              roomId: room.id,
+              roomCode: room.code,
+              userId: ws.user?.userId,
+            });
+            throw error;
+          }
 
-          await transferRoomHostIfNeeded(prisma, room.id);
-          await broadcastRoomState(prisma, wss, code);
+          await transferRoomHostIfNeeded(db, room.id);
+          await broadcastRoomState(db, wss, code);
           if (room.visibility === "PUBLIC") {
             await maybeAutoStartPublicRoom(code);
           }
@@ -5073,7 +5542,14 @@ return nil
       }
 
       clearInterval(metricSnapshotInterval);
-      clearInterval(roomLifecycleSweepInterval);
+      if (roomLifecycleSweepInterval) {
+        clearInterval(roomLifecycleSweepInterval);
+      }
+      rematchAcceptedByMatchId.clear();
+      rematchAcceptedTouchedAtByMatchId.clear();
+      aiRematchRefuseUntilByHumanId.clear();
+      inFlightMatchJoins.clear();
+      inputUpdateFlushRetriesByMatch.clear();
       for (const timeout of disconnectForfeitTimers.values()) {
         clearTimeout(timeout);
       }
@@ -5115,6 +5591,36 @@ return nil
   process.once("SIGTERM", () => {
     void beginGracefulShutdown("SIGTERM");
   });
+
+  let startupErrorHandled = false;
+  const handleStartupServerError = (error: unknown) => {
+    if (startupErrorHandled) return;
+    startupErrorHandled = true;
+
+    const candidate = error as { code?: unknown; errno?: unknown; syscall?: unknown; address?: unknown; port?: unknown } | null;
+    const code = String(candidate?.code ?? "");
+    if (code === "EADDRINUSE") {
+      gatewayLogError("PvP gateway failed to bind listen port", error, {
+        port: PORT,
+      });
+      gatewayLogWarn("Port is already in use. Stop the other gateway process or set a different PORT.", {
+        port: PORT,
+        hint: "Example: set PORT=8788 before starting the gateway",
+      });
+      process.exitCode = 1;
+      process.nextTick(() => process.exit(1));
+      return;
+    }
+
+    gatewayLogError("PvP gateway server error", error, {
+      port: PORT,
+    });
+    process.exitCode = 1;
+    process.nextTick(() => process.exit(1));
+  };
+
+  server.once("error", handleStartupServerError);
+  wss.on("error", handleStartupServerError);
 
   server.listen(PORT, () => {
     gatewayLogInfo("PvP gateway listening", { port: PORT, instanceId: INSTANCE_ID });

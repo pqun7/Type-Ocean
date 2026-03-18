@@ -2,7 +2,49 @@ import { sql } from "drizzle-orm";
 import type { MatchLifecycleState } from "./match-fsm";
 import type { MatchLiveParticipantState, MatchLiveState } from "./match-live-state";
 import { dbStatusFromMatchState } from "./match-live-state";
-import type { GatewayDb, GatewayTx } from "./gateway-db";
+import { runGatewayTransaction, type GatewayDb, type GatewayTx } from "./gateway-db";
+import { incrementGatewayMetric, observeGatewayHistogram } from "./metrics";
+
+const DB_QUERY_DURATION_BUCKETS_MS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_000, 5_000];
+
+async function observeMatchDbQuery<T>(
+  operation: "load" | "load_for_update" | "update_with_revision" | "try_lock_finalization" | "clear_live_state_on_terminal",
+  queryKind: "select" | "update",
+  run: () => Promise<T>
+) {
+  const startedAt = Date.now();
+
+  try {
+    const result = await run();
+    incrementGatewayMetric("pvp_db_query_total", {
+      table: "pvp_match",
+      operation,
+      query_kind: queryKind,
+      status: "ok",
+    });
+    observeGatewayHistogram("pvp_db_query_duration_ms", Date.now() - startedAt, DB_QUERY_DURATION_BUCKETS_MS, {
+      table: "pvp_match",
+      operation,
+      query_kind: queryKind,
+      status: "ok",
+    });
+    return result;
+  } catch (error) {
+    incrementGatewayMetric("pvp_db_query_total", {
+      table: "pvp_match",
+      operation,
+      query_kind: queryKind,
+      status: "error",
+    });
+    observeGatewayHistogram("pvp_db_query_duration_ms", Date.now() - startedAt, DB_QUERY_DURATION_BUCKETS_MS, {
+      table: "pvp_match",
+      operation,
+      query_kind: queryKind,
+      status: "error",
+    });
+    throw error;
+  }
+}
 
 export type MatchRow = {
   id: string;
@@ -30,15 +72,17 @@ export type MatchTransitionPatch = {
 };
 
 export class MatchRepository {
-  constructor(private readonly prisma: GatewayDb) {}
+  constructor(private readonly db: GatewayDb) {}
 
   async load(matchId: string): Promise<MatchRow | null> {
-    const result = await this.prisma.execute(sql`
-      SELECT id, status, revision, "instanceId", "liveState", "textSnapshot", "textId", "inputNonce", "updatedAt", "startedAt", "endedAt", "serverStartAt"
-      FROM "pvp_match"
-      WHERE id = ${matchId}
-      LIMIT 1
-    `);
+    const result = await observeMatchDbQuery("load", "select", () =>
+      this.db.execute(sql`
+        SELECT id, status, revision, "instanceId", "liveState", "textSnapshot", "textId", "inputNonce", "updatedAt", "startedAt", "endedAt", "serverStartAt"
+        FROM "pvp_match"
+        WHERE id = ${matchId}
+        LIMIT 1
+      `)
+    );
 
     const row = result.rows[0] as {
       id: string;
@@ -63,12 +107,14 @@ export class MatchRepository {
   }
 
   async loadForUpdate(tx: GatewayTx, matchId: string): Promise<MatchRow | null> {
-    const result = await tx.execute(sql`
-      SELECT id, status, revision, "instanceId", "liveState", "textSnapshot", "textId", "inputNonce", "updatedAt", "startedAt", "endedAt", "serverStartAt"
-      FROM "pvp_match"
-      WHERE id = ${matchId}
-      FOR UPDATE
-    `);
+    const result = await observeMatchDbQuery("load_for_update", "select", () =>
+      tx.execute(sql`
+        SELECT id, status, revision, "instanceId", "liveState", "textSnapshot", "textId", "inputNonce", "updatedAt", "startedAt", "endedAt", "serverStartAt"
+        FROM "pvp_match"
+        WHERE id = ${matchId}
+        FOR UPDATE
+      `)
+    );
 
     const row = result.rows[0] as {
       id: string;
@@ -96,19 +142,21 @@ export class MatchRepository {
     const status = dbStatusFromMatchState(patch.nextState);
     const liveStateJson = JSON.stringify(patch.liveState);
 
-    const result = await tx.execute(sql`
-      UPDATE "pvp_match"
-      SET status = ${status},
-          "liveState" = CAST(${liveStateJson} AS jsonb),
-          revision = revision + 1,
-          "instanceId" = ${patch.instanceId ?? null},
-          "serverStartAt" = ${patch.serverStartAt ?? null},
-          "startedAt" = ${patch.startedAt ?? null},
-          "endedAt" = ${patch.endedAt ?? null}
-      WHERE id = ${matchId}
-        AND revision = ${patch.expectedRevision}
-      RETURNING id
-    `);
+    const result = await observeMatchDbQuery("update_with_revision", "update", () =>
+      tx.execute(sql`
+        UPDATE "pvp_match"
+        SET status = ${status},
+            "liveState" = CAST(${liveStateJson} AS jsonb),
+            revision = revision + 1,
+            "instanceId" = ${patch.instanceId ?? null},
+            "serverStartAt" = ${patch.serverStartAt ?? null},
+            "startedAt" = ${patch.startedAt ?? null},
+            "endedAt" = ${patch.endedAt ?? null}
+        WHERE id = ${matchId}
+          AND revision = ${patch.expectedRevision}
+        RETURNING id
+      `)
+    );
 
     return {
       applied: result.rows.length === 1,
@@ -123,16 +171,18 @@ export class MatchRepository {
     liveState: MatchLiveState;
   }) {
     const liveStateJson = JSON.stringify(params.liveState);
-    const result = await tx.execute(sql`
-      UPDATE "pvp_match"
-      SET revision = revision + 1,
-          "instanceId" = ${params.instanceId},
-          "liveState" = CAST(${liveStateJson} AS jsonb)
-      WHERE id = ${params.matchId}
-        AND revision = ${params.expectedRevision}
-        AND status NOT IN ('FINISHED', 'ABORTED')
-      RETURNING id
-    `);
+    const result = await observeMatchDbQuery("try_lock_finalization", "update", () =>
+      tx.execute(sql`
+        UPDATE "pvp_match"
+        SET revision = revision + 1,
+            "instanceId" = ${params.instanceId},
+            "liveState" = CAST(${liveStateJson} AS jsonb)
+        WHERE id = ${params.matchId}
+          AND revision = ${params.expectedRevision}
+          AND status NOT IN ('FINISHED', 'ABORTED')
+        RETURNING id
+      `)
+    );
 
     return {
       acquired: result.rows.length === 1,
@@ -146,16 +196,18 @@ export class MatchRepository {
     status: "FINISHED" | "ABORTED";
     endedAt?: Date;
   }) {
-    const result = await tx.execute(sql`
-      UPDATE "pvp_match"
-      SET status = ${params.status},
-          "liveState" = NULL,
-          revision = revision + 1,
-          "endedAt" = ${params.endedAt ?? new Date()}
-      WHERE id = ${params.matchId}
-        AND revision = ${params.expectedRevision}
-      RETURNING id
-    `);
+    const result = await observeMatchDbQuery("clear_live_state_on_terminal", "update", () =>
+      tx.execute(sql`
+        UPDATE "pvp_match"
+        SET status = ${params.status},
+            "liveState" = NULL,
+            revision = revision + 1,
+            "endedAt" = ${params.endedAt ?? new Date()}
+        WHERE id = ${params.matchId}
+          AND revision = ${params.expectedRevision}
+        RETURNING id
+      `)
+    );
 
     return {
       applied: result.rows.length === 1,
@@ -164,7 +216,7 @@ export class MatchRepository {
   }
 
   async withTransaction<T>(run: (tx: GatewayTx) => Promise<T>) {
-    return this.prisma.transaction((tx) => run(tx));
+    return runGatewayTransaction(this.db, run);
   }
 
   /**

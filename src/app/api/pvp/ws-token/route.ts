@@ -138,7 +138,7 @@ async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null
       hasLoggedMissingPvpWsTokenColumnsWarning = true;
       logging.warn("PvP WS token route is using compatibility fallback because DB columns are missing", {
         route: "/api/pvp/ws-token",
-        migrationHint: "Run Prisma migrations to add pvpWsTokenVersion and pvpWsTokensValidAfter",
+        migrationHint: "Run database migrations to add pvpWsTokenVersion and pvpWsTokensValidAfter",
         userRef: createUserLogRef(userId),
       });
     }

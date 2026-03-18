@@ -15,6 +15,7 @@ const DEFAULT_PVP_PREFERENCE = {
   textDifficulty: "normal" as const,
 };
 const PVP_PREFERENCE_TABLE_RETRY_MS = 60_000;
+const PVP_MATCHMAKING_PREFERENCES_TABLE = "pvp_matchmaking_preferences";
 
 let hasPvpMatchmakingPreferenceTable: boolean | null = null;
 let hasLoggedMissingPvpMatchmakingPreferenceTableWarning = false;
@@ -25,8 +26,14 @@ function isMissingPvpMatchmakingPreferenceTable(error: unknown) {
 
   const code = String((error as { code?: unknown }).code ?? "");
   const message = String((error as { message?: unknown }).message ?? "").toLowerCase();
+  const table = String((error as { meta?: { table?: unknown } }).meta?.table ?? "").toLowerCase();
 
-  return code === "42P01" || message.includes("pvp_matchmaking_preference") || message.includes("relation");
+  if (code === "42P01") {
+    if (table.includes(PVP_MATCHMAKING_PREFERENCES_TABLE)) return true;
+    if (message.includes(PVP_MATCHMAKING_PREFERENCES_TABLE)) return true;
+  }
+
+  return message.includes(`relation \"${PVP_MATCHMAKING_PREFERENCES_TABLE}\"`) && message.includes("does not exist");
 }
 
 function buildDefaultPreferenceResponse(
@@ -45,7 +52,7 @@ function logMissingPreferenceTableOnce() {
   hasLoggedMissingPvpMatchmakingPreferenceTableWarning = true;
   logging.warn("PvP preference route is using compatibility fallback because the preference table is missing", {
     route: "/api/pvp/preferences",
-    migrationHint: "Run Prisma migrations to add pvp_matchmaking_preference",
+    migrationHint: `Run database migrations to add ${PVP_MATCHMAKING_PREFERENCES_TABLE}`,
   });
 }
 

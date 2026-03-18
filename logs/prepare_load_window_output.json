@@ -1,0 +1,11 @@
+[dotenv@17.3.1] injecting env (52) from .env.local -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+[dotenv@17.3.1] injecting env (30) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+{
+  "tokenCount": 300,
+  "tokenFile": "D:\\Web projects\\Type Space\\type-space\\logs\\pvp_ws_tokens_load_window.json",
+  "pgSnapshot": "D:\\Web projects\\Type Space\\type-space\\logs\\pg_stat_statements_before.json",
+  "extensionAvailable": true,
+  "extensionError": null,
+  "clientSecret": "k6loadwindowclientsecretfixed12345",
+  "userAgent": "k6-ai-stress/1.0"
+}

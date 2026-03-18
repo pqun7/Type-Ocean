@@ -101,8 +101,8 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Prisma generate
-        run: npm run prisma:generate
+      - name: Drizzle generate
+        run: npm run drizzle:generate
 
       - name: Unit tests
         run: npm run test:ci

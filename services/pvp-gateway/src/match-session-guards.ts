@@ -27,6 +27,10 @@ export function shouldScheduleDisconnectForfeit(params: {
   return true;
 }
 
+export function shouldDeferDisconnectForfeitForJoin(params: { joinInFlight: boolean }) {
+  return params.joinInFlight;
+}
+
 export function getStaleMatchAbortReason(params: {
   state: MatchLifecycleState;
   stateAgeMs: number;

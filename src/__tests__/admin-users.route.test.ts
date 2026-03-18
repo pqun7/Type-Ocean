@@ -2,21 +2,21 @@
 
 import { NextRequest } from "next/server";
 import { DELETE, PATCH } from "@/app/api/admin/users/route";
-import prisma from "@/features/auth/lib/db";
+import dbClient from "@/features/auth/lib/db";
 import { authorizeAdminActor, authorizePrimaryAdminRequest } from "@/app/api/shared.server";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
 
-type PrismaMock = {
+type DbMock = {
   user: {
     findUnique: jest.Mock;
     update: jest.Mock;
   };
 };
 
-const prismaMock = prisma as unknown as PrismaMock;
+const dbMock = dbClient as unknown as DbMock;
 
 jest.mock("@/features/auth/lib/db", () => {
-  const prismaMock = {
+  const dbMock = {
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -25,7 +25,7 @@ jest.mock("@/features/auth/lib/db", () => {
 
   return {
     __esModule: true,
-    default: prismaMock,
+    default: dbMock,
   };
 });
 
@@ -50,7 +50,7 @@ describe("admin users route", () => {
       isPrimaryAdmin: false,
     });
 
-    prismaMock.user.findUnique.mockResolvedValue({
+    dbMock.user.findUnique.mockResolvedValue({
       id: "admin-3",
       username: "other-admin",
       email: "other-admin@example.com",
@@ -72,7 +72,7 @@ describe("admin users route", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Only the primary admin can moderate another admin account",
     });
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(dbMock.user.update).not.toHaveBeenCalled();
   });
 
   it("removes admin access for a non-primary admin", async () => {
@@ -82,7 +82,7 @@ describe("admin users route", () => {
       isPrimaryAdmin: true,
     });
 
-    prismaMock.user.findUnique.mockResolvedValue({
+    dbMock.user.findUnique.mockResolvedValue({
       id: "admin-2",
       username: "assistant-admin",
       email: "assistant-admin@example.com",
@@ -90,7 +90,7 @@ describe("admin users route", () => {
       isPrimaryAdmin: false,
     });
 
-    prismaMock.user.update.mockResolvedValue({
+    dbMock.user.update.mockResolvedValue({
       id: "admin-2",
       username: "assistant-admin",
       email: "assistant-admin@example.com",
@@ -111,7 +111,7 @@ describe("admin users route", () => {
 
     expect(response.status).toBe(200);
     expect(body.user.role).toBe("user");
-    expect(prismaMock.user.update).toHaveBeenCalledWith({
+    expect(dbMock.user.update).toHaveBeenCalledWith({
       where: { id: "admin-2" },
       data: {
         role: "user",
@@ -149,7 +149,7 @@ describe("admin users route", () => {
       isPrimaryAdmin: true,
     });
 
-    prismaMock.user.findUnique.mockResolvedValue({
+    dbMock.user.findUnique.mockResolvedValue({
       id: "admin-1",
       username: "root-admin",
       email: "root@example.com",
@@ -169,6 +169,6 @@ describe("admin users route", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Primary admin cannot delete their own account here",
     });
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(dbMock.user.update).not.toHaveBeenCalled();
   });
 });

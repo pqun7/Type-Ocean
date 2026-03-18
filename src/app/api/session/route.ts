@@ -3,7 +3,7 @@ import { getToken } from "next-auth/jwt";
 
 import { resolveExistingUserId, UserResolutionUnavailableError } from "@/app/api/shared.server";
 import { clearAuthSessionCookies } from "@/features/auth/server/session-cookies";
-import { isPrismaTemporarilyUnavailableError } from "@/lib/prisma-error-utils";
+import { isDatabaseTemporarilyUnavailableError } from "@/lib/db-error-utils";
 
 export const runtime = "nodejs";
 
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (isPrismaTemporarilyUnavailableError(error)) {
+    if (isDatabaseTemporarilyUnavailableError(error)) {
       return NextResponse.json(
         {
           valid: false,
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (isPrismaTemporarilyUnavailableError(error)) {
+    if (isDatabaseTemporarilyUnavailableError(error)) {
       return NextResponse.json(
         {
           valid: false,

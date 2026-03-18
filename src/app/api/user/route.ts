@@ -15,7 +15,7 @@ import { sanitizeAvatarUrl, sanitizeDisplayName } from "@/lib/sanitize";
 import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 import { ensurePlayerProfile, syncPlayerProfile } from "@/features/auth/server/player-profile";
 import { clearAuthSessionCookies } from "@/features/auth/server/session-cookies";
-import { isPrismaAccountHoldError } from "@/lib/prisma-error-utils";
+import { isDatabaseAccountHoldError } from "@/lib/db-error-utils";
 
 const OTP_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -253,11 +253,11 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    if (isPrismaAccountHoldError(error)) {
+    if (isDatabaseAccountHoldError(error)) {
       logUserOperation.error(requestId, "get_user_profile", error, {
         operationPhase: "get_user_profile",
         fallbackStatus: 503,
-        reason: "prisma_account_hold",
+        reason: "db_account_hold",
       });
 
       return NextResponse.json(
@@ -794,18 +794,18 @@ export async function DELETE(req: NextRequest) {
 
     return response;
   } catch (error) {
-    const prismaCode =
+    const dbCode =
       typeof error === "object" && error !== null && "code" in error
         ? String((error as { code?: unknown }).code)
         : null;
 
     logUserOperation.error(requestId, "delete_user_account", error, {
       operationPhase: "delete_user_account",
-      prismaCode,
+      dbCode,
     });
 
     return NextResponse.json(
-      { error: "Failed to delete account", requestId, ...(prismaCode ? { code: prismaCode } : {}) },
+      { error: "Failed to delete account", requestId, ...(dbCode ? { code: dbCode } : {}) },
       { status: 500 }
     );
   }

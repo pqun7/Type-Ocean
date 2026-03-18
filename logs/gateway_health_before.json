@@ -1,0 +1,1 @@
+{"status":"ok","instanceId":"caaf82b2-6b70-482e-8f26-1f15df173725","ready":true,"draining":false,"acceptingTraffic":true,"activeConnections":0,"activeMatches":0,"overloaded":false,"dependencies":{"db":true,"redis":true},"checkedAt":"2026-03-16T20:29:54.640Z","shutdownStartedAt":null}

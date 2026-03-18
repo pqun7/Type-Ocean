@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 import { getTodayDate, getUtcMidnightTTL } from "@/features/auth/utils/timeUtils";
 import { logging } from "@/log/ServerLogger";
 import { getToken } from "next-auth/jwt";
-import { isPrismaTemporarilyUnavailableError } from "@/lib/prisma-error-utils";
+import { isDatabaseTemporarilyUnavailableError } from "@/lib/db-error-utils";
 
 export type AuthorizedAdminActor = {
   id: string;
@@ -46,7 +46,7 @@ export const resolveExistingUserId = async (
     `);
     user = (result.rows[0] as { id: string; banned: boolean } | undefined) ?? null;
   } catch (error) {
-    if (isPrismaTemporarilyUnavailableError(error)) {
+    if (isDatabaseTemporarilyUnavailableError(error)) {
       logging.warn("Temporarily unable to resolve user id", {
         userId,
         reason: "db_temporarily_unavailable",

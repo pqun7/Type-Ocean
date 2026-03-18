@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-type PrismaProbeClient = {
+type DbProbeClient = {
   execute(query: unknown): Promise<unknown>;
 };
 
@@ -10,7 +10,7 @@ type RedisProbeClient = {
 
 type GatewayHealthControllerOptions = {
   instanceId: string;
-  prisma: PrismaProbeClient;
+  db: DbProbeClient;
   getRedisClient: () => RedisProbeClient | null;
   getConnectionCount: () => number;
   getActiveMatchCount: () => number;
@@ -28,16 +28,16 @@ export type GatewayHealthReport = {
   activeMatches: number;
   overloaded: boolean;
   dependencies: {
-    prisma: boolean;
+    db: boolean;
     redis: boolean;
   };
   checkedAt: string;
   shutdownStartedAt: string | null;
 };
 
-async function checkPrisma(prisma: PrismaProbeClient) {
+async function checkDb(db: DbProbeClient) {
   try {
-    await prisma.execute(sql`SELECT 1`);
+    await db.execute(sql`SELECT 1`);
     return true;
   } catch {
     return false;
@@ -98,13 +98,13 @@ export function createGatewayHealthController(options: GatewayHealthControllerOp
       state.shutdownStartedAtMs = null;
     },
     async evaluate(kind: "health" | "ready"): Promise<{ statusCode: number; body: GatewayHealthReport }> {
-      const [prismaHealthy, redisHealthy] = await Promise.all([
-        checkPrisma(options.prisma),
+      const [dbHealthy, redisHealthy] = await Promise.all([
+        checkDb(options.db),
         checkRedis(options.getRedisClient(), options.redisRequired),
       ]);
 
       const snapshot = getSnapshot();
-      const dependencyHealthy = prismaHealthy && redisHealthy;
+      const dependencyHealthy = dbHealthy && redisHealthy;
       const ready = dependencyHealthy && !snapshot.overloaded && state.ready && !state.draining;
       const live = dependencyHealthy && !snapshot.overloaded;
 
@@ -118,7 +118,7 @@ export function createGatewayHealthController(options: GatewayHealthControllerOp
         activeMatches: snapshot.activeMatches,
         overloaded: snapshot.overloaded,
         dependencies: {
-          prisma: prismaHealthy,
+          db: dbHealthy,
           redis: redisHealthy,
         },
         checkedAt: new Date().toISOString(),

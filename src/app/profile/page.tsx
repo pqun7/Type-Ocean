@@ -15,10 +15,10 @@ import { getOverallKeyboardPerformance } from "@/helper/overall-keyboard-perform
 import { getRankInfo } from "@/features/ranking/rating";
 import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
 import {
-  getPrismaErrorCode,
-  isPrismaAccountHoldError,
-  isPrismaTemporarilyUnavailableError,
-} from "@/lib/prisma-error-utils";
+  getDatabaseErrorCode,
+  isDatabaseAccountHoldError,
+  isDatabaseTemporarilyUnavailableError,
+} from "@/lib/db-error-utils";
 
 import ProfileClient from "./profile-client";
 
@@ -99,11 +99,11 @@ export default async function ProfilePage() {
       user = null;
     }
   } catch (err) {
-    const code = getPrismaErrorCode(err);
-    console.error("/profile prisma.user.findUnique failed", { code, err });
+    const code = getDatabaseErrorCode(err);
+    console.error("/profile db.users.findFirst failed", { code, err });
 
-    const isNetworkLike = isPrismaTemporarilyUnavailableError(err);
-    const isAccountHold = isPrismaAccountHoldError(err);
+    const isNetworkLike = isDatabaseTemporarilyUnavailableError(err);
+    const isAccountHold = isDatabaseAccountHoldError(err);
 
     return (
       <div className="min-h-svh bg-[#0a0a1f] p-6 md:p-10">
@@ -117,7 +117,7 @@ export default async function ProfilePage() {
               </h2>
               <p className="mt-2 text-[#8A8FB5]">
                 {isAccountHold
-                  ? "Database access is temporarily blocked by the hosting plan limit. Please resolve the Prisma account hold and try again."
+                  ? "Database access is temporarily blocked by the hosting plan limit. Please resolve the database provider account hold and try again."
                   : isNetworkLike
                   ? "We couldn’t reach the database service. Please try again in a moment."
                   : "We couldn’t load your profile right now. Please try again later."}
@@ -157,8 +157,8 @@ export default async function ProfilePage() {
         },
       })) as NonNullable<ProfileDbUser["profile"]>;
     } catch (err) {
-      const code = getPrismaErrorCode(err);
-      console.error("/profile prisma.playerProfile.upsert failed", { code, err });
+      const code = getDatabaseErrorCode(err);
+      console.error("/profile db.playerProfiles profile ensure failed", { code, err });
       profile = {
         level: 1,
         xp: 0,

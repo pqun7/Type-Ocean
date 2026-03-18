@@ -41,6 +41,18 @@ Multi-instance (optional):
 
 Load testing:
 - `k6 run src/load-tests/pvp-websocket.js`
+- Windows PowerShell quick run (from repo root):
+	- `node logs/prepare_load_window.cjs`
+	- `$env:PVP_WS_URL="ws://127.0.0.1:8787"`
+	- `$env:PVP_WS_TOKENS_FILE="logs/pvp_ws_tokens_load_window.json"`
+	- `$env:PVP_FIXED_CLIENT_SECRET="k6loadwindowclientsecretfixed12345"`
+	- `$env:PVP_WS_USER_AGENT="k6-ai-stress/1.0"`
+	- `$env:PVP_WS_ORIGIN="http://localhost:3000"`
+	- `$env:PVP_TEST_FORCE_BOT_MATCH="true"`
+	- `$env:PVP_SESSION_TIMEOUT_MS="60000"`
+	- `k6 run src/load-tests/pvp-websocket.js`
+- Windows CMD quick run:
+	- `logs\run_verify_current.cmd`
 
 ## Transport / edge protection
 - Production deployments should expose the gateway over **WSS only**.

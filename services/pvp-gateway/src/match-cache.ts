@@ -3,6 +3,7 @@ import WebSocket from "ws";
 export type WsConnLike = WebSocket & {
   user?: { userId: string };
   matchId?: string;
+  roomCode?: string;
 };
 
 /**
@@ -11,6 +12,7 @@ export type WsConnLike = WebSocket & {
 export class MatchCache {
   private readonly socketsByMatchId = new Map<string, Set<WsConnLike>>();
   private readonly socketsByUserId = new Map<string, Set<WsConnLike>>();
+  private readonly socketsByRoomCode = new Map<string, Set<WsConnLike>>();
   private readonly aiTickStateByMatchId = new Map<string, { tickMs: number; lastFlushAtMs: number }>();
 
   addSocket(matchId: string, socket: WsConnLike) {
@@ -20,7 +22,9 @@ export class MatchCache {
       this.socketsByMatchId.set(matchId, matchSet);
     }
     matchSet.add(socket);
+  }
 
+  addUserSocket(socket: WsConnLike) {
     const userId = socket.user?.userId;
     if (!userId) return;
 
@@ -32,15 +36,7 @@ export class MatchCache {
     userSet.add(socket);
   }
 
-  removeSocket(matchId: string, socket: WsConnLike) {
-    const matchSet = this.socketsByMatchId.get(matchId);
-    if (matchSet) {
-      matchSet.delete(socket);
-      if (matchSet.size === 0) {
-        this.socketsByMatchId.delete(matchId);
-      }
-    }
-
+  removeUserSocket(socket: WsConnLike) {
     const userId = socket.user?.userId;
     if (!userId) return;
 
@@ -53,12 +49,45 @@ export class MatchCache {
     }
   }
 
+  addRoomSocket(roomCode: string, socket: WsConnLike) {
+    let roomSet = this.socketsByRoomCode.get(roomCode);
+    if (!roomSet) {
+      roomSet = new Set<WsConnLike>();
+      this.socketsByRoomCode.set(roomCode, roomSet);
+    }
+    roomSet.add(socket);
+  }
+
+  removeRoomSocket(roomCode: string, socket: WsConnLike) {
+    const roomSet = this.socketsByRoomCode.get(roomCode);
+    if (!roomSet) return;
+
+    roomSet.delete(socket);
+    if (roomSet.size === 0) {
+      this.socketsByRoomCode.delete(roomCode);
+    }
+  }
+
+  removeSocket(matchId: string, socket: WsConnLike) {
+    const matchSet = this.socketsByMatchId.get(matchId);
+    if (matchSet) {
+      matchSet.delete(socket);
+      if (matchSet.size === 0) {
+        this.socketsByMatchId.delete(matchId);
+      }
+    }
+  }
+
   getMatchSockets(matchId: string) {
     return this.socketsByMatchId.get(matchId) ?? new Set<WsConnLike>();
   }
 
   getUserSockets(userId: string) {
     return this.socketsByUserId.get(userId) ?? new Set<WsConnLike>();
+  }
+
+  getRoomSockets(roomCode: string) {
+    return this.socketsByRoomCode.get(roomCode) ?? new Set<WsConnLike>();
   }
 
   broadcastToMatch(matchId: string, serializedMessage: string) {
@@ -105,20 +134,6 @@ export class MatchCache {
   }
 
   clearMatch(matchId: string) {
-    const sockets = this.socketsByMatchId.get(matchId);
-    if (sockets) {
-      for (const socket of sockets) {
-        const userId = socket.user?.userId;
-        if (!userId) continue;
-        const userSet = this.socketsByUserId.get(userId);
-        if (!userSet) continue;
-        userSet.delete(socket);
-        if (userSet.size === 0) {
-          this.socketsByUserId.delete(userId);
-        }
-      }
-    }
-
     this.socketsByMatchId.delete(matchId);
     this.aiTickStateByMatchId.delete(matchId);
   }

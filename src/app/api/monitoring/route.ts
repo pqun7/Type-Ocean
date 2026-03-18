@@ -44,7 +44,7 @@ async function getPgConnectionSnapshot() {
 }
 
 async function getDbMetricsSnapshot() {
-  return { available: false, reason: "prisma_metrics_removed" };
+  return { available: false, reason: "db_metrics_removed" };
 }
 
 export async function GET(req: NextRequest) {

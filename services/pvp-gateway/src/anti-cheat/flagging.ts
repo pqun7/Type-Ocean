@@ -16,7 +16,7 @@ type UserFlagSummary = {
 };
 
 export async function recordCheatAssessment(params: {
-  prisma: GatewayDb;
+  db: GatewayDb;
   userId: string;
   matchId: string;
   confidence: number;
@@ -47,27 +47,43 @@ export async function recordCheatAssessment(params: {
   nextSummary.totalFlags += 1;
   nextSummary.lastFlagAt = Date.now();
   const wouldSanction = params.confidence >= AUTO_SANCTION_THRESHOLD || nextSummary.totalFlags >= 3;
+  const baseValues = {
+    userId: params.userId,
+    matchId: params.matchId,
+    confidence: params.confidence,
+    flags: params.flags,
+    wouldSanction,
+    metadata,
+  };
 
-  await params.prisma
-    .insert(cheatFlags)
-    .values({
-      userId: params.userId,
-      matchId: params.matchId,
-      confidence: params.confidence,
-      flags: params.flags,
-      wouldSanction,
-      metadata,
-    })
-    .onConflictDoUpdate({
-      target: [cheatFlags.userId, cheatFlags.matchId],
-      set: {
-        confidence: params.confidence,
-        flags: params.flags,
-        wouldSanction,
-        metadata,
-        updatedAt: sql`now()`,
-      },
-    });
+  try {
+    await params.db
+      .insert(cheatFlags)
+      .values(baseValues)
+      .onConflictDoUpdate({
+        target: [cheatFlags.userId, cheatFlags.matchId],
+        set: {
+          confidence: params.confidence,
+          flags: params.flags,
+          wouldSanction,
+          metadata,
+          updatedAt: sql`now()`,
+        },
+      });
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    if (!message.includes("no unique or exclusion constraint")) {
+      await writeJsonValue(redis, summaryKey, nextSummary, FLAG_SCORE_TTL_SECONDS);
+      return { persisted: false, wouldSanction, totalFlags: nextSummary.totalFlags };
+    }
+
+    try {
+      await params.db.insert(cheatFlags).values(baseValues);
+    } catch {
+      await writeJsonValue(redis, summaryKey, nextSummary, FLAG_SCORE_TTL_SECONDS);
+      return { persisted: false, wouldSanction, totalFlags: nextSummary.totalFlags };
+    }
+  }
 
   await writeJsonValue(redis, summaryKey, nextSummary, FLAG_SCORE_TTL_SECONDS);
   incrementGatewayMetric("pvp_anti_cheat_flags_total", { wouldSanction });

@@ -81,9 +81,9 @@ jobs:
         if: steps.secrets_check.outputs.deploy_ready == 'true'
         run: npm ci
 
-      - name: Prisma generate
+      - name: Drizzle generate
         if: steps.secrets_check.outputs.deploy_ready == 'true'
-        run: npm run prisma:generate
+        run: npm run drizzle:generate
 
       - name: Build
         if: steps.secrets_check.outputs.deploy_ready == 'true'

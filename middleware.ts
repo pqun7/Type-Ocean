@@ -539,9 +539,8 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico, robots.txt, sitemap.xml
      * - public images and assets
-     * - prisma studio
      */
-    "/((?!api/|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|@prisma).*)"
+    "/((?!api/|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)"
   ]
 }
 

@@ -9,9 +9,9 @@ import { rateLimiter } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
 import { addUserXP, getUserProgress } from "@/features/level/server-utils/userCache";
 import {
-  isPrismaAccountHoldError,
-  isPrismaTemporarilyUnavailableError,
-} from "@/lib/prisma-error-utils";
+  isDatabaseAccountHoldError,
+  isDatabaseTemporarilyUnavailableError,
+} from "@/lib/db-error-utils";
 
 const SERVICE_TYPE = "PROFILE-PROGRESS";
 
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
       }
     );
   } catch (error) {
-    if (isPrismaAccountHoldError(error)) {
+    if (isDatabaseAccountHoldError(error)) {
       return NextResponse.json(
         {
           error: "Progress is temporarily unavailable due to a database account hold",
@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (isPrismaTemporarilyUnavailableError(error)) {
+    if (isDatabaseTemporarilyUnavailableError(error)) {
       return NextResponse.json(
         {
           error: "Progress is temporarily unavailable",
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
     const parsed = BodySchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { error: "Invalid input", details: parsed.error.errors },
+        { error: "Invalid input", details: parsed.error.issues },
         { status: 400 }
       );
     }
@@ -198,7 +198,7 @@ export async function POST(req: NextRequest) {
       progress: updated,
     });
   } catch (error) {
-    if (isPrismaAccountHoldError(error)) {
+    if (isDatabaseAccountHoldError(error)) {
       return NextResponse.json(
         {
           error: "Progress update is temporarily unavailable due to a database account hold",
@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (isPrismaTemporarilyUnavailableError(error)) {
+    if (isDatabaseTemporarilyUnavailableError(error)) {
       return NextResponse.json(
         {
           error: "Progress update is temporarily unavailable",

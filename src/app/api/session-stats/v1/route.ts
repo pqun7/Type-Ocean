@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { connectIfNeeded, redis } from "@/lib/redis";
 import { enforceRateLimit } from "@/lib/rate-limiter";
 import { logging } from "@/log/ServerLogger";
@@ -32,6 +32,17 @@ import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboar
 
 const SERVICE_TYPE = "SESSION-STATS";
 // Constants now imported from session-stats helper module
+
+function deriveLocalDateFromOffset(now: Date, tzOffsetMinutes?: number): string {
+  if (typeof tzOffsetMinutes !== "number" || !Number.isFinite(tzOffsetMinutes)) {
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+
+  // JS offset is UTC - local, so local time = UTC - offset.
+  const localMs = now.getTime() - tzOffsetMinutes * 60_000;
+  const local = new Date(localMs);
+  return `${local.getUTCFullYear()}-${String(local.getUTCMonth() + 1).padStart(2, "0")}-${String(local.getUTCDate()).padStart(2, "0")}`;
+}
 
 // in api/session-stats/v1/route.ts
 // Safe logging utilities for session stats
@@ -209,9 +220,10 @@ export async function POST(req: NextRequest) {
 
   // Sanitize and enrich session data
   const sanitizedSession: NormalizedSessionData = sanitizeSessionData(typedSessionData);
-  const timestamp = new Date().toISOString();
+  const now = new Date();
+  const timestamp = now.toISOString();
   const { localDate: providedLocalDate, tzOffsetMinutes } = typedSessionData;
-  const localDate = providedLocalDate ?? timestamp.slice(0, 10);
+  const localDate = providedLocalDate ?? deriveLocalDateFromOffset(now, tzOffsetMinutes);
 
   const enrichedSession = {
     ...sanitizedSession,
@@ -500,30 +512,70 @@ export async function POST(req: NextRequest) {
     // Persist per-day aggregates for profile heatmap (best-effort).
     try {
       const wpmTime = sanitizedSession.wpm * sanitizedSession.timeSpent;
-      await db
-        .insert(dailyTypingActivity)
-        .values({
+      try {
+        await db
+          .insert(dailyTypingActivity)
+          .values({
+            userId,
+            localDate,
+            sessionsCount: 1,
+            totalTimeSpentSec: sanitizedSession.timeSpent,
+            sumWpm: sanitizedSession.wpm,
+            sumWpmTime: wpmTime,
+            sumAccuracy: sanitizedSession.accuracy,
+          })
+          .onConflictDoUpdate({
+            target: [dailyTypingActivity.userId, dailyTypingActivity.localDate],
+            set: {
+              sessionsCount: sql`${dailyTypingActivity.sessionsCount} + 1`,
+              totalTimeSpentSec: sql`${dailyTypingActivity.totalTimeSpentSec} + ${sanitizedSession.timeSpent}`,
+              sumWpm: sql`${dailyTypingActivity.sumWpm} + ${sanitizedSession.wpm}`,
+              sumWpmTime: sql`${dailyTypingActivity.sumWpmTime} + ${wpmTime}`,
+              sumAccuracy: sql`${dailyTypingActivity.sumAccuracy} + ${sanitizedSession.accuracy}`,
+              updatedAt: new Date(),
+            },
+          });
+      } catch (upsertError) {
+        // Fallback path in case DB constraints don't match expected upsert target.
+        logging.warn("daily_typing_activity upsert failed, trying manual fallback", {
+          requestId,
           userId,
           localDate,
-          sessionsCount: 1,
-          totalTimeSpentSec: sanitizedSession.timeSpent,
-          sumWpm: sanitizedSession.wpm,
-          sumWpmTime: wpmTime,
-          sumAccuracy: sanitizedSession.accuracy,
-        })
-        .onConflictDoUpdate({
-          target: [dailyTypingActivity.userId, dailyTypingActivity.localDate],
-          set: {
+          error: upsertError instanceof Error ? upsertError.message : String(upsertError),
+        });
+
+        const updatedRows = await db
+          .update(dailyTypingActivity)
+          .set({
             sessionsCount: sql`${dailyTypingActivity.sessionsCount} + 1`,
             totalTimeSpentSec: sql`${dailyTypingActivity.totalTimeSpentSec} + ${sanitizedSession.timeSpent}`,
             sumWpm: sql`${dailyTypingActivity.sumWpm} + ${sanitizedSession.wpm}`,
             sumWpmTime: sql`${dailyTypingActivity.sumWpmTime} + ${wpmTime}`,
             sumAccuracy: sql`${dailyTypingActivity.sumAccuracy} + ${sanitizedSession.accuracy}`,
             updatedAt: new Date(),
-          },
-        });
-    } catch {
-      // best-effort; do not block session recording
+          })
+          .where(and(eq(dailyTypingActivity.userId, userId), eq(dailyTypingActivity.localDate, localDate)))
+          .returning({ id: dailyTypingActivity.id });
+
+        if (updatedRows.length === 0) {
+          await db.insert(dailyTypingActivity).values({
+            userId,
+            localDate,
+            sessionsCount: 1,
+            totalTimeSpentSec: sanitizedSession.timeSpent,
+            sumWpm: sanitizedSession.wpm,
+            sumWpmTime: wpmTime,
+            sumAccuracy: sanitizedSession.accuracy,
+          });
+        }
+      }
+    } catch (dailyPersistError) {
+      logging.warn("daily_typing_activity persistence failed", {
+        requestId,
+        userId,
+        localDate,
+        error: dailyPersistError instanceof Error ? dailyPersistError.message : String(dailyPersistError),
+      });
     }
 
     // Prepare response immediately for better performance

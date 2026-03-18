@@ -69,13 +69,9 @@ async function main() {
     const user = userResult.rows[0];
     if (!user) throw new Error(`Failed to upsert user: ${email}`);
 
-    const avatarResult = await db.execute(sql`
-      SELECT "avatar"
-      FROM "PlayerProfile"
-      WHERE "userId" = ${user.id}
-      LIMIT 1
-    `);
-    const avatar = avatarResult.rows[0]?.avatar ?? null;
+    // Avatar is optional in websocket claims and should not block token minting.
+    // Avoid coupling this load-test utility to profile table naming differences.
+    const avatar = null;
 
     await db.execute(sql`
       INSERT INTO "pvp_rating" ("userId")
@@ -92,18 +88,24 @@ async function main() {
     const rating = ratingResult.rows[0];
     if (!rating) throw new Error(`Missing rating row for user: ${user.id}`);
 
+    const tokenVersion = Number.isFinite(Number(user.pvpWsTokenVersion)) ? Math.trunc(Number(user.pvpWsTokenVersion)) : 0;
+    const validAfterMs = user.pvpWsTokensValidAfter ? new Date(user.pvpWsTokensValidAfter).getTime() : 0;
+    const validAfterSec = Number.isFinite(validAfterMs) ? Math.floor(validAfterMs / 1000) : 0;
+
+    const issuedAtSec = Math.max(nowSec, validAfterSec + 1);
+
     const token = await new SignJWT({
       username: user.username,
       avatar,
-      pvpRating: rating.rating,
-      pvpDeviation: rating.deviation,
+      pvpRating: Number(rating.rating),
+      pvpDeviation: Number(rating.deviation),
       fp: fingerprint,
-      tv: user.pvpWsTokenVersion ?? 0,
-      va: Math.floor((user.pvpWsTokensValidAfter ?? new Date(0)).getTime() / 1000),
+      tv: tokenVersion,
+      va: validAfterSec,
     })
       .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
       .setSubject(user.id)
-      .setIssuedAt(nowSec)
+      .setIssuedAt(issuedAtSec)
       .setExpirationTime(expiresAt)
       .setJti(crypto.randomUUID())
       .sign(key);

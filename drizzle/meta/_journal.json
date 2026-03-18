@@ -8,6 +8,20 @@
       "when": 1773622156638,
       "tag": "0000_superb_prima",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773705600000,
+      "tag": "0001_rename_pvp_matchmaking_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773702042857,
+      "tag": "0002_charming_red_ghost",
+      "breakpoints": true
     }
   ]
 }

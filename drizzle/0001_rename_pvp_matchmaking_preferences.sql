@@ -1,0 +1,1 @@
+ALTER TABLE IF EXISTS "pvp_matchmaking_preference" RENAME TO "pvp_matchmaking_preferences";

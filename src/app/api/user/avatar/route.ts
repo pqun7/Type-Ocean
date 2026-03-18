@@ -11,9 +11,9 @@ import { syncPlayerProfile } from "@/features/auth/server/player-profile";
 import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 import { rateLimiter } from "@/lib/rate-limiter";
 import {
-  isPrismaAccountHoldError,
-  isPrismaTemporarilyUnavailableError,
-} from "@/lib/prisma-error-utils";
+  isDatabaseAccountHoldError,
+  isDatabaseTemporarilyUnavailableError,
+} from "@/lib/db-error-utils";
 
 export const runtime = "nodejs";
 
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url: blob.url, requestId });
   } catch (error) {
-    if (isPrismaAccountHoldError(error)) {
+    if (isDatabaseAccountHoldError(error)) {
       return NextResponse.json(
         {
           error: "Avatar update is temporarily unavailable due to a database account hold",
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (isPrismaTemporarilyUnavailableError(error)) {
+    if (isDatabaseTemporarilyUnavailableError(error)) {
       return NextResponse.json(
         {
           error: "Avatar update is temporarily unavailable",

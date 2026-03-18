@@ -1,0 +1,293 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+     execution: local
+        script: src/load-tests/pvp-websocket.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 30 max VUs, 1m5s max duration (incl. graceful stop):
+              * pvp_ws: Up to 30 looping VUs for 55s over 3 stages (gracefulRampDown: 10s, gracefulStop: 30s)
+
+
+Init     [  13% ] 04/30 VUs initialized
+pvp_ws   [   0% ]
+
+Init     [  30% ] 09/30 VUs initialized
+pvp_ws   [   0% ]
+
+Init     [  97% ] 29/30 VUs initialized
+pvp_ws   [   0% ]
+
+running (0m00.9s), 01/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   2% ] 01/30 VUs  00.9s/55.0s
+
+running (0m02.1s), 03/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   4% ] 03/30 VUs  02.1s/55.0s
+
+running (0m03.5s), 05/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   6% ] 05/30 VUs  03.5s/55.0s
+
+running (0m04.0s), 05/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   7% ] 05/30 VUs  04.0s/55.0s
+
+running (0m05.0s), 07/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   9% ] 07/30 VUs  05.0s/55.0s
+
+running (0m06.0s), 08/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  11% ] 08/30 VUs  06.0s/55.0s
+
+running (0m07.0s), 09/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  13% ] 09/30 VUs  07.0s/55.0s
+
+running (0m08.0s), 10/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  15% ] 10/30 VUs  08.0s/55.0s
+
+running (0m09.2s), 13/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  17% ] 13/30 VUs  09.2s/55.0s
+
+running (0m10.1s), 15/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  18% ] 15/30 VUs  10.1s/55.0s
+
+running (0m11.0s), 15/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  20% ] 15/30 VUs  11.0s/55.0s
+
+running (0m12.0s), 15/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  22% ] 15/30 VUs  12.0s/55.0s
+
+running (0m13.0s), 16/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  24% ] 16/30 VUs  13.0s/55.0s
+
+running (0m14.0s), 16/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  25% ] 16/30 VUs  14.0s/55.0s
+
+running (0m15.0s), 17/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  27% ] 17/30 VUs  15.0s/55.0s
+
+running (0m16.7s), 17/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  30% ] 17/30 VUs  16.7s/55.0s
+
+running (0m17.1s), 17/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  31% ] 17/30 VUs  17.1s/55.0s
+
+running (0m18.0s), 18/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  33% ] 18/30 VUs  18.0s/55.0s
+
+running (0m19.0s), 18/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  35% ] 18/30 VUs  19.0s/55.0s
+
+running (0m20.3s), 19/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  37% ] 19/30 VUs  20.3s/55.0s
+
+running (0m21.0s), 19/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  38% ] 19/30 VUs  21.0s/55.0s
+
+running (0m22.0s), 20/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  40% ] 20/30 VUs  22.0s/55.0s
+
+running (0m23.0s), 20/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  42% ] 20/30 VUs  23.0s/55.0s
+
+running (0m23.9s), 20/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  44% ] 20/30 VUs  23.9s/55.0s
+
+running (0m25.0s), 20/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  45% ] 20/30 VUs  25.0s/55.0s
+
+running (0m25.9s), 20/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  47% ] 20/30 VUs  25.9s/55.0s
+
+running (0m27.3s), 22/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  50% ] 22/30 VUs  27.3s/55.0s
+
+running (0m28.1s), 22/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  51% ] 22/30 VUs  28.1s/55.0s
+
+running (0m29.2s), 23/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  53% ] 23/30 VUs  29.2s/55.0s
+
+running (0m30.1s), 23/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  55% ] 23/30 VUs  30.1s/55.0s
+
+running (0m31.2s), 24/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  57% ] 24/30 VUs  31.2s/55.0s
+
+running (0m31.9s), 24/30 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  58% ] 24/30 VUs  31.9s/55.0s
+
+running (0m32.9s), 24/30 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  60% ] 24/30 VUs  32.9s/55.0s
+
+running (0m33.9s), 25/30 VUs, 3 complete and 0 interrupted iterations
+pvp_ws   [  62% ] 25/30 VUs  33.9s/55.0s
+
+running (0m35.0s), 25/30 VUs, 4 complete and 0 interrupted iterations
+pvp_ws   [  64% ] 25/30 VUs  35.0s/55.0s
+
+running (0m36.0s), 25/30 VUs, 5 complete and 0 interrupted iterations
+pvp_ws   [  65% ] 25/30 VUs  36.0s/55.0s
+
+running (0m37.0s), 26/30 VUs, 6 complete and 0 interrupted iterations
+pvp_ws   [  67% ] 26/30 VUs  37.0s/55.0s
+
+running (0m38.0s), 26/30 VUs, 7 complete and 0 interrupted iterations
+pvp_ws   [  69% ] 26/30 VUs  38.0s/55.0s
+
+running (0m39.8s), 27/30 VUs, 7 complete and 0 interrupted iterations
+pvp_ws   [  72% ] 27/30 VUs  39.8s/55.0s
+
+running (0m40.7s), 28/30 VUs, 9 complete and 0 interrupted iterations
+pvp_ws   [  74% ] 28/30 VUs  40.7s/55.0s
+
+running (0m40.9s), 28/30 VUs, 10 complete and 0 interrupted iterations
+pvp_ws   [  74% ] 28/30 VUs  40.9s/55.0s
+
+running (0m41.9s), 28/30 VUs, 10 complete and 0 interrupted iterations
+pvp_ws   [  76% ] 28/30 VUs  41.9s/55.0s
+
+running (0m43.0s), 28/30 VUs, 12 complete and 0 interrupted iterations
+pvp_ws   [  78% ] 28/30 VUs  43.0s/55.0s
+
+running (0m44.0s), 29/30 VUs, 12 complete and 0 interrupted iterations
+pvp_ws   [  80% ] 29/30 VUs  44.0s/55.0s
+
+running (0m45.2s), 30/30 VUs, 13 complete and 0 interrupted iterations
+pvp_ws   [  82% ] 30/30 VUs  45.2s/55.0s
+
+running (0m46.1s), 30/30 VUs, 15 complete and 0 interrupted iterations
+pvp_ws   [  84% ] 30/30 VUs  46.1s/55.0s
+
+running (0m47.2s), 30/30 VUs, 16 complete and 0 interrupted iterations
+pvp_ws   [  86% ] 30/30 VUs  47.2s/55.0s
+
+running (0m51.3s), 30/30 VUs, 16 complete and 0 interrupted iterations
+pvp_ws   [  93% ] 30/30 VUs  51.3s/55.0s
+
+running (0m52.2s), 30/30 VUs, 16 complete and 0 interrupted iterations
+pvp_ws   [  95% ] 30/30 VUs  52.2s/55.0s
+
+running (0m53.9s), 26/30 VUs, 20 complete and 0 interrupted iterations
+pvp_ws   [  98% ] 26/30 VUs  53.9s/55.0s
+
+running (0m54.0s), 26/30 VUs, 20 complete and 0 interrupted iterations
+pvp_ws   [  98% ] 26/30 VUs  54.0s/55.0s
+
+running (0m55.1s), 26/30 VUs, 20 complete and 0 interrupted iterations
+pvp_ws   [ 100% ] 26/30 VUs  55s
+
+running (0m56.0s), 25/30 VUs, 20 complete and 1 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (0m57.3s), 21/30 VUs, 20 complete and 5 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (0m58.0s), 19/30 VUs, 20 complete and 7 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (0m59.0s), 19/30 VUs, 20 complete and 7 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (1m00.0s), 19/30 VUs, 20 complete and 7 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (1m01.2s), 12/30 VUs, 20 complete and 14 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (1m02.2s), 09/30 VUs, 20 complete and 17 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (1m03.8s), 04/30 VUs, 20 complete and 22 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (1m04.0s), 04/30 VUs, 20 complete and 22 interrupted iterations
+pvp_ws ↓ [ 100% ] 26/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+
+
+  █ THRESHOLDS 
+
+    pvp_ws_connect_errors
+    ✗ 'rate<0.20' rate=100.00%
+
+    pvp_ws_hello_latency
+    ✓ 'p(95)<15000' p(95)=5277.75
+
+    pvp_ws_queue_to_match_latency
+    ✗ 'p(95)<15000' p(95)=27766.6
+
+    pvp_ws_results_rate
+    ✓ 'rate>0.60' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 22      0.339996/s
+    checks_succeeded...: 100.00% 22 out of 22
+    checks_failed......: 0.00%   0 out of 22
+
+    ✓ websocket handshake status is 101
+
+    CUSTOM
+    pvp_ws_connect_errors...........: 100.00% 23 out of 23
+    pvp_ws_hello_latency............: avg=1936.434783  min=320    med=1556   max=6049   p(90)=3485.5  p(95)=5277.75
+    pvp_ws_queue_to_match_latency...: avg=14079.107143 min=579    med=11794  max=28562  p(90)=26781.3 p(95)=27766.6
+    pvp_ws_results_rate.............: 0.00%   0 out of 0
+
+    EXECUTION
+    iteration_duration..............: avg=33.62s       min=31.34s med=33.6s  max=37.7s  p(90)=35.85s  p(95)=35.88s 
+    iterations......................: 21      0.324542/s
+    vus.............................: 4       min=0        max=30
+    vus_max.........................: 30      min=4        max=30
+
+    NETWORK
+    data_received...................: 33 kB   516 B/s
+    data_sent.......................: 39 kB   605 B/s
+
+    WEBSOCKET
+    ws_connecting...................: avg=2.25s        min=44.4ms med=1.52s  max=8.82s  p(90)=5.71s   p(95)=6.66s  
+    ws_msgs_received................: 120     1.854523/s
+    ws_msgs_sent....................: 120     1.854523/s
+    ws_session_duration.............: avg=32.27s       min=30.19s med=31.54s max=36.44s p(90)=34.83s  p(95)=34.85s 
+    ws_sessions.....................: 46      0.710901/s
+
+
+
+
+running (1m04.7s), 00/30 VUs, 21 complete and 25 interrupted iterations
+pvp_ws ✓ [ 100% ] 00/30 VUs  55s
+time="2026-03-18T01:22:19+02:00" level=error msg="thresholds on metrics 'pvp_ws_connect_errors, pvp_ws_queue_to_match_latency' have been crossed"

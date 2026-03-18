@@ -2,14 +2,14 @@
 
 import { resetPassword, updatePassword } from "@/actions/reset-password";
 
-import prisma from "@/features/auth/lib/db";
+import dbClient from "@/features/auth/lib/db";
 import { generateResetToken, validateResetToken } from "@/features/auth/utils/tokens";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import { sendPasswordResetEmail } from "@/features/auth/providers/nodemailer";
 import { saltAndHashPassword } from "@/features/auth/utils/password";
 import bcrypt from "bcryptjs";
 
-type PrismaMock = {
+type DbMock = {
   user: {
     findUnique: jest.Mock;
     update: jest.Mock;
@@ -17,10 +17,10 @@ type PrismaMock = {
   $transaction: jest.Mock;
 };
 
-const prismaMock = prisma as unknown as PrismaMock;
+const dbMock = dbClient as unknown as DbMock;
 
 jest.mock("@/features/auth/lib/db", () => {
-  const prismaMock = {
+  const dbMock = {
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -30,7 +30,7 @@ jest.mock("@/features/auth/lib/db", () => {
 
   return {
     __esModule: true,
-    default: prismaMock,
+    default: dbMock,
   };
 });
 
@@ -77,8 +77,8 @@ describe("password reset server actions", () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    prismaMock.$transaction.mockImplementation(async (ops: Array<unknown>) => {
-      // Prisma accepts an array of promises; resolve them here.
+    dbMock.$transaction.mockImplementation(async (ops: Array<unknown>) => {
+      // DB transaction mock accepts an array of promises; resolve them here.
       return Promise.all(ops as Array<Promise<unknown>>);
     });
 
@@ -99,7 +99,7 @@ describe("password reset server actions", () => {
   });
 
   it("resetPassword returns success even if user not found (no enumeration)", async () => {
-    prismaMock.user.findUnique.mockResolvedValue(null);
+    dbMock.user.findUnique.mockResolvedValue(null);
 
     const formData = new FormData();
     formData.set("email", "missing@example.com");
@@ -124,7 +124,7 @@ describe("password reset server actions", () => {
   });
 
   it("resetPassword does not send email for social auth account (no passwordHash)", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ id: "u1", passwordHash: null });
+    dbMock.user.findUnique.mockResolvedValue({ id: "u1", passwordHash: null });
 
     const formData = new FormData();
     formData.set("email", "social@example.com");
@@ -144,7 +144,7 @@ describe("password reset server actions", () => {
       emailVerified: null,
     });
 
-    prismaMock.user.update.mockResolvedValue({ id: "u2" });
+    dbMock.user.update.mockResolvedValue({ id: "u2" });
 
     const formData = new FormData();
     formData.set("token", "raw-reset-token");
@@ -154,10 +154,10 @@ describe("password reset server actions", () => {
     const result = await updatePassword({ success: false, error: null }, formData);
 
     expect(result).toEqual({ success: true });
-    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
-    expect(prismaMock.user.update).toHaveBeenCalledTimes(1);
+    expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+    expect(dbMock.user.update).toHaveBeenCalledTimes(1);
 
-    const updateArgs = prismaMock.user.update.mock.calls[0]?.[0];
+    const updateArgs = dbMock.user.update.mock.calls[0]?.[0];
     expect(updateArgs.where).toEqual({ id: "u2" });
     expect(updateArgs.data.resetToken).toBeNull();
     expect(updateArgs.data.resetTokenExpiry).toBeNull();
@@ -180,7 +180,7 @@ describe("password reset server actions", () => {
       emailVerified: verifiedAt,
     });
 
-    prismaMock.user.update.mockResolvedValue({ id: "u4" });
+    dbMock.user.update.mockResolvedValue({ id: "u4" });
 
     const formData = new FormData();
     formData.set("token", "raw-reset-token");
@@ -190,7 +190,7 @@ describe("password reset server actions", () => {
     const result = await updatePassword({ success: false, error: null }, formData);
     expect(result).toEqual({ success: true });
 
-    const updateArgs = prismaMock.user.update.mock.calls[0]?.[0];
+    const updateArgs = dbMock.user.update.mock.calls[0]?.[0];
     // emailVerified should be omitted (undefined) when already verified.
     expect(updateArgs.data.emailVerified).toBeUndefined();
     expect(updateArgs.data.emailVerifyToken).toBeNull();
@@ -215,7 +215,7 @@ describe("password reset server actions", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/different from the current password/i);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(dbMock.user.update).not.toHaveBeenCalled();
   });
 
   it("updatePassword fails cleanly when token is missing", async () => {

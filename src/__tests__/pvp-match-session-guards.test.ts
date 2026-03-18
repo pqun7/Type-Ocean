@@ -3,6 +3,7 @@
 import {
   getDisconnectForfeitPolicy,
   getStaleMatchAbortReason,
+  shouldDeferDisconnectForfeitForJoin,
   shouldRejectDuplicateMatchTab,
   shouldScheduleDisconnectForfeit,
 } from "../../services/pvp-gateway/src/match-session-guards";
@@ -126,5 +127,10 @@ describe("pvp match session guards", () => {
         maxLiveAgeMs: 1_800_000,
       })
     ).toBeNull();
+  });
+
+  it("defers disconnect forfeit while match join is in-flight", () => {
+    expect(shouldDeferDisconnectForfeitForJoin({ joinInFlight: true })).toBe(true);
+    expect(shouldDeferDisconnectForfeitForJoin({ joinInFlight: false })).toBe(false);
   });
 });
