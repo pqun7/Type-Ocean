@@ -134,12 +134,15 @@ function formatShortDate(localDate: string): string {
 function computeStreaks(localDatesAsc: string[]) {
   if (localDatesAsc.length === 0) return { longest: 0, current: 0 };
 
+  // Precompute timestamps once to avoid repeated string parsing across both loops.
+  const timestamps = localDatesAsc.map(parseLocalDay);
+
   let longest = 1;
   let run = 1;
 
-  for (let i = 1; i < localDatesAsc.length; i++) {
-    const prev = parseLocalDay(localDatesAsc[i - 1]);
-    const cur = parseLocalDay(localDatesAsc[i]);
+  for (let i = 1; i < timestamps.length; i++) {
+    const prev = timestamps[i - 1];
+    const cur = timestamps[i];
     const isConsecutive = prev > 0 && cur > 0 && cur - prev === 86400000;
 
     if (isConsecutive) {
@@ -152,9 +155,9 @@ function computeStreaks(localDatesAsc: string[]) {
 
   // Current streak counts backwards from the most recent day.
   let current = 1;
-  for (let i = localDatesAsc.length - 1; i >= 1; i--) {
-    const prev = parseLocalDay(localDatesAsc[i - 1]);
-    const cur = parseLocalDay(localDatesAsc[i]);
+  for (let i = timestamps.length - 1; i >= 1; i--) {
+    const prev = timestamps[i - 1];
+    const cur = timestamps[i];
     const isConsecutive = prev > 0 && cur > 0 && cur - prev === 86400000;
 
     if (isConsecutive) current += 1;
@@ -251,27 +254,39 @@ export default function AccountStatsChart({
       });
 
     const count = sessions.length;
-    const wpm = sessions.map((s) => s.wpm);
-    const accuracy = sessions.map((s) => s.accuracy);
-    const weights = sessions.map((s) => s.timeSpent);
+
+    // Collect all derived arrays in a single pass to avoid iterating sessions multiple times.
+    const wpm: number[] = [];
+    const accuracy: number[] = [];
+    const weights: number[] = [];
+    const effectiveWpmValues: number[] = [];
+    const timeSpentValues: number[] = [];
+    let totalChars = 0;
+    let totalMistakes = 0;
+    let totalCorrections = 0;
+    let deepFocusCount = 0;
+
+    for (const s of sessions) {
+      wpm.push(s.wpm);
+      accuracy.push(s.accuracy);
+      weights.push(s.timeSpent);
+      effectiveWpmValues.push(s.wpm * (s.accuracy / 100));
+      if (s.timeSpent > 0) timeSpentValues.push(s.timeSpent);
+      if (s.textLength > 0) totalChars += s.textLength;
+      totalMistakes += s.mistakes;
+      totalCorrections += s.corrections;
+      if (s.timeSpent >= 120) deepFocusCount += 1;
+    }
 
     const timeWeightedWpm = weightedMean(wpm, weights);
     const timeWeightedAccuracy = weightedMean(accuracy, weights);
-    const effectiveWpm = weightedMean(
-      sessions.map((s) => s.wpm * (s.accuracy / 100)),
-      weights
-    );
+    const effectiveWpm = weightedMean(effectiveWpmValues, weights);
 
     const medianWpm = quantile(wpm, 0.5);
     const p90Wpm = quantile(wpm, 0.9);
 
-    const timeSpentValues = sessions.map((s) => s.timeSpent).filter((t) => t > 0);
     const avgSessionSec = mean(timeSpentValues);
-    const deepFocusSharePct = count === 0 ? 0 : (sessions.filter((s) => s.timeSpent >= 120).length / count) * 100;
-
-    const totalChars = sum(sessions.map((s) => s.textLength).filter((v) => v > 0));
-    const totalMistakes = sum(sessions.map((s) => s.mistakes));
-    const totalCorrections = sum(sessions.map((s) => s.corrections));
+    const deepFocusSharePct = count === 0 ? 0 : (deepFocusCount / count) * 100;
 
     const mistakesPer100Chars = totalChars > 0 ? (totalMistakes / totalChars) * 100 : 0;
     const correctionsPer100Chars = totalChars > 0 ? (totalCorrections / totalChars) * 100 : 0;
@@ -337,12 +352,18 @@ export default function AccountStatsChart({
     stats.totalMistakes,
   ]);
 
-  const recentVsPrevious14 = React.useMemo(() => {
-    const active = [...(dailyActivity ?? [])]
+  // Shared sorted active-day series, precomputed once and reused by both
+  // recentVsPrevious14 and advanced to avoid duplicate filter+sort work.
+  const sortedActiveSeries = React.useMemo(() => {
+    return [...(dailyActivity ?? [])]
       .filter((row) => row.sessionsCount > 0)
-      .sort((a, b) => parseLocalDay(a.localDate) - parseLocalDay(b.localDate));
+      .map((row) => ({ row, ts: parseLocalDay(row.localDate) }))
+      .sort((a, b) => a.ts - b.ts)
+      .map(({ row }) => row);
+  }, [dailyActivity]);
 
-    const series = active.map((row) => {
+  const recentVsPrevious14 = React.useMemo(() => {
+    const series = sortedActiveSeries.map((row) => {
       const sessions = Math.max(1, row.sessionsCount);
       const totalMinutes = Math.round(Math.max(0, row.totalTimeSpentSec) / 60);
       const hasTimeWeightedWpm = row.totalTimeSpentSec > 0 && row.sumWpmTime > 0;
@@ -390,14 +411,10 @@ export default function AccountStatsChart({
       recentSessions,
       recentMinutes,
     };
-  }, [dailyActivity]);
+  }, [sortedActiveSeries]);
 
   const advanced = React.useMemo(() => {
-    const active = [...(dailyActivity ?? [])]
-      .filter((row) => row.sessionsCount > 0)
-      .sort((a, b) => parseLocalDay(a.localDate) - parseLocalDay(b.localDate));
-
-    const series: DailySeriesPoint[] = active.map((row) => {
+    const series: DailySeriesPoint[] = sortedActiveSeries.map((row) => {
       const sessionsCount = Math.max(1, row.sessionsCount);
       const hasTimeWeightedWpm = row.totalTimeSpentSec > 0 && row.sumWpmTime > 0;
       const avgWpm = hasTimeWeightedWpm ? row.sumWpmTime / row.totalTimeSpentSec : row.sumWpm / sessionsCount;
@@ -445,7 +462,7 @@ export default function AccountStatsChart({
       wpmDelta7,
       accDelta7,
     };
-  }, [dailyActivity, intelligence.trend.pointsUsed, intelligence.trend.r2, intelligence.trend.stabilityScore, intelligence.trend.volatilityCv]);
+  }, [sortedActiveSeries, intelligence.trend.pointsUsed, intelligence.trend.r2, intelligence.trend.stabilityScore, intelligence.trend.volatilityCv]);
 
   const radarData = React.useMemo(() => {
     const consistencyScore = clamp(Math.round(intelligence.scores.consistencyScore), 0, 100);
@@ -468,7 +485,7 @@ export default function AccountStatsChart({
   const trendHeadline = React.useMemo(() => {
     const label = formatTrendCategory(intelligence.trend.category);
     return label;
-  }, [intelligence.scores.stabilityScore, intelligence.trend.category]);
+  }, [intelligence.trend.category]);
 
   const playerLevel = React.useMemo(() => {
     return classifyPlayerLevel(intelligence.scores.compositeIndex);
