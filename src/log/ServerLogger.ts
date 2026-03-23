@@ -5,7 +5,7 @@ if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
   throw new Error("ServerLogger should not be imported on the client side. Use ClientLogger instead.");
 }
 
-import * as Sentry from "@sentry/nextjs";
+
 
 // 1. إعدادات الأمان المتقدمة
 const SENSITIVE_FIELDS = new Set([
@@ -217,31 +217,7 @@ class FileLogManager {
 }
 
 // 6. نظام النقل (Transports)
-class SentryTransport {
-  private readonly levelMap = new Map<string, Sentry.SeverityLevel>([
-    ['error', 'error'],
-    ['warn', 'warning'],
-    ['info', 'info'],
-    ['debug', 'debug'],
-    ['verbose', 'debug'],
-    ['silly', 'debug'],
-  ]);
 
-  log(entry: LogEntry) {
-    const severity = this.levelMap.get(entry.level) || 'error';
-    
-    Sentry.withScope(scope => {
-      scope.setLevel(severity);
-      scope.setExtras(entry.metadata || {});
-      
-      if (entry.metadata?.error instanceof Error) {
-        Sentry.captureException(entry.metadata.error);
-      } else {
-        Sentry.captureMessage(entry.message);
-      }
-    });
-  }
-}
 
 class ConsoleTransport {
   private colors = {
@@ -298,7 +274,7 @@ class FileTransport {
 // 7. الـ Logger الرئيسي المحسن
 class ServerLogger {
   private level: LogLevel;
-  private transports: (ConsoleTransport | FileTransport | SentryTransport)[];
+  private transports: (ConsoleTransport | FileTransport)[];
   private fileManager: FileLogManager;
   private safeDebug: SafeDebugLogger;
 
@@ -310,10 +286,7 @@ class ServerLogger {
   }
 
   private initializeTransports() {
-    const transports: (ConsoleTransport | FileTransport | SentryTransport)[] = [
-      new SentryTransport()
-    ];
-
+    const transports: (ConsoleTransport | FileTransport)[] = [];
     if (process.env.NODE_ENV === "production") {
       if (canUseFileSystem) {
         transports.push(new FileTransport());
@@ -325,7 +298,6 @@ class ServerLogger {
         transports.push(new FileTransport());
       }
     }
-
     return transports;
   }
 
@@ -391,7 +363,7 @@ class ServerLogger {
     const errObj = error instanceof Error ? error : new Error(String(error));
     const payload = {
       ...baseMeta,
-      // Keep the raw error for transports like Sentry
+      // Keep the raw error for transports
       error: errObj,
       // Add JSON-serializable fields so file/JSON logs are readable
       errorName: errObj.name,

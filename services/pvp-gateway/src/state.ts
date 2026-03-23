@@ -67,6 +67,7 @@ export type MatchState = {
     payload: unknown;
     atMs: number;
   }>;
+  tieWindowStartedAt: number | null;
 };
 
 export type QueueEntry = {

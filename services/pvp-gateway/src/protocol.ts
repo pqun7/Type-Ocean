@@ -34,7 +34,8 @@ export type ServerMessage = {
     | "REMATCH_OFFER"
     | "REMATCH_DECLINED"
     | "REMATCH_STATUS"
-    | "ERROR";
+    | "ERROR"
+    | "PONG";
   payload: unknown;
 };
 

@@ -2,13 +2,29 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Swords } from "lucide-react";
+import { Loader2, Swords, WifiOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
 import { usePvpErrorAlert } from "@/features/pvp/client/pvp-error-utils";
-import { useGatewayHealth } from "@/features/pvp/client/useGatewayHealth";
+import { getConnectionBannerMessage } from "@/features/pvp/client/connection-state-machine";
+
+/** Format a millisecond duration as "MM:SS" for countdown display. */
+function formatCooldown(ms: number): string {
+  const totalSecs = Math.ceil(ms / 1_000);
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+/** Return a human-readable "X minutes ago" string. */
+function formatTimeAgo(epochMs: number): string {
+  const diffMins = Math.floor((Date.now() - epochMs) / 60_000);
+  if (diffMins < 1) return "just now";
+  if (diffMins === 1) return "1 minute ago";
+  return `${diffMins} minutes ago`;
+}
 
 type PendingMatch = {
   matchId: string;
@@ -23,16 +39,43 @@ type PendingMatch = {
 export default function Pvp1v1Client() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { status, error, user, send, addListener } = usePvpSocket();
+  const {
+    status,
+    error,
+    user,
+    send,
+    addListener,
+    reconnect,
+    connectionPhase,
+    isOffline,
+    circuitBreakerActiveUntil,
+  } = usePvpSocket();
   usePvpErrorAlert(error);
-  const gatewayHealth = useGatewayHealth();
 
   const [queueStatus, setQueueStatus] = useState<string>("IDLE");
   const [searchStartedAtMs, setSearchStartedAtMs] = useState<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [pendingMatch, setPendingMatch] = useState<PendingMatch | null>(null);
-  const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
   const cancelledReason = searchParams.get("cancelled");
+
+  /** Remaining circuit-breaker cooldown in ms, or null when inactive. */
+  const [cooldownRemaining, setCooldownRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (circuitBreakerActiveUntil === null) {
+      setCooldownRemaining(null);
+      return;
+    }
+
+    const tick = () => {
+      const remaining = Math.max(0, circuitBreakerActiveUntil - Date.now());
+      setCooldownRemaining(remaining > 0 ? remaining : null);
+    };
+
+    tick(); // synchronous first tick to avoid flash
+    const intervalId = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [circuitBreakerActiveUntil]);
 
   useEffect(() => {
     if (cancelledReason !== "no_show") return;
@@ -43,12 +86,6 @@ export default function Pvp1v1Client() {
 
     return () => window.clearTimeout(timer);
   }, [cancelledReason, router]);
-
-  useEffect(() => {
-    if (status === "ready") {
-      setHasConnectedOnce(true);
-    }
-  }, [status]);
 
   useEffect(() => {
     return addListener((message) => {
@@ -103,9 +140,9 @@ export default function Pvp1v1Client() {
     router.push(`/pvp/match/${pendingMatch.matchId}`);
   }, [pendingMatch, router]);
 
-  const canQueue = status === "ready" && gatewayHealth === "up" && (queueStatus === "IDLE" || queueStatus === "CONNECTED") && !pendingMatch;
+  const bannerMsg = getConnectionBannerMessage(connectionPhase);
+  const canQueue = connectionPhase.kind === "ready" && (queueStatus === "IDLE" || queueStatus === "CONNECTED") && !pendingMatch;
   const isSearching = queueStatus === "SEARCHING" && !pendingMatch;
-  const isReconnecting = hasConnectedOnce && status === "connecting";
 
   const handleQueueJoin = () => {
     if (!canQueue) return;
@@ -147,19 +184,40 @@ export default function Pvp1v1Client() {
             {isSearching ? <Loader2 className="h-4 w-4 animate-spin text-[#B8E6FF]" /> : null}
           </div>
 
-          {isReconnecting ? (
-            <div className="flex items-center gap-2 rounded-xl border border-[rgba(125,211,252,0.22)] bg-[rgba(56,189,248,0.08)] px-3 py-2 text-sm text-sky-200">
-              <Loader2 className="h-4 w-4 animate-spin text-sky-300" />
-              Reconnecting to ranked queue...
+          {isOffline ? (
+            <div className="flex items-center gap-2 rounded-xl border border-[rgba(251,191,36,0.25)] bg-[rgba(245,158,11,0.08)] px-3 py-2 text-sm text-amber-200">
+              <WifiOff className="h-4 w-4 shrink-0 text-amber-400" />
+              No internet connection detected. Reconnecting when back online&hellip;
             </div>
-          ) : null}
-
-          {error && !isReconnecting ? <div className="text-sm text-amber-300">{error}</div> : null}
-
-          {gatewayHealth === "down" ? (
-            <div className="rounded-xl border border-[rgba(239,68,68,0.28)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-sm text-red-300">
-              The match server is currently unavailable. Matchmaking is paused — please try again shortly.
-            </div>
+          ) : bannerMsg ? (
+            connectionPhase.kind === "reconnecting" ? (
+              <div className="flex items-center gap-2 rounded-xl border border-[rgba(125,211,252,0.22)] bg-[rgba(56,189,248,0.08)] px-3 py-2 text-sm text-sky-200">
+                <Loader2 className="h-4 w-4 animate-spin text-sky-300" />
+                {bannerMsg}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(239,68,68,0.28)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-sm text-red-300">
+                <div className="min-w-0 space-y-0.5">
+                  <div>{bannerMsg}</div>
+                  {connectionPhase.kind === "permanent_failure" && (
+                    <div className="text-xs text-red-400/70">
+                      Last attempt failed {formatTimeAgo(connectionPhase.failedAt)}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={reconnect}
+                  disabled={cooldownRemaining !== null}
+                  className="shrink-0"
+                >
+                  {cooldownRemaining !== null
+                    ? `Try again in ${formatCooldown(cooldownRemaining)}`
+                    : "Try again"}
+                </Button>
+              </div>
+            )
           ) : null}
 
           {cancelledReason === "no_show" ? (

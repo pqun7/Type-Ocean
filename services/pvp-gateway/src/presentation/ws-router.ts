@@ -65,6 +65,14 @@ export async function routeMessage(
   }
 
   // -------------------------------------------------------------------------
+  // PING — application-level heartbeat; reply with PONG (auth not required)
+  // -------------------------------------------------------------------------
+  if (msg.type === "PING") {
+    if (ws.user) send(ws, "PONG", {}, deps);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
   // All other messages require an authenticated connection
   // -------------------------------------------------------------------------
   if (!ws.user) {

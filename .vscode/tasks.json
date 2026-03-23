@@ -134,6 +134,19 @@
 				"load-tests\\pvp-websocket\\run-dev-stress.cmd"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "jest connection-state-machine",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"jest",
+				"--no-coverage",
+				"--runInBand",
+				"--forceExit",
+				"--testPathPattern=connection-state-machine"
+			],
+			"isBackground": false
 		}
 	]
 }

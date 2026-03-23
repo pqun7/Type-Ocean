@@ -113,7 +113,8 @@ export type ServerMessage =
       type: "REMATCH_STATUS";
       payload: { matchId: string; acceptedUserIds: string[] };
     }
-  | { type: "ERROR"; payload: PvpErrorPayload };
+  | { type: "ERROR"; payload: PvpErrorPayload }
+  | { type: "PONG"; payload?: Record<string, never> };
 
 export type ClientMessage =
   | { type: "HELLO"; payload: { token: string; clientSecret: string }; requestId?: string }
@@ -130,4 +131,5 @@ export type ClientMessage =
   | { type: "INPUT_UPDATE"; payload: { matchId: string; input: string; seq: number; clientTs?: number; inputNonce?: string }; requestId?: string }
   | { type: "FINISH"; payload: { matchId: string; clientTs?: number }; requestId?: string }
   | { type: "REMATCH_REQUEST"; payload: { matchId: string }; requestId?: string }
-  | { type: "REMATCH_RESPONSE"; payload: { matchId: string; accept: boolean }; requestId?: string };
+  | { type: "REMATCH_RESPONSE"; payload: { matchId: string; accept: boolean }; requestId?: string }
+  | { type: "PING"; payload?: Record<string, never>; requestId?: string };

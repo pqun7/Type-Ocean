@@ -30,11 +30,39 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  
+
+  outputFileTracingExcludes: {
+    '*': [
+      // SWC native binaries (large, not needed in trace)
+      'node_modules/@swc/core-linux-x64-gnu/**',
+      'node_modules/@swc/core-linux-x64-musl/**',
+      'node_modules/@swc/core-win32-x64-msvc/**',
+      'node_modules/@swc/core-darwin-x64/**',
+      'node_modules/@swc/core-darwin-arm64/**',
+      // esbuild binaries
+      'node_modules/@esbuild/**',
+      // Webpack (build-time only)
+      'node_modules/webpack/**',
+      'node_modules/webpack-sources/**',
+      // Test frameworks (never needed at runtime)
+      'node_modules/jest/**',
+      'node_modules/jest-circus/**',
+      'node_modules/@jest/**',
+      'node_modules/@testing-library/**',
+      'node_modules/cypress/**',
+      // TypeScript compiler (build-time only)
+      'node_modules/typescript/**',
+      // Turbopack / Next.js build internals
+      'node_modules/next/dist/compiled/webpack/**',
+      'node_modules/next/dist/compiled/terser/**',
+      'node_modules/next/dist/compiled/css-minimizer-webpack-plugin/**',
+      // Large unused packages
+      'node_modules/rxjs/**',
+    ],
+  },
+
   serverExternalPackages: [
     "@opentelemetry/instrumentation",
-    "@sentry/node",
-    "@sentry/nextjs",
     "bcryptjs", 
     "google-auth-library",
     "google-p12-pem",
