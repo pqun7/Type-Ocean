@@ -26,6 +26,28 @@
 			"group": "build"
 		},
 		{
+			"label": "full jest",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"jest",
+				"--no-coverage",
+				"--runInBand",
+				"--forceExit"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "pvp gateway build",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"pvp:gateway:build"
+			],
+			"isBackground": false
+		},
+		{
 			"label": "pvp gateway start force bot",
 			"type": "shell",
 			"command": "cmd",
@@ -37,146 +59,79 @@
 			"isBackground": true
 		},
 		{
-			"label": "k6 50 top3 window",
-			"type": "shell",
-			"command": "k6",
-			"args": [
-				"run",
-				"--vus",
-				"50",
-				"--duration",
-				"30s",
-				"src/load-tests/pvp-websocket.js"
-			],
-			"isBackground": false
-		},
-		{
-			"label": "k6 50 top3 capture",
+			"label": "pvp websocket prepare",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/d",
 				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&set PVP_WS_URL=ws://127.0.0.1:8787&&set PVP_WS_TOKENS_FILE=D:/Web projects/Type Space/type-space/logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_TEST_FORCE_BOT_MATCH=true&&k6 run --vus 50 --duration 30s src/load-tests/pvp-websocket.js > logs\\latest\\k6_load_window_50_top3.txt 2>&1"
+				"if not exist load-tests\\pvp-websocket\\artifacts\\latest mkdir load-tests\\pvp-websocket\\artifacts\\latest&&node load-tests\\pvp-websocket\\prepare-load-window.cjs > load-tests\\pvp-websocket\\artifacts\\latest\\prepare-task.log 2>&1"
 			],
 			"isBackground": false
 		},
 		{
-			"label": "capture pg after window",
-			"type": "shell",
-			"command": "node",
-			"args": [
-				"logs/capture_pg_stat_window.cjs",
-				"logs/latest/pg_stat_statements_after_window.json"
-			],
-			"isBackground": false
-		},
-		{
-			"label": "prepare fresh load window",
+			"label": "pvp websocket verify current",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/d",
 				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&node logs\\prepare_load_window.cjs && copy /Y logs\\pg_stat_statements_before.json logs\\latest\\pg_stat_statements_before_window.json"
+				"load-tests\\pvp-websocket\\run-verify-current.cmd"
 			],
 			"isBackground": false
 		},
 		{
-			"label": "k6 50 top3 rerun fresh tokens",
+			"label": "pvp websocket verify default",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/d",
 				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&set PVP_WS_URL=ws://127.0.0.1:8787&&set PVP_WS_TOKENS_FILE=D:/Web projects/Type Space/type-space/logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_TEST_FORCE_BOT_MATCH=true&&k6 run --vus 50 --duration 30s src/load-tests/pvp-websocket.js > logs\\latest\\k6_load_window_50_top3.txt 2>&1"
+				"load-tests\\pvp-websocket\\run-default-verify.cmd"
 			],
 			"isBackground": false
 		},
 		{
-			"label": "capture pg after rerun",
-			"type": "shell",
-			"command": "node",
-			"args": [
-				"logs/capture_pg_stat_window.cjs",
-				"logs/latest/pg_stat_statements_after_window.json"
-			],
-			"isBackground": false
-		},
-		{
-			"label": "k6 strict run1 8788",
+			"label": "pvp websocket verify ai-stress",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/d",
 				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&set PVP_WS_URL=ws://127.0.0.1:8788&&set PVP_WS_TOKENS_FILE=D:/Web projects/Type Space/type-space/logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_TEST_FORCE_BOT_MATCH=true&&set PVP_STRICT_THRESHOLDS=true&&set PVP_DEFAULT_STAGE1_VUS=12&&set PVP_DEFAULT_STAGE2_VUS=24&&set PVP_DEFAULT_STAGE1_DURATION=10s&&set PVP_DEFAULT_STAGE2_DURATION=30s&&set PVP_DEFAULT_STAGE3_DURATION=10s&&set PVP_SESSION_TIMEOUT_MS=90000&&set PVP_INPUT_INTERVAL_MS=40&&k6 run src/load-tests/pvp-websocket.js > logs\\latest\\k6_strict_run1.txt 2>&1"
+				"load-tests\\pvp-websocket\\run-ai-stress-verify.cmd"
 			],
 			"isBackground": false
 		},
 		{
-			"label": "k6 strict run2 8788",
+			"label": "pvp websocket strict",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/d",
 				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&set PVP_WS_URL=ws://127.0.0.1:8788&&set PVP_WS_TOKENS_FILE=D:/Web projects/Type Space/type-space/logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_STRICT_THRESHOLDS=true&&set PVP_DEFAULT_STAGE1_VUS=12&&set PVP_DEFAULT_STAGE2_VUS=24&&set PVP_DEFAULT_STAGE1_DURATION=10s&&set PVP_DEFAULT_STAGE2_DURATION=30s&&set PVP_DEFAULT_STAGE3_DURATION=10s&&set PVP_SESSION_TIMEOUT_MS=90000&&set PVP_INPUT_INTERVAL_MS=40&&k6 run src/load-tests/pvp-websocket.js > logs\\latest\\k6_strict_run2.txt 2>&1"
+				"load-tests\\pvp-websocket\\run-strict.cmd"
 			],
 			"isBackground": false
 		},
 		{
-			"label": "k6 diag error run",
+			"label": "pvp gateway start rate bypass",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/d",
 				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&set PVP_WS_URL=ws://127.0.0.1:8788&&set PVP_WS_TOKENS_FILE=D:/Web projects/Type Space/type-space/logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_STRICT_THRESHOLDS=false&&set PVP_DEFAULT_STAGE1_VUS=6&&set PVP_DEFAULT_STAGE2_VUS=12&&set PVP_DEFAULT_STAGE1_DURATION=5s&&set PVP_DEFAULT_STAGE2_DURATION=12s&&set PVP_DEFAULT_STAGE3_DURATION=5s&&set PVP_SESSION_TIMEOUT_MS=90000&&set PVP_INPUT_INTERVAL_MS=40&&k6 run src/load-tests/pvp-websocket.js > logs\\latest\\k6_diag_error.txt 2>&1"
+				"set PVP_TEST_FORCE_BOT_MATCH=true&&set PVP_AI_QUEUE_TIMEOUT_MS=1500&&set DEV_BYPASS_RATE_LIMIT=true&&npm run pvp:gateway:start"
 			],
-			"isBackground": false
+			"isBackground": true
 		},
 		{
-			"label": "k6 strict run3 8788",
+			"label": "pvp websocket dev stress",
 			"type": "shell",
 			"command": "cmd",
 			"args": [
 				"/d",
 				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&set PVP_WS_URL=ws://127.0.0.1:8788&&set PVP_WS_TOKENS_FILE=D:/Web projects/Type Space/type-space/logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_STRICT_THRESHOLDS=true&&set PVP_DEFAULT_STAGE1_VUS=12&&set PVP_DEFAULT_STAGE2_VUS=24&&set PVP_DEFAULT_STAGE1_DURATION=10s&&set PVP_DEFAULT_STAGE2_DURATION=30s&&set PVP_DEFAULT_STAGE3_DURATION=10s&&set PVP_SESSION_TIMEOUT_MS=90000&&set PVP_INPUT_INTERVAL_MS=40&&k6 run src/load-tests/pvp-websocket.js > logs\\latest\\k6_strict_run3.txt 2>&1"
-			],
-			"isBackground": false
-		},
-		{
-			"label": "k6 verify websocket fixed",
-			"type": "shell",
-			"command": "cmd",
-			"args": [
-				"/d",
-				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&node logs\\prepare_load_window.cjs&&set PVP_WS_URL=ws://127.0.0.1:8787&&set PVP_WS_TOKENS_FILE=logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_TEST_FORCE_BOT_MATCH=true&&set PVP_SESSION_TIMEOUT_MS=60000&&k6 run src/load-tests/pvp-websocket.js > logs\\latest\\k6_verify_fixed.txt 2>&1"
-			],
-			"isBackground": false
-		},
-		{
-			"label": "k6 verify websocket fixed quoted",
-			"type": "shell",
-			"command": "cmd",
-			"args": [
-				"/d",
-				"/c",
-				"if not exist logs\\latest mkdir logs\\latest&&node logs\\prepare_load_window.cjs&&set PVP_WS_URL=ws://127.0.0.1:8787&&set PVP_WS_TOKENS_FILE=logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_TEST_FORCE_BOT_MATCH=true&&set PVP_SESSION_TIMEOUT_MS=60000&&k6 run src/load-tests/pvp-websocket.js > logs\\latest\\k6_verify_fixed.txt 2>&1"
-			],
-			"isBackground": false
-		},
-		{
-			"label": "probe latest listing",
-			"type": "shell",
-			"command": "cmd",
-			"args": [
-				"/d",
-				"/c",
-				"dir logs\\latest"
+				"load-tests\\pvp-websocket\\run-dev-stress.cmd"
 			],
 			"isBackground": false
 		}

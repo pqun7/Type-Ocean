@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
 import { usePvpErrorAlert } from "@/features/pvp/client/pvp-error-utils";
+import { useGatewayHealth } from "@/features/pvp/client/useGatewayHealth";
 
 type PendingMatch = {
   matchId: string;
@@ -24,6 +25,7 @@ export default function Pvp1v1Client() {
   const searchParams = useSearchParams();
   const { status, error, user, send, addListener } = usePvpSocket();
   usePvpErrorAlert(error);
+  const gatewayHealth = useGatewayHealth();
 
   const [queueStatus, setQueueStatus] = useState<string>("IDLE");
   const [searchStartedAtMs, setSearchStartedAtMs] = useState<number | null>(null);
@@ -101,7 +103,7 @@ export default function Pvp1v1Client() {
     router.push(`/pvp/match/${pendingMatch.matchId}`);
   }, [pendingMatch, router]);
 
-  const canQueue = status === "ready" && (queueStatus === "IDLE" || queueStatus === "CONNECTED") && !pendingMatch;
+  const canQueue = status === "ready" && gatewayHealth === "up" && (queueStatus === "IDLE" || queueStatus === "CONNECTED") && !pendingMatch;
   const isSearching = queueStatus === "SEARCHING" && !pendingMatch;
   const isReconnecting = hasConnectedOnce && status === "connecting";
 
@@ -153,6 +155,12 @@ export default function Pvp1v1Client() {
           ) : null}
 
           {error && !isReconnecting ? <div className="text-sm text-amber-300">{error}</div> : null}
+
+          {gatewayHealth === "down" ? (
+            <div className="rounded-xl border border-[rgba(239,68,68,0.28)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-sm text-red-300">
+              The match server is currently unavailable. Matchmaking is paused — please try again shortly.
+            </div>
+          ) : null}
 
           {cancelledReason === "no_show" ? (
             <div className="rounded-xl border border-[rgba(251,191,36,0.25)] bg-[rgba(245,158,11,0.08)] px-3 py-2 text-sm text-amber-200">

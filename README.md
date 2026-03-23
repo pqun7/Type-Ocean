@@ -89,63 +89,26 @@ Use this flow to run a reproducible PvP websocket load test with k6.
 - Optional deterministic matchmaking for load windows: set `PVP_TEST_FORCE_BOT_MATCH=true`.
 
 4. Run k6:
-- Use VS Code task `k6 verify websocket fixed` or `k6 50 top3 capture`.
+- Use the consolidated websocket test workspace in [load-tests/pvp-websocket/README.md](load-tests/pvp-websocket/README.md).
+- Preferred VS Code tasks:
+	- `pvp websocket prepare`
+	- `pvp websocket verify current`
+	- `pvp websocket verify default`
+	- `pvp websocket verify ai-stress`
+	- `pvp websocket strict`
 
-### Commands tested on Windows (copy/paste)
-
-PowerShell (recommended):
-
-```powershell
-Set-Location "D:\Web projects\Type Space\type-space"
-
-# 1) Start gateway in a dedicated terminal
-$env:PVP_TEST_FORCE_BOT_MATCH = "true"
-$env:PVP_AI_QUEUE_TIMEOUT_MS = "1500"
-npm run pvp:gateway:start
-```
-
-```powershell
-Set-Location "D:\Web projects\Type Space\type-space"
-
-# 2) Prepare tokens + run k6 with working local settings
-node logs/prepare_load_window.cjs
-$env:PVP_WS_URL = "ws://127.0.0.1:8787"
-$env:PVP_WS_TOKENS_FILE = "logs/pvp_ws_tokens_load_window.json"
-$env:PVP_FIXED_CLIENT_SECRET = "k6loadwindowclientsecretfixed12345"
-$env:PVP_WS_USER_AGENT = "k6-ai-stress/1.0"
-$env:PVP_WS_ORIGIN = "http://localhost:3000"
-$env:PVP_TEST_FORCE_BOT_MATCH = "true"
-$env:PVP_SESSION_TIMEOUT_MS = "60000"
-k6 run src/load-tests/pvp-websocket.js
-```
-
-CMD one-liner:
-
-```cmd
-cmd /d /c "cd /d D:\Web projects\Type Space\type-space&&node logs\prepare_load_window.cjs&&set PVP_WS_URL=ws://127.0.0.1:8787&&set PVP_WS_TOKENS_FILE=logs/pvp_ws_tokens_load_window.json&&set PVP_FIXED_CLIENT_SECRET=k6loadwindowclientsecretfixed12345&&set PVP_WS_USER_AGENT=k6-ai-stress/1.0&&set PVP_WS_ORIGIN=http://localhost:3000&&set PVP_TEST_FORCE_BOT_MATCH=true&&set PVP_SESSION_TIMEOUT_MS=60000&&k6 run src/load-tests/pvp-websocket.js"
-```
-
-Predefined script (same flow):
-
-```cmd
-logs\run_verify_current.cmd
-```
-
-5. Read success metrics from k6 summary:
-- `pvp_ws_connect_errors` should be `0` (or effectively zero).
-- `pvp_ws_results_rate` target is `>= 0.85`.
-- `pvp_ws_no_errors_received` should be high (`>= 0.95`, or `1` in strict mode).
+5. Read success metrics from the latest summary under [load-tests/pvp-websocket/artifacts/latest](load-tests/pvp-websocket/artifacts/latest):
+- `pvp_ws_connect_errors` should remain at zero for verification runs.
+- `pvp_ws_results_rate` should be `>= 0.85` in default mode.
+- `pvp_ws_no_errors_received` should stay high (`>= 0.95`, or `1` in strict mode).
 
 6. Investigate protocol failures quickly:
-- k6 now logs websocket `ERROR` payload `code`, `message`, `retryable`, `phase`, `requestId`.
-- Gateway HELLO now emits specific auth codes (`PVP_TOKEN_EXPIRED`, `PVP_INVALID_TOKEN`, `PVP_BAD_SECRET`, `PVP_AUTH_FAILED`).
+- k6 logs websocket `ERROR` payload `code`, `message`, `retryable`, `phase`, `requestId`.
+- Gateway HELLO emits specific auth codes (`PVP_TOKEN_EXPIRED`, `PVP_INVALID_TOKEN`, `PVP_BAD_SECRET`, `PVP_AUTH_FAILED`).
 
 7. Test bypass mode (local/dev only):
 - `PVP_TEST_BYPASS_AUTH=true` allows HELLO/auth-state bypass only outside production.
 - The bypass is guarded by `NODE_ENV !== production`; do not use bypass in production.
-
-8. Logs output:
-- Latest run artifacts are written under `logs/latest/` by load-testing tasks.
 
 - `npm run lint` - lint
 - `npm run test` - jest watch
@@ -160,44 +123,6 @@ logs\run_verify_current.cmd
 - Set `PVP_ALLOWED_ORIGINS` in the gateway to your Vercel origin(s), such as `https://your-project.vercel.app,https://your-domain.com`.
 - If the gateway host terminates TLS at the edge, set `PVP_TRUST_PROXY_TLS=1` in the gateway and leave `PVP_TLS_KEY_PATH` / `PVP_TLS_CERT_PATH` empty.
 - A starter Fly.io gateway config is available at [fly.toml](fly.toml).
-- See [services/pvp-gateway/README.md](services/pvp-gateway/README.md) for gateway runtime details.
-
-## Get Started: Vercel Speed Insights
-To start collecting performance metrics, follow these steps.
-
-### 1. Install the package
-Install Speed Insights in your existing project:
-
-```bash
-npm i @vercel/speed-insights
-```
-
-### 2. Add the Next.js component
-Import and render `SpeedInsights` in your app layout (or main app entry):
-
-```tsx
-import { SpeedInsights } from "@vercel/speed-insights/next";
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-	return (
-		<html lang="en">
-			<body>
-				{children}
-				<SpeedInsights />
-			</body>
-		</html>
-	);
-}
-```
-
-For full examples and reference, see the official docs:
-- https://vercel.com/docs/speed-insights
-
-### 3. Deploy and visit your site
-Deploy your changes and visit your deployment to collect your first data points.
-
-If you do not see data after about 30 seconds, check content blockers and navigate between pages on your site.
-
 Gateway notes:
 - Detailed gateway setup and runtime options are documented in [services/pvp-gateway/README.md](services/pvp-gateway/README.md).
 

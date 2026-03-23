@@ -1,26 +1,20 @@
-// @ts-nocheck
-import "./load-env";
+﻿import "./load-env";
 
 import crypto from "crypto";
-import fs from "fs";
-import http from "http";
-import https from "https";
-import { and, asc, eq, inArray, isNull, lte, or, placeholder, sql } from "drizzle-orm";
-import { WebSocketServer, WebSocket, type RawData } from "ws";
+import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { WebSocketServer, WebSocket } from "ws";
 
-import { safeParseClientMessage, toJson, type ServerMessage } from "./protocol";
-import { assertWsTokenState, verifyWsTokenFast, verifyWsTokenStrict, type WsAuthContext } from "./auth";
+import { toJson, type ServerMessage } from "./protocol";
 import { InMemoryState, type ConnectionUser } from "./state";
 import { updateElo1v1 } from "./mmr";
 import { ratingFromWpm } from "./ai";
-import { createTokenBucket, tryConsume, type TokenBucket } from "./rate-limit";
+import { createTokenBucket, type TokenBucket } from "./rate-limit";
 import { createRedisBus, matchChannel, roomChannel, userChannel, type RedisBus } from "./redis-bus";
-import { incrementGatewayMetric, observeGatewayHistogram, renderGatewayMetrics, setGatewayGauge } from "./metrics";
+import { incrementGatewayMetric, observeGatewayHistogram, setGatewayGauge } from "./metrics";
 import { createGatewayEventBus } from "./events";
 import { createGatewayHealthController, type GatewayHealthController } from "./health";
-import { buildIdempotencyKey, getIdempotencyRecord, getIdempotencyTtlSeconds, InMemoryIdempotencyStore, setIdempotencyRecord, type IdempotencyRecord } from "./idempotency";
+import { InMemoryIdempotencyStore } from "./idempotency";
 import { buildDisconnectForfeitOutcome, runDisconnectForfeitSequence } from "./disconnect-forfeit";
-import { enqueueOrMatchInMemory } from "./in-memory-queue";
 import {
   buildQueueBucketKey,
   DEFAULT_QUEUE_BAND_CONFIG,
@@ -28,36 +22,67 @@ import {
   normalizeMatchmakingPreference,
   type MatchmakingPreference,
 } from "./matchmaking/bands";
-import { recordQueueMatchMetrics } from "./matchmaking/metrics";
-import { shouldAcceptInputUpdate } from "./input-update";
 import { createLocalLock } from "./local-lock";
 import { matchStateFromDbStatus, matchStateToDbStatus, matchStateToLegacyStatus, transitionMatchState, type MatchLifecycleState } from "./match-fsm";
-import { buildMatchStatePayload, buildProgressPayload, markMatchSnapshotBroadcast, shouldBroadcastPeriodicMatchSnapshot } from "./match-sync";
+import { buildMatchStatePayload } from "./match-sync";
 import { createMessageBatcher, isBatchableServerMessage } from "./message-batcher";
 import { invalidatePvpSelfCaches } from "./pvp-rating-cache";
 import { assessMatch } from "./anti-cheat/anomaly";
 import { recordCheatAssessment } from "./anti-cheat/flagging";
-import { clearReplayProtection, registerAcceptedReplaySeq, registerReplayNonce, validateReplayProtectedInput } from "./anti-cheat/replay";
+import { clearReplayProtection, registerReplayNonce } from "./anti-cheat/replay";
 import { getDisconnectForfeitPolicy, getStaleMatchAbortReason, shouldDeferDisconnectForfeitForJoin, shouldRejectDuplicateMatchTab, shouldScheduleDisconnectForfeit } from "./match-session-guards";
-import { buildRoomReconnectKey, getPublicRoomStartCondition, isRoomReadyToStart, selectNextRoomHost } from "./rooms/lifecycle";
+import { buildRoomReconnectKey, getPublicRoomStartCondition, selectNextRoomHost } from "./rooms/lifecycle";
 import { selectRankedText } from "./anti-cheat/text-selection";
 import { createGatewayMetrics, type GatewayMetrics } from "./observability/metrics";
 import { MatchCache } from "./match-cache";
 import { MatchRepository } from "./match-repository";
 import { createInitialLiveState, type MatchLiveState } from "./match-live-state";
-import { startAiSimulationAdaptive } from "./ai-simulation";
 import { UserCache } from "./user-cache";
 import { gatewayDb, isGatewayDbConfigured, runGatewayTransaction, type GatewayDb } from "./gateway-db";
+import { recomputeParticipantStats } from "./domain/match/participant-stats";
+import { MatchLockRegistry } from "./domain/match/match-lock";
+import { MatchCleanupService } from "./domain/match/match-cleanup";
+import { MatchAggregate } from "./domain/match/match-aggregate";
 import { playerProfiles, pvpMatches, pvpParticipants, pvpRatingChanges, pvpRatings, pvpRoomMembers, pvpRooms, users } from "../../../src/db/schema";
-import { sanitizeAvatarUrl, sanitizeDisplayName, sanitizeRoomCode, sanitizeUserAgent } from "../../../src/lib/sanitize";
-import { PVP_ERROR_CODES, type PvpErrorPayload } from "../../../src/features/pvp/shared/error-codes";
-import { gatewayLogger } from "../../../src/log/gatewayLogger";
-import { canJoinPvpMatchSocket, isTerminalPvpMatchStatus } from "../../../src/features/pvp/server/match-access";
+import { sanitizeAvatarUrl, sanitizeDisplayName } from "../../../src/lib/sanitize";
+import { PVP_ERROR_CODES } from "../../../src/features/pvp/shared/error-codes";
 import { getPvpRankInfo } from "../../../src/features/pvp/rank";
+import { type WsConn } from "./presentation/ws-conn";
+import { createGatewayServer } from "./presentation/http-server";
+import {
+  gatewayLogDebug,
+  gatewayLogError,
+  gatewayLogInfo,
+  gatewayLogWarn,
+  isMissingPvpMatchmakingPreferenceTable,
+  logMissingGatewayPreferenceTableOnce,
+} from "./shared/logger";
+import {
+  buildQueueError,
+  createInputNonce,
+  extractAverageWpm,
+  isAiUserId,
+  toEpochMs,
+} from "./shared/errors";
+import { nextRoomExpiryDate } from "./shared/config";
+import { setupWssConnectionHandler, type WsServerOpts, type WsServerState } from "./presentation/ws-connection";
+import type { GatewayDeps } from "./application/deps";
+import { InputFlushCoordinator } from "./infrastructure/input-flush-coordinator";
+import { RedisQueueAdapter, LocalMemoryQueueAdapter } from "./matchmaking/queue-adapter";
 
-const IS_PROD = process.env.NODE_ENV === "production";
-const TRUST_PROXY_TLS = envBool("PVP_TRUST_PROXY_TLS", false);
-const INSECURE_LOCALHOST = envBool("PVP_INSECURE_LOCALHOST", false);
+// =============================================================================
+// BRANDED TYPES — canonical definitions live in shared/branded-ids.ts
+// =============================================================================
+
+// Import for local use within this file and re-export so existing imports from
+// "./index" continue to work during the incremental migration (Phase 3).
+import { type UserId, type MatchId, type RoomCode, toUserId, toMatchId, toRoomCode } from "./shared/branded-ids";
+export { type UserId, type MatchId, type RoomCode, toUserId, toMatchId, toRoomCode };
+
+// =============================================================================
+// CONSTANTS & CONFIGURATION
+// =============================================================================
+
 const INSTANCE_ID = process.env.PVP_INSTANCE_ID ?? crypto.randomUUID();
 
 let redisBus: RedisBus | null = null;
@@ -66,19 +91,18 @@ let gatewayMetrics: GatewayMetrics | null = null;
 let gatewayHealthController: GatewayHealthController | null = null;
 let matchCache: MatchCache | null = null;
 let connectionUserCache: UserCache<ConnectionUser> | null = null;
+
 const WS_BATCH_FLUSH_SIZE_BUCKETS = [1, 2, 4, 8, 16, 32, 64];
 const WS_MESSAGE_SIZE_BUCKETS = [64, 128, 256, 512, 1024, 2048, 4096, 8192];
 const DISCONNECT_FORFEIT_GRACE_MS = envInt("PVP_DISCONNECT_FORFEIT_GRACE_MS", 35_000);
 const MATCH_SESSION_SUPERSEDE_GRACE_MS = envMs("PVP_MATCH_SESSION_SUPERSEDE_GRACE_MS", 5_000);
 const MATCH_RESUME_DELTA_LIMIT = envInt("PVP_MATCH_RESUME_DELTA_LIMIT", 10);
-const MATCH_DELTA_BUFFER_LIMIT = envInt("PVP_MATCH_DELTA_BUFFER_LIMIT", 12);
 const MATCH_RESULT_RETENTION_MS = envMs("PVP_MATCH_RESULT_RETENTION_MS", 5 * 60 * 1000);
 const MATCH_SWEEP_INTERVAL_MS = envMs("PVP_MATCH_SWEEP_INTERVAL_MS", 30_000);
 const MATCH_MAX_COUNTDOWN_AGE_MS = envMs("PVP_MATCH_MAX_COUNTDOWN_AGE_MS", 2 * 60 * 1000);
 const MATCH_MAX_LIVE_AGE_MS = envMs("PVP_MATCH_MAX_LIVE_AGE_MS", 30 * 60 * 1000);
 const MATCH_NO_SHOW_TIMEOUT_MS = envMs("PVP_MATCH_NO_SHOW_TIMEOUT_MS", 40_000);
 const ONLINE_KEY_PREFIX = "pvp:online:";
-const ROOM_INACTIVITY_TTL_MS = envMs("PVP_ROOM_INACTIVITY_TTL_MS", 60 * 60 * 1000);
 const ROOM_RECONNECT_GRACE_MS = envMs("PVP_ROOM_RECONNECT_GRACE_MS", 30_000);
 const ROOM_SWEEP_INTERVAL_MS = envMs("PVP_ROOM_SWEEP_INTERVAL_MS", 2_000);
 const PUBLIC_ROOM_AUTO_START_MS = envMs("PVP_PUBLIC_ROOM_AUTO_START_MS", 50_000);
@@ -94,185 +118,47 @@ const ROOM_MATCH_START_DELAY_MS = envMs(
   FORCE_BOT_MATCH_LOCAL ? 1_500 : 3_000,
 );
 const ROOM_SWEEP_LOCK_KEY = "pvp:room:sweep:lock";
-const matchFinalizationLocks = new Set<string>();
-const matchCleanupTimers = new Map<string, NodeJS.Timeout>();
-const participantMetricAccumulators = new Map<string, { correctChars: number; mismatchChars: number }>();
-let hasPvpMatchmakingPreferenceTable: boolean | null = null;
-let pvpMatchmakingPreferenceTableLastCheckedAt = 0;
-let hasLoggedMissingPvpMatchmakingPreferenceTableWarning = false;
+
+const matchFinalizationLocks = new Set<MatchId>();
+const matchCleanupTimers = new Map<MatchId, NodeJS.Timeout>();
+const firstPlaceFinalizationTimers = new Map<string, NodeJS.Timeout>();
+// participantMetricAccumulators removed: stats now recomputed from scratch on every
+// INPUT_UPDATE via recomputeParticipantStats() — fixes P5 (backspace bug) + P3 (leak).
+
+/**
+ * Per-match FIFO exclusive lock registry (P4).
+ * Assigned in `main()` before the WS server starts accepting connections.
+ * Module-level so `finalizeMatchByDisconnectForfeit` and `abortMatchLifecycle`
+ * can reach it without receiving it as a parameter.
+ */
+let matchLockRegistry: MatchLockRegistry | null = null;
+
+/**
+ * Centralised per-match resource disposal service (P3).
+ * Assigned in `main()`.  Replaces all scattered
+ * `state.matches.delete/clearAiInterval/clearMatchCache` call chains.
+ */
+let matchCleanupService: MatchCleanupService | null = null;
+
+/**
+ * Acquire the per-match exclusive lock, falling through without locking if
+ * the registry has not been initialised yet (should never happen after `main()`
+ * completes startup, but guards against edge cases during testing / shutdown).
+ */
+async function withMatchLock<T>(matchId: MatchId, fn: () => Promise<T>): Promise<T> {
+  if (matchLockRegistry) return matchLockRegistry.withLock(matchId, fn);
+  return fn();
+}
+
+const hasPvpMatchmakingPreferenceTable = { value: null as boolean | null };
+const pvpMatchmakingPreferenceTableLastCheckedAt = { value: 0 };
 const PVP_PREFERENCE_TABLE_RETRY_MS = 60_000;
-const PVP_MATCHMAKING_PREFERENCES_TABLE = "pvp_matchmaking_preferences";
 
-function gatewayLogDebug(message: string, meta?: Record<string, unknown>) {
-  if (process.env.NODE_ENV !== "development") return;
-  gatewayLogger.debug(`[PVP-GATEWAY] ${message}`, meta);
-}
+// =============================================================================
+// TYPES & INTERFACES
+// =============================================================================
 
-function gatewayLogInfo(message: string, meta?: Record<string, unknown>) {
-  gatewayLogger.info(`[PVP-GATEWAY] ${message}`, meta);
-}
-
-function gatewayLogWarn(message: string, meta?: Record<string, unknown>) {
-  gatewayLogger.warn(`[PVP-GATEWAY] ${message}`, meta);
-}
-
-function isMissingPvpMatchmakingPreferenceTable(error: unknown) {
-  const candidate = error as { code?: unknown; meta?: { table?: unknown }; message?: unknown } | null;
-  if (!candidate || typeof candidate !== "object") return false;
-
-  const code = String(candidate.code ?? "");
-  const table = String(candidate.meta?.table ?? "").toLowerCase();
-  const message = String(candidate.message ?? "").toLowerCase();
-
-  if (code === "42P01") {
-    if (table.includes(PVP_MATCHMAKING_PREFERENCES_TABLE)) return true;
-    if (message.includes(PVP_MATCHMAKING_PREFERENCES_TABLE)) return true;
-  }
-
-  return message.includes(`relation \"${PVP_MATCHMAKING_PREFERENCES_TABLE}\"`) && message.includes("does not exist");
-}
-
-function logMissingGatewayPreferenceTableOnce() {
-  if (hasLoggedMissingPvpMatchmakingPreferenceTableWarning) return;
-
-  hasLoggedMissingPvpMatchmakingPreferenceTableWarning = true;
-  gatewayLogWarn("Using default matchmaking preferences because the preference table is missing", {
-    migrationHint: `Run db migrations to add ${PVP_MATCHMAKING_PREFERENCES_TABLE}`,
-  });
-}
-
-function gatewayLogError(message: string, error: unknown, meta?: Record<string, unknown>) {
-  gatewayLogger.error(`[PVP-GATEWAY] ${message}`, error, meta);
-}
-
-class PvpClientVisibleError extends Error {
-  readonly payload: PvpErrorPayload;
-
-  constructor(payload: PvpErrorPayload) {
-    super(payload.message);
-    this.name = "PvpClientVisibleError";
-    this.payload = payload;
-  }
-}
-
-function buildQueueError(payload: PvpErrorPayload) {
-  return new PvpClientVisibleError(payload);
-}
-
-function toClientErrorPayload(error: unknown, fallback?: Partial<PvpErrorPayload>): PvpErrorPayload {
-  if (error instanceof PvpClientVisibleError) {
-    return {
-      ...error.payload,
-      ...fallback,
-      details: {
-        ...error.payload.details,
-        ...fallback?.details,
-      },
-    };
-  }
-
-  return {
-    message: fallback?.message ?? (error instanceof Error ? error.message : "Unknown error"),
-    code: fallback?.code,
-    retryable: fallback?.retryable,
-    details: fallback?.details,
-  };
-}
-
-function decodeJwtPayloadUnsafe(token: string): Record<string, unknown> | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return null;
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padding = base64.length % 4 === 0 ? "" : "=".repeat(4 - (base64.length % 4));
-    const payload = Buffer.from(`${base64}${padding}`, "base64").toString("utf8");
-    const parsed = JSON.parse(payload);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
-function buildBypassWsAuthContext(token: string, connectionId: string): WsAuthContext {
-  const decoded = decodeJwtPayloadUnsafe(token);
-  const fallbackSub = `test-bypass-${crypto.createHash("sha256").update(`${token}:${connectionId}`).digest("hex").slice(0, 24)}`;
-
-  const userId = typeof decoded?.sub === "string" && decoded.sub.trim().length > 0 ? decoded.sub : fallbackSub;
-  const username = typeof decoded?.username === "string" && decoded.username.trim().length > 0 ? decoded.username : "test-bypass-user";
-  const avatar = typeof decoded?.avatar === "string" ? decoded.avatar : null;
-  const pvpRating = Number.isFinite(decoded?.pvpRating) ? Math.round(Number(decoded?.pvpRating)) : 1500;
-  const pvpDeviation = Number.isFinite(decoded?.pvpDeviation) ? Math.round(Number(decoded?.pvpDeviation)) : 350;
-  const tokenVersion = Number.isFinite(decoded?.tv) ? Math.trunc(Number(decoded?.tv)) : 1;
-  const validAfter = Number.isFinite(decoded?.va) ? Math.trunc(Number(decoded?.va)) : 0;
-  const issuedAt = Number.isFinite(decoded?.iat) ? Math.trunc(Number(decoded?.iat)) : Math.floor(Date.now() / 1000);
-
-  return {
-    userId,
-    username,
-    avatar,
-    pvpRating,
-    pvpDeviation,
-    tokenVersion,
-    validAfter,
-    issuedAt,
-  };
-}
-
-function mapHelloAuthFailure(error: unknown): PvpErrorPayload {
-  const rawMessage = error instanceof Error ? error.message : "Authentication failed";
-  const message = rawMessage.toLowerCase();
-
-  if (message.includes("expired") || message.includes("jwt expired")) {
-    return {
-      code: PVP_ERROR_CODES.TOKEN_EXPIRED,
-      message: "Websocket token expired. Please refresh and try again.",
-      retryable: true,
-    };
-  }
-
-  if (message.includes("fingerprint") || message.includes("client secret")) {
-    return {
-      code: PVP_ERROR_CODES.BAD_SECRET,
-      message: "Invalid websocket client secret.",
-      retryable: false,
-    };
-  }
-
-  if (
-    message.includes("invalid token") ||
-    message.includes("subject") ||
-    message.includes("security claims") ||
-    message.includes("jws") ||
-    message.includes("jwt")
-  ) {
-    return {
-      code: PVP_ERROR_CODES.INVALID_TOKEN,
-      message: "Invalid websocket token.",
-      retryable: false,
-    };
-  }
-
-  return {
-    code: PVP_ERROR_CODES.AUTH_FAILED,
-    message: "Authentication failed.",
-    retryable: false,
-  };
-}
-
-type WsConn = WebSocket & {
-  connectionId?: string;
-  user?: ConnectionUser & Pick<WsAuthContext, "tokenVersion" | "validAfter" | "issuedAt">;
-  authBypass?: boolean;
-  matchId?: string;
-  matchSessionKey?: string;
-  roomCode?: string;
-  ip?: string;
-  rl?: { general: TokenBucket; input: TokenBucket; roomAction: TokenBucket };
-  rawMsgStrikes?: number;
-  presenceInterval?: NodeJS.Timeout | null;
-};
-
-type Placement = {
+interface Placement {
   position: number;
   userId: string;
   username: string;
@@ -280,21 +166,87 @@ type Placement = {
   accuracy: number;
   errors: number;
   timeMs: number;
-};
+}
 
-type PendingInputUpdateBatch = {
+interface PendingInputUpdateBatch {
   maxSeqByUser: Map<string, number>;
   enqueuedCount: number;
   firstEnqueuedAtMs: number;
-};
+}
 
-function envInt(name: string, fallback: number) {
+interface QueuedUserMeta {
+  bucketKey: string;
+  joinedAtMs: number;
+  preference: MatchmakingPreference;
+  rating: number;
+}
+
+interface MatchDelta {
+  revision: number;
+  type: "PROGRESS" | "MATCH_STATE";
+  payload: unknown;
+  atMs: number;
+}
+
+interface LocalMatch {
+  matchId: MatchId;
+  roomCode: RoomCode | null;
+  state: MatchLifecycleState;
+  stateChangedAt: number;
+  revision: number;
+  lastSnapshotBroadcastAtMs: number;
+  status: string;
+  textSnapshot: string;
+  textId: string | null;
+  inputNonce: string | null;
+  serverStartAtMs: number;
+  participants: Map<string, LocalParticipant>;
+  endedReason: "completed" | "opponent_disconnected" | "aborted" | "no_show" | null;
+  forfeitedUserId: string | null;
+  rematchMatchId: MatchId | null;
+  finalizedAtMs: number | null;
+  cleanupScheduledAtMs: number | null;
+  reconnectUntilByUserId: Record<string, number>;
+  recentDeltas: MatchDelta[];
+  tieWindowStartedAt: number | null;
+}
+
+interface LocalParticipant {
+  userId: string;
+  username: string;
+  avatar: string | null;
+  slot: number;
+  input: string;
+  seq: number;
+  errors: number;
+  wpm: number;
+  accuracy: number;
+  finishedAt: number | null;
+  lastInputAtMs?: number;
+  lastInputLen?: number;
+  inputEvents: InputEvent[];
+}
+
+interface InputEvent {
+  atMs: number;
+  inputLength: number;
+  deltaChars: number;
+  wpm: number;
+}
+
+// WsConn defined in presentation/ws-conn.ts — imported above.
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) ? Math.floor(n) : fallback;
 }
 
-function envBool(name: string, fallback = false) {
+function envBool(name: string, fallback = false): boolean {
   const raw = process.env[name];
   if (!raw) return fallback;
   const v = raw.trim().toLowerCase();
@@ -303,178 +255,24 @@ function envBool(name: string, fallback = false) {
   return fallback;
 }
 
-function parseAllowedOrigins() {
-  const raw = process.env.PVP_ALLOWED_ORIGINS;
-  if (!raw) return null;
-  const list = raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return list.length ? new Set(list) : null;
+function envMs(name: string, fallbackMs: number): number {
+  const raw = process.env[name];
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : fallbackMs;
 }
 
-const allowedOrigins = parseAllowedOrigins();
+// allowedOrigins, originAllowed, isLoopbackAddress, getClientIp,
+// createGatewayServer, isSecureGatewayRequest — imported from ./presentation/http-server
+// gatewayLog*, isMissingPvpMatchmakingPreferenceTable, logMissingGatewayPreferenceTableOnce — imported from ./shared/logger
+// PvpClientVisibleError, buildQueueError, toClientErrorPayload, mapHelloAuthFailure,
+// decodeJwtPayloadUnsafe, createInputNonce, isAiUserId, toEpochMs, extractAverageWpm — imported from ./shared/errors
+// nextRoomExpiryDate — imported from ./shared/config
 
-if (IS_PROD && !allowedOrigins) {
-  throw new Error("Missing PVP_ALLOWED_ORIGINS in production");
-}
+// =============================================================================
+// WEBSOCKET COMMUNICATION
+// =============================================================================
 
-function originAllowed(origin: string | undefined | null) {
-  if (!allowedOrigins) return true;
-  if (!origin) return false;
-  return allowedOrigins.has(origin);
-}
-
-function isLocalhostHost(hostname: string) {
-  const normalized = hostname.trim().toLowerCase();
-  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
-}
-
-function isLocalOrigin(origin: string) {
-  try {
-    const parsed = new URL(origin);
-    return isLocalhostHost(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
-
-function hasOnlyLocalOrigins() {
-  if (!allowedOrigins || allowedOrigins.size === 0) return false;
-  return Array.from(allowedOrigins).every(isLocalOrigin);
-}
-
-function isLoopbackAddress(remoteAddress: string | undefined) {
-  if (!remoteAddress) return false;
-  const normalized = remoteAddress.trim().toLowerCase();
-  return (
-    normalized === "127.0.0.1" ||
-    normalized === "::1" ||
-    normalized.startsWith("::ffff:127.0.0.1")
-  );
-}
-
-function getClientIp(req: http.IncomingMessage) {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim()) {
-    return forwarded.split(",")[0]?.trim() ?? "unknown";
-  }
-
-  const realIp = req.headers["x-real-ip"];
-  if (typeof realIp === "string" && realIp.trim()) return realIp.trim();
-
-  return req.socket.remoteAddress ?? "unknown";
-}
-
-function createGatewayServer() {
-  const healthHandler: http.RequestListener = (req, res) => {
-    const path = req.url?.split("?")[0] ?? "/";
-    void (async () => {
-      if (path === "/metrics") {
-        setGatewayGauge("pvp_gateway_uptime_seconds", Number(process.uptime().toFixed(3)));
-        setGatewayGauge("pvp_gateway_heap_used_bytes", process.memoryUsage().heapUsed);
-        const body = gatewayMetrics ? await gatewayMetrics.renderMetrics() : renderGatewayMetrics();
-        res.writeHead(200, {
-          "Content-Type": gatewayMetrics?.register.contentType ?? "text/plain; version=0.0.4; charset=utf-8",
-        });
-        res.end(body);
-        return;
-      }
-
-      if (path === "/health" || path === "/healthz") {
-        const response = gatewayHealthController
-          ? await gatewayHealthController.evaluate("health")
-          : { statusCode: 200, body: { status: "ok", instanceId: INSTANCE_ID } };
-        res.writeHead(response.statusCode, { "Content-Type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify(response.body));
-        return;
-      }
-
-      if (path === "/ready") {
-        const response = gatewayHealthController
-          ? await gatewayHealthController.evaluate("ready")
-          : { statusCode: 503, body: { status: "not_ready", instanceId: INSTANCE_ID } };
-        res.writeHead(response.statusCode, { "Content-Type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify(response.body));
-        return;
-      }
-
-      if (path === "/") {
-        res.writeHead(200);
-        res.end("pvp-gateway ok");
-        return;
-      }
-
-      res.writeHead(404);
-      res.end("not found");
-    })().catch((error) => {
-      gatewayLogError("Gateway probe handler failed", error, { path });
-      if (!res.headersSent) {
-        res.writeHead(500);
-      }
-      res.end("internal error");
-    });
-  };
-
-  if (!IS_PROD) {
-    return http.createServer(healthHandler);
-  }
-
-  if (TRUST_PROXY_TLS) {
-    gatewayLogInfo("Starting PvP gateway behind trusted TLS proxy", {
-      trustProxyTls: true,
-    });
-    return http.createServer(healthHandler);
-  }
-
-  if (INSECURE_LOCALHOST) {
-    if (!hasOnlyLocalOrigins()) {
-      throw new Error("PVP_INSECURE_LOCALHOST requires all PVP_ALLOWED_ORIGINS values to be localhost/127.0.0.1");
-    }
-
-    gatewayLogWarn("Starting PvP gateway in insecure localhost mode", {
-      insecureLocalhost: true,
-      warning: "Development only. Disable PVP_INSECURE_LOCALHOST for deployed environments.",
-    });
-    return http.createServer(healthHandler);
-  }
-
-  const keyPath = process.env.PVP_TLS_KEY_PATH;
-  const certPath = process.env.PVP_TLS_CERT_PATH;
-  if (!keyPath || !certPath) {
-    throw new Error("Missing PVP_TLS_KEY_PATH or PVP_TLS_CERT_PATH in production (or set PVP_TRUST_PROXY_TLS=1 behind a trusted proxy)");
-  }
-
-  return https.createServer(
-    {
-      key: fs.readFileSync(keyPath),
-      cert: fs.readFileSync(certPath),
-      ca: process.env.PVP_TLS_CA_PATH ? fs.readFileSync(process.env.PVP_TLS_CA_PATH) : undefined,
-    },
-    healthHandler
-  );
-}
-
-function isSecureGatewayRequest(req: http.IncomingMessage) {
-  if (!IS_PROD) return true;
-
-  if (INSECURE_LOCALHOST && isLoopbackAddress(req.socket.remoteAddress)) {
-    return true;
-  }
-
-  if ((req.socket as { encrypted?: boolean }).encrypted) return true;
-
-  if (!TRUST_PROXY_TLS) return false;
-
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  if (typeof forwardedProto === "string") {
-    return forwardedProto.split(",")[0]?.trim().toLowerCase() === "https";
-  }
-
-  return false;
-}
-
-function sendImmediate(ws: WsConn, type: ServerMessage["type"], payload: unknown) {
+function sendImmediate(ws: WsConn, type: ServerMessage["type"], payload: unknown): void {
   try {
     const serialized = toJson({ type, payload });
     incrementGatewayMetric("pvp_ws_outbound_messages_total", { type, batching: "immediate" });
@@ -496,7 +294,7 @@ function sendImmediate(ws: WsConn, type: ServerMessage["type"], payload: unknown
   }
 }
 
-function send(ws: WsConn, type: ServerMessage["type"], payload: unknown) {
+function send(ws: WsConn, type: ServerMessage["type"], payload: unknown): void {
   if (messageBatcher && isBatchableServerMessage(type)) {
     if (type === "PROGRESS") {
       messageBatcher.enqueue(ws, {
@@ -516,8 +314,7 @@ function send(ws: WsConn, type: ServerMessage["type"], payload: unknown) {
   sendImmediate(ws, type, payload);
 }
 
-function getAuthedSocketsForUser(wss: WebSocketServer, userId: string) {
-  void wss;
+function getAuthedSocketsForUser(wss: WebSocketServer, userId: string): WsConn[] {
   const conns: WsConn[] = [];
   const cachedSockets = matchCache?.getUserSockets(userId);
   if (!cachedSockets || cachedSockets.size === 0) return conns;
@@ -530,7 +327,7 @@ function getAuthedSocketsForUser(wss: WebSocketServer, userId: string) {
   return conns;
 }
 
-function sendToUser(wss: WebSocketServer, userId: string, type: ServerMessage["type"], payload: unknown) {
+function sendToUser(wss: WebSocketServer, userId: string, type: ServerMessage["type"], payload: unknown): void {
   if (redisBus) {
     void redisBus.publish(userChannel(userId), { type, payload });
     return;
@@ -540,12 +337,11 @@ function sendToUser(wss: WebSocketServer, userId: string, type: ServerMessage["t
   }
 }
 
-function broadcastRoom(wss: WebSocketServer, roomCode: string, type: ServerMessage["type"], payload: unknown) {
+function broadcastRoom(wss: WebSocketServer, roomCode: string, type: ServerMessage["type"], payload: unknown): void {
   if (redisBus) {
     void redisBus.publish(roomChannel(roomCode), { type, payload });
     return;
   }
-  void wss;
   const roomSockets = matchCache?.getRoomSockets(roomCode);
   if (!roomSockets || roomSockets.size === 0) return;
 
@@ -556,8 +352,7 @@ function broadcastRoom(wss: WebSocketServer, roomCode: string, type: ServerMessa
   }
 }
 
-function broadcastMatch(wss: WebSocketServer, matchId: string, type: ServerMessage["type"], payload: unknown) {
-  void wss;
+function broadcastMatch(wss: WebSocketServer, matchId: string, type: ServerMessage["type"], payload: unknown): void {
   const cachedSockets = matchCache?.getMatchSockets(matchId);
   if (cachedSockets && cachedSockets.size > 0) {
     for (const socket of cachedSockets) {
@@ -570,102 +365,41 @@ function broadcastMatch(wss: WebSocketServer, matchId: string, type: ServerMessa
   }
 }
 
-function getDisconnectForfeitKey(matchId: string, userId: string) {
+// =============================================================================
+// MATCH METRICS & PARTICIPANT TRACKING
+// =============================================================================
+
+function getDisconnectForfeitKey(matchId: string, userId: string): string {
   return `${matchId}:${userId}`;
 }
 
-function getParticipantMetricKey(matchId: string, userId: string) {
-  return `${matchId}:${userId}`;
-}
+// ---------------------------------------------------------------------------
+// Accumulator functions removed (P5 + P3 root fix).
+// getParticipantMetricKey / clearParticipantMetricAccumulator /
+// clearMatchMetricAccumulators / getOrInitParticipantAccumulator /
+// updateParticipantMetricsIncremental — all deleted.
+//
+// Stats are now computed via recomputeParticipantStats() on every keystroke.
+// This is O(n ≤ 1000) per event, always correct after backspace, and requires
+// no external Map — eliminating both the backspace bug and the memory leak.
+// ---------------------------------------------------------------------------
 
-function clearParticipantMetricAccumulator(matchId: string, userId: string) {
-  participantMetricAccumulators.delete(getParticipantMetricKey(matchId, userId));
-}
+// =============================================================================
+// MATCH STATE MANAGEMENT
+// =============================================================================
 
-function clearMatchMetricAccumulators(matchId: string) {
-  for (const key of participantMetricAccumulators.keys()) {
-    if (!key.startsWith(`${matchId}:`)) continue;
-    participantMetricAccumulators.delete(key);
-  }
-}
-
-function computeWpmFromCorrectChars(correctChars: number, startedAtMs: number, nowMs: number) {
-  const elapsedMs = Math.max(1, nowMs - startedAtMs);
-  const minutes = elapsedMs / 60000;
-  const base = (correctChars / 5) / Math.max(minutes, 0.016667);
-  return Math.max(0, Math.min(500, Math.round(base)));
-}
-
-function getOrInitParticipantAccumulator(matchId: string, textSnapshot: string, participant: InMemoryState["matches"] extends Map<string, infer T> ? T extends { participants: Map<string, infer P> } ? P : never : never) {
-  const key = getParticipantMetricKey(matchId, participant.userId);
-  const existing = participantMetricAccumulators.get(key);
-  if (existing) return existing;
-
-  let correctChars = 0;
-  let mismatchChars = 0;
-  const input = participant.input ?? "";
-  const n = Math.min(input.length, textSnapshot.length);
-  for (let i = 0; i < n; i += 1) {
-    if (input[i] === textSnapshot[i]) {
-      correctChars += 1;
-    } else {
-      mismatchChars += 1;
-    }
-  }
-
-  const accumulator = { correctChars, mismatchChars };
-  participantMetricAccumulators.set(key, accumulator);
-  return accumulator;
-}
-
-/**
- * Updates participant metrics in O(delta) for append/backspace edits.
- */
-function updateParticipantMetricsIncremental(params: {
-  matchId: string;
-  textSnapshot: string;
-  participant: InMemoryState["matches"] extends Map<string, infer T> ? T extends { participants: Map<string, infer P> } ? P : never : never;
-  nextInput: string;
-  nowMs: number;
-  startedAtMs: number;
-}) {
-  const { matchId, textSnapshot, participant, nextInput, nowMs, startedAtMs } = params;
-  const previousInput = participant.input;
-  const accumulator = getOrInitParticipantAccumulator(matchId, textSnapshot, participant);
-
-  if (nextInput.length >= previousInput.length) {
-    for (let position = previousInput.length; position < nextInput.length; position += 1) {
-      if (nextInput[position] === textSnapshot[position]) {
-        accumulator.correctChars += 1;
-      } else {
-        accumulator.mismatchChars += 1;
-      }
-    }
-  } else {
-    for (let position = nextInput.length; position < previousInput.length; position += 1) {
-      if (previousInput[position] === textSnapshot[position]) {
-        accumulator.correctChars = Math.max(0, accumulator.correctChars - 1);
-      } else {
-        accumulator.mismatchChars = Math.max(0, accumulator.mismatchChars - 1);
-      }
-    }
-  }
-
-  participant.input = nextInput;
-  participant.errors = accumulator.mismatchChars;
-  participant.accuracy = nextInput.length === 0
-    ? 100
-    : Math.max(0, Math.min(100, Number(((accumulator.correctChars / Math.max(1, nextInput.length)) * 100).toFixed(1))));
-  participant.wpm = computeWpmFromCorrectChars(accumulator.correctChars, startedAtMs, nowMs);
-
-  return accumulator;
-}
-
-function buildLiveStateFromLocalMatch(match: InMemoryState["matches"] extends Map<string, infer T> ? T : never): MatchLiveState {
+function buildLiveStateFromLocalMatch(match: LocalMatch): MatchLiveState {
   const participants: MatchLiveState["participants"] = {};
 
   for (const participant of match.participants.values()) {
-    const accumulator = getOrInitParticipantAccumulator(match.matchId, match.textSnapshot, participant);
+    // Full recompute: O(n ≤ 1000). Eliminates the external accumulator Map and the
+    // backspace-bug that plagued the previous incremental approach (P5 fix).
+    const stats = recomputeParticipantStats(
+      participant.input,
+      match.textSnapshot,
+      match.serverStartAtMs,
+      Date.now(),
+    );
     participants[participant.userId] = {
       userId: participant.userId,
       username: participant.username,
@@ -673,13 +407,13 @@ function buildLiveStateFromLocalMatch(match: InMemoryState["matches"] extends Ma
       slot: participant.slot,
       input: participant.input,
       seq: participant.seq,
-      errors: participant.errors,
-      wpm: participant.wpm,
-      accuracy: participant.accuracy,
+      errors: stats.errors,
+      wpm: stats.wpm,
+      accuracy: stats.accuracy,
       finishedAt: participant.finishedAt,
       lastInputAtMs: participant.lastInputAtMs ?? null,
-      correctChars: accumulator.correctChars,
-      mismatchChars: accumulator.mismatchChars,
+      // correctChars is persisted in JSONB so it survives gateway restarts (P12 fix).
+      correctChars: stats.correctChars,
       inputEvents: participant.inputEvents ?? [],
     };
   }
@@ -693,181 +427,25 @@ function buildLiveStateFromLocalMatch(match: InMemoryState["matches"] extends Ma
     rematchMatchId: match.rematchMatchId ?? null,
     finalizedAtMs: match.finalizedAtMs ?? null,
     reconnectUntilByUserId: match.reconnectUntilByUserId ?? {},
+    tieWindowStartedAt: match.tieWindowStartedAt ?? null,
     deltas: match.recentDeltas ?? [],
   };
 }
 
-function appendMatchDelta(
-  match: InMemoryState["matches"] extends Map<string, infer T> ? T : never,
-  delta: {
-    type: "PROGRESS" | "MATCH_STATE";
-    payload: unknown;
-    atMs: number;
-  }
-) {
-  if (!match.recentDeltas) {
-    match.recentDeltas = [];
-  }
-
-  match.recentDeltas.push({
-    revision: match.revision,
-    type: delta.type,
-    payload: delta.payload,
-    atMs: delta.atMs,
-  });
-
-  if (match.recentDeltas.length > MATCH_DELTA_BUFFER_LIMIT) {
-    match.recentDeltas.splice(0, match.recentDeltas.length - MATCH_DELTA_BUFFER_LIMIT);
-  }
-}
-
-async function tryBeginMatchFinalizationWithDbLock(params: {
-  db: GatewayDb;
-  match: InMemoryState["matches"] extends Map<string, infer T> ? T : never;
-}) {
-  const repository = new MatchRepository(params.db);
-
-  return repository.withTransaction(async (tx) => {
-    const locked = await repository.loadForUpdate(tx, params.match.matchId);
-    if (!locked) return false;
-    if (locked.status === "FINISHED" || locked.status === "ABORTED") return false;
-
-    const lockState = locked.liveState ?? buildLiveStateFromLocalMatch(params.match);
-    lockState.finalizedAtMs = Date.now();
-
-    const acquired = await repository.tryLockFinalization(tx, {
-      matchId: params.match.matchId,
-      expectedRevision: locked.revision,
-      instanceId: INSTANCE_ID,
-      liveState: lockState,
-    });
-
-    return acquired.acquired;
-  });
-}
-
-async function clearTerminalMatchLiveState(params: {
-  db: GatewayDb;
-  matchId: string;
-  status: "FINISHED" | "ABORTED";
-}) {
-  const repository = new MatchRepository(params.db);
-
-  await repository.withTransaction(async (tx) => {
-    const locked = await repository.loadForUpdate(tx, params.matchId);
-    if (!locked) return;
-
-    await repository.clearLiveStateOnTerminal(tx, {
-      matchId: params.matchId,
-      expectedRevision: locked.revision,
-      status: params.status,
-      endedAt: new Date(),
-    });
-  });
-}
-
-function tryBeginMatchFinalization(matchId: string) {
-  if (matchFinalizationLocks.has(matchId)) return false;
-  matchFinalizationLocks.add(matchId);
-  return true;
-}
-
-function endMatchFinalization(matchId: string) {
-  matchFinalizationLocks.delete(matchId);
-}
-
-async function runWithMatchFinalizationLock(matchId: string, work: () => Promise<void>) {
-  if (!tryBeginMatchFinalization(matchId)) return false;
-  try {
-    await work();
-    return true;
-  } finally {
-    endMatchFinalization(matchId);
-  }
-}
-
-function clearScheduledMatchCleanup(matchId: string) {
-  const existing = matchCleanupTimers.get(matchId);
-  if (!existing) return;
-  clearTimeout(existing);
-  matchCleanupTimers.delete(matchId);
-}
-
-function scheduleMatchCleanup(state: InMemoryState, matchId: string, delayMs = MATCH_RESULT_RETENTION_MS) {
-  clearScheduledMatchCleanup(matchId);
-  const match = state.matches.get(matchId);
-  if (!match) return;
-
-  match.cleanupScheduledAtMs = Date.now() + delayMs;
-  const timer = setTimeout(() => {
-    clearScheduledMatchCleanup(matchId);
-    state.clearAiInterval(matchId);
-    state.matches.delete(matchId);
-    matchCache?.clearMatch(matchId);
-    clearMatchMetricAccumulators(matchId);
-  }, delayMs);
-
-  if (typeof timer.unref === "function") {
-    timer.unref();
-  }
-
-  matchCleanupTimers.set(matchId, timer);
-}
-
-function maybeBroadcastMatchSnapshot(wss: WebSocketServer, match: InMemoryState["matches"] extends Map<string, infer T> ? T : never, nowMs: number, intervalMs: number) {
-  if (!shouldBroadcastPeriodicMatchSnapshot(match, nowMs, intervalMs)) {
-    incrementGatewayMetric("pvp_match_snapshot_skip_total", { state: match.state });
-    return false;
-  }
-  markMatchSnapshotBroadcast(match, nowMs);
-  incrementGatewayMetric("pvp_match_snapshots_total", { state: match.state });
-  const payload = buildMatchStatePayload(match, nowMs);
-  appendMatchDelta(match, {
-    type: "MATCH_STATE",
-    payload,
-    atMs: nowMs,
-  });
-  broadcastMatch(wss, match.matchId, "MATCH_STATE", payload);
-  return true;
-}
-
-function envMs(name: string, fallbackMs: number) {
-  const raw = process.env[name];
-  const n = raw ? Number(raw) : NaN;
-  return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : fallbackMs;
-}
-
-function createInputNonce() {
-  return crypto.randomBytes(16).toString("hex");
-}
-
-function isAiUserId(userId: string) {
-  return userId.startsWith("ai:");
-}
-
-function findActiveMatchByUserId(state: InMemoryState, userId: string) {
-  for (const match of state.matches.values()) {
-    if (!match.participants.has(userId)) continue;
-    if (match.state === "finished" || match.state === "aborted") continue;
-    return match;
-  }
-  return null;
-}
-
 function applyMatchTransition(params: {
-  match: InMemoryState["matches"] extends Map<string, infer T> ? T : never;
+  match: LocalMatch;
   nextState: MatchLifecycleState;
   eventBus: ReturnType<typeof createGatewayEventBus>;
   reason?: "completed" | "opponent_disconnected" | "aborted";
-}) {
+}): boolean {
   const { match, nextState, eventBus } = params;
   const from = match.state;
 
   try {
-    const transitioned = transitionMatchState(match, nextState);
-    match.state = transitioned.state;
+    const transitioned = transitionMatchState(match as unknown as Parameters<typeof transitionMatchState>[0], nextState);
+    match.state = transitioned.state as MatchLifecycleState;
     match.stateChangedAt = transitioned.stateChangedAt;
-    match.status = matchStateToLegacyStatus(transitioned.state);
+    match.status = matchStateToLegacyStatus(transitioned.state as MatchLifecycleState);
   } catch {
     eventBus.emit("match:invalid-transition", {
       matchId: match.matchId,
@@ -905,94 +483,110 @@ function applyMatchTransition(params: {
   return true;
 }
 
-async function loadIdempotencyHit(params: {
-  redis: RedisBus["redis"] | null;
-  store: InMemoryIdempotencyStore;
-  eventBus: ReturnType<typeof createGatewayEventBus>;
-  userId: string;
-  messageType: string;
-  requestId?: string;
-}) {
-  if (!params.requestId) return null;
-  const key = buildIdempotencyKey(params.userId, params.messageType, params.requestId);
-  const record = await getIdempotencyRecord({
-    redis: params.redis,
-    store: params.store,
-    key,
-  });
-  params.eventBus.emit(record ? "idempotency:hit" : "idempotency:miss", {
-    scope: params.messageType.toLowerCase(),
-    userId: params.userId,
-  });
-  return { key, record };
-}
+// =============================================================================
+// DATABASE OPERATIONS
+// =============================================================================
 
-async function storeIdempotencyHit(params: {
-  redis: RedisBus["redis"] | null;
-  store: InMemoryIdempotencyStore;
-  key?: string;
-  messageType: string;
-  value: IdempotencyRecord;
-}) {
-  if (!params.key) return;
-  await setIdempotencyRecord({
-    redis: params.redis,
-    store: params.store,
-    key: params.key,
-    value: params.value,
-    ttlSeconds: getIdempotencyTtlSeconds(params.messageType),
+async function tryBeginMatchFinalizationWithDbLock(params: {
+  db: GatewayDb;
+  match: LocalMatch;
+}): Promise<boolean> {
+  const repository = new MatchRepository(params.db);
+
+  return repository.withTransaction(async (tx) => {
+    const locked = await repository.loadForUpdate(tx, params.match.matchId);
+    if (!locked) return false;
+    if (locked.status === "FINISHED" || locked.status === "ABORTED") return false;
+
+    const lockState = locked.liveState ?? buildLiveStateFromLocalMatch(params.match);
+    lockState.finalizedAtMs = Date.now();
+
+    const acquired = await repository.tryLockFinalization(tx, {
+      matchId: params.match.matchId,
+      expectedRevision: locked.revision,
+      instanceId: INSTANCE_ID,
+      liveState: lockState,
+    });
+
+    return acquired.acquired;
   });
 }
 
-function nextRoomExpiryDate() {
-  return new Date(Date.now() + ROOM_INACTIVITY_TTL_MS);
+async function clearTerminalMatchLiveState(params: {
+  db: GatewayDb;
+  matchId: string;
+  status: "FINISHED" | "ABORTED";
+}): Promise<void> {
+  const repository = new MatchRepository(params.db);
+
+  await repository.withTransaction(async (tx) => {
+    const locked = await repository.loadForUpdate(tx, params.matchId);
+    if (!locked) return;
+
+    await repository.clearLiveStateOnTerminal(tx, {
+      matchId: params.matchId,
+      expectedRevision: locked.revision,
+      status: params.status,
+      endedAt: new Date(),
+    });
+  });
 }
 
-function toEpochMs(value: unknown, fallbackMs: number) {
-  if (value instanceof Date) {
-    const ms = value.getTime();
-    return Number.isFinite(ms) ? ms : fallbackMs;
-  }
+async function transferRoomHostIfNeeded(db: GatewayDb, roomId: string): Promise<string | null> {
+  const room = await db.query.pvpRooms.findFirst({
+    columns: {
+      id: true,
+      hostUserId: true,
+    },
+    where: eq(pvpRooms.id, roomId),
+    with: {
+      members: {
+        columns: {
+          userId: true,
+          joinedAt: true,
+          readyAt: true,
+          leftAt: true,
+        },
+        orderBy: asc(pvpRoomMembers.joinedAt),
+      },
+    },
+  });
 
-  if (typeof value === "string" || typeof value === "number") {
-    const ms = new Date(value).getTime();
-    return Number.isFinite(ms) ? ms : fallbackMs;
-  }
+  if (!room) return null;
 
-  return fallbackMs;
-}
+  const nextHostUserId = selectNextRoomHost(room.members, room.hostUserId);
+  if (!nextHostUserId || nextHostUserId === room.hostUserId) return nextHostUserId;
 
-async function touchRoomExpiry(db: GatewayDb, roomId: string) {
   await db
     .update(pvpRooms)
-    .set({ expiresAt: nextRoomExpiryDate(), updatedAt: new Date() })
+    .set({ hostUserId: nextHostUserId, updatedAt: new Date() })
     .where(eq(pvpRooms.id, roomId));
+
+  return nextHostUserId;
 }
 
-function extractAverageWpm(longTermStats: unknown) {
-  if (!longTermStats || typeof longTermStats !== "object") return null;
-
-  const averageWpm = (longTermStats as Record<string, unknown>).averageWPM;
-  if (typeof averageWpm !== "number" || !Number.isFinite(averageWpm)) {
-    return null;
-  }
-
-  return Math.max(0, Math.round(averageWpm));
-}
-
-function buildMatchFoundPlayerPayload(user: Pick<ConnectionUser, "userId" | "username" | "avatar" | "pvpRating" | "rankTier" | "averageWpm"> & { slot: number }) {
-  return {
-    userId: user.userId,
-    username: user.username,
-    avatar: user.avatar,
-    slot: user.slot,
-    rating: user.pvpRating,
-    rankTier: user.rankTier,
-    averageWpm: user.averageWpm ?? null,
+async function loadRoomStatePayload(db: GatewayDb, roomCode: string): Promise<{
+  roomId: string;
+  room: {
+    code: string;
+    status: string;
+    visibility: string;
+    minPlayers: number;
+    maxPlayers: number;
+    hostUserId: string | null;
+    autoStartAt: string | null;
+    expiresAt: string | null;
+    members: Array<{
+      userId: string;
+      username: string;
+      avatar: string | null;
+      slot: number;
+      ready: boolean;
+      joinedAt: Date;
+      leftAt: Date | null;
+    }>;
   };
-}
-
-async function loadRoomStatePayload(db: GatewayDb, roomCode: string) {
+} | null> {
   const room = await db.query.pvpRooms.findFirst({
     columns: {
       id: true,
@@ -1061,7 +655,7 @@ async function loadRoomStatePayload(db: GatewayDb, roomCode: string) {
   };
 }
 
-async function broadcastRoomState(db: GatewayDb, wss: WebSocketServer, roomCode: string) {
+async function broadcastRoomState(db: GatewayDb, wss: WebSocketServer, roomCode: string): Promise<{ roomId: string; room: { code: string; status: string; visibility: string; minPlayers: number; maxPlayers: number; hostUserId: string | null; autoStartAt: string | null; expiresAt: string | null; members: Array<{ userId: string; username: string; avatar: string | null; slot: number; ready: boolean; }> } } | null> {
   const payload = await loadRoomStatePayload(db, roomCode);
   if (!payload) return null;
 
@@ -1088,40 +682,61 @@ async function broadcastRoomState(db: GatewayDb, wss: WebSocketServer, roomCode:
   return payload;
 }
 
-async function transferRoomHostIfNeeded(db: GatewayDb, roomId: string) {
-  const room = await db.query.pvpRooms.findFirst({
-    columns: {
-      id: true,
-      hostUserId: true,
-    },
-    where: eq(pvpRooms.id, roomId),
-    with: {
-      members: {
-        columns: {
-          userId: true,
-          joinedAt: true,
-          readyAt: true,
-          leftAt: true,
-        },
-        orderBy: asc(pvpRoomMembers.joinedAt),
-      },
-    },
-  });
+// =============================================================================
+// MATCH FINALIZATION HELPERS
+// =============================================================================
 
-  if (!room) return null;
-
-  const nextHostUserId = selectNextRoomHost(room.members, room.hostUserId);
-  if (!nextHostUserId || nextHostUserId === room.hostUserId) return nextHostUserId;
-
-  await db
-    .update(pvpRooms)
-    .set({ hostUserId: nextHostUserId, updatedAt: new Date() })
-    .where(eq(pvpRooms.id, roomId));
-
-  return nextHostUserId;
+function tryBeginMatchFinalization(matchId: MatchId): boolean {
+  if (matchFinalizationLocks.has(matchId)) return false;
+  matchFinalizationLocks.add(matchId);
+  return true;
 }
 
-async function tryAcquireRoomSweepLock() {
+function endMatchFinalization(matchId: MatchId): void {
+  matchFinalizationLocks.delete(matchId);
+}
+
+async function runWithMatchFinalizationLock(matchId: MatchId, work: () => Promise<void>): Promise<boolean> {
+  if (!tryBeginMatchFinalization(matchId)) return false;
+  try {
+    await work();
+    return true;
+  } finally {
+    endMatchFinalization(matchId);
+  }
+}
+
+function clearScheduledMatchCleanup(matchId: MatchId): void {
+  const existing = matchCleanupTimers.get(matchId);
+  if (!existing) return;
+  clearTimeout(existing);
+  matchCleanupTimers.delete(matchId);
+}
+
+function scheduleMatchCleanup(state: InMemoryState, matchId: MatchId, delayMs = MATCH_RESULT_RETENTION_MS): void {
+  clearScheduledMatchCleanup(matchId);
+  const match = state.matches.get(matchId) as LocalMatch | undefined;
+  if (!match) return;
+
+  match.cleanupScheduledAtMs = Date.now() + delayMs;
+  const timer = setTimeout(() => {
+    // MatchCleanupService.dispose handles all 11 per-match resource releases
+    // atomically (timer, locks, timers, sets, maps, cache, state entry).
+    matchCleanupService?.dispose(matchId);
+  }, delayMs);
+
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+
+  matchCleanupTimers.set(matchId, timer);
+}
+
+// =============================================================================
+// ROOM LIFECYCLE
+// =============================================================================
+
+async function tryAcquireRoomSweepLock(): Promise<boolean> {
   const redis = redisBus?.redis ?? null;
   if (!redis) return true;
   const token = `${INSTANCE_ID}:${Date.now()}`;
@@ -1133,7 +748,7 @@ async function sweepRoomLifecycle(
   db: GatewayDb,
   wss: WebSocketServer,
   onPublicRoomReady?: (roomCode: string) => Promise<unknown>
-) {
+): Promise<void> {
   const redis = redisBus?.redis ?? null;
   const acquired = await tryAcquireRoomSweepLock();
   if (!acquired) return;
@@ -1205,7 +820,7 @@ async function sweepRoomLifecycle(
   }
 }
 
-async function restoreRoomAfterMatch(db: GatewayDb, wss: WebSocketServer, roomCode: string) {
+async function restoreRoomAfterMatch(db: GatewayDb, wss: WebSocketServer, roomCode: string): Promise<void> {
   const roomRows = await db
     .select({
       id: pvpRooms.id,
@@ -1241,6 +856,10 @@ async function restoreRoomAfterMatch(db: GatewayDb, wss: WebSocketServer, roomCo
   await broadcastRoomState(db, wss, roomCode);
 }
 
+// =============================================================================
+// MATCH FINALIZATION
+// =============================================================================
+
 async function finalizeMatchResults(params: {
   db: GatewayDb;
   wss: WebSocketServer;
@@ -1249,8 +868,8 @@ async function finalizeMatchResults(params: {
   matchId: string;
   placements: Placement[];
   reason: "completed" | "opponent_disconnected" | "aborted";
-}) {
-  const match = params.state.matches.get(params.matchId);
+}): Promise<void> {
+  const match = params.state.matches.get(params.matchId) as LocalMatch | undefined;
   if (!match) return;
   if (match.state === "finished" || match.state === "aborted") return;
 
@@ -1346,7 +965,6 @@ async function finalizeMatchResults(params: {
       aScore: humanWon ? 1 : 0,
     });
     
-    //  Human vs AI
     await runGatewayTransaction(params.db, async (tx) => {
       await tx.execute(sql`SAVEPOINT pvp_rating_updates`);
       try {
@@ -1413,7 +1031,7 @@ async function finalizeMatchResults(params: {
       b: { rating: loserRow.rating, deviation: loserRow.deviation },
       aScore: 1,
     });
-    // Human vs Human 
+
     await runGatewayTransaction(params.db, async (tx) => {
       await tx.execute(sql`SAVEPOINT pvp_rating_updates`);
       try {
@@ -1528,70 +1146,11 @@ async function finalizeMatchResults(params: {
     status: "FINISHED",
   });
   matchCache?.clearMatch(match.matchId);
-  clearMatchMetricAccumulators(match.matchId);
   scheduleMatchCleanup(params.state, match.matchId);
 
   if (match.roomCode) {
     await restoreRoomAfterMatch(params.db, params.wss, match.roomCode);
   }
-}
-
-async function finalizeMatchIfComplete(params: {
-  db: GatewayDb;
-  wss: WebSocketServer;
-  state: InMemoryState;
-  eventBus: ReturnType<typeof createGatewayEventBus>;
-  matchId: string;
-}) {
-  const match = params.state.matches.get(params.matchId);
-  if (!match) return;
-  if (match.state === "finished" || match.state === "aborted") return;
-
-  const all = Array.from(match.participants.values());
-  const finished = all.filter((p0) => p0.finishedAt != null);
-  if (finished.length < Math.max(2, all.length)) {
-    incrementGatewayMetric("pvp_match_finalize_skip_total", {
-      reason: "waiting_for_participants",
-      finished: finished.length,
-      total: all.length,
-    });
-    gatewayLogDebug("Finalize skipped because not all participants finished", {
-      matchId: params.matchId,
-      finishedParticipants: finished.length,
-      totalParticipants: all.length,
-      state: match.state,
-    });
-    return;
-  }
-
-  const placements: Placement[] = [...all]
-    .sort((a, b) => (a.finishedAt! - b.finishedAt!))
-    .map((p0, idx) => ({
-      position: idx + 1,
-      userId: p0.userId,
-      username: p0.username,
-      wpm: p0.wpm,
-      accuracy: p0.accuracy,
-      errors: p0.errors,
-      timeMs: (p0.finishedAt ?? Date.now()) - match.serverStartAtMs,
-    }));
-
-  await runWithMatchFinalizationLock(params.matchId, async () => {
-    gatewayLogInfo("Finalizing ranked match results", {
-      matchId: params.matchId,
-      participants: all.length,
-      placements: placements.map((placement) => ({ userId: placement.userId, position: placement.position })),
-    });
-    await finalizeMatchResults({
-      db: params.db,
-      wss: params.wss,
-      state: params.state,
-      eventBus: params.eventBus,
-      matchId: params.matchId,
-      placements,
-      reason: "completed",
-    });
-  });
 }
 
 async function finalizeMatchByDisconnectForfeit(params: {
@@ -1601,13 +1160,13 @@ async function finalizeMatchByDisconnectForfeit(params: {
   eventBus: ReturnType<typeof createGatewayEventBus>;
   matchId: string;
   forfeitedUserId: string;
-}) {
-  const match = params.state.matches.get(params.matchId);
+}): Promise<void> {
+  const match = params.state.matches.get(params.matchId) as LocalMatch | undefined;
   if (!match) return;
   if (match.state === "finished" || match.state === "aborted") return;
-  await runWithMatchFinalizationLock(params.matchId, async () => {
+  await runWithMatchFinalizationLock(toMatchId(params.matchId), async () => {
     const outcome = buildDisconnectForfeitOutcome({
-      match,
+      match: match as unknown as Parameters<typeof buildDisconnectForfeitOutcome>[0]["match"],
       forfeitedUserId: params.forfeitedUserId,
     });
     if (!outcome) return;
@@ -1652,11 +1211,11 @@ async function abortMatchLifecycle(params: {
   matchId: string;
   reasonMessage: string;
   reasonCode?: "aborted" | "no_show";
-}) {
-  const match = params.state.matches.get(params.matchId);
+}): Promise<void> {
+  const match = params.state.matches.get(params.matchId) as LocalMatch | undefined;
   if (!match) return;
   if (match.state === "finished" || match.state === "aborted") return;
-  await runWithMatchFinalizationLock(params.matchId, async () => {
+  await runWithMatchFinalizationLock(toMatchId(params.matchId), async () => {
     const dbLock = await tryBeginMatchFinalizationWithDbLock({
       db: params.db,
       match,
@@ -1710,7 +1269,6 @@ async function abortMatchLifecycle(params: {
       status: "ABORTED",
     });
     matchCache?.clearMatch(match.matchId);
-    clearMatchMetricAccumulators(match.matchId);
     scheduleMatchCleanup(params.state, match.matchId);
 
     if (match.roomCode) {
@@ -1719,9 +1277,37 @@ async function abortMatchLifecycle(params: {
   });
 }
 
-async function main() {
+// =============================================================================
+// PLAYER PAYLOAD BUILDER
+// =============================================================================
+
+function buildMatchFoundPlayerPayload(user: ConnectionUser & { slot: number }): {
+  userId: string;
+  username: string;
+  avatar: string | null;
+  slot: number;
+  rating: number;
+  rankTier: string;
+  averageWpm: number | null;
+} {
+  return {
+    userId: user.userId,
+    username: user.username,
+    avatar: user.avatar,
+    slot: user.slot,
+    rating: user.pvpRating,
+    rankTier: user.rankTier ?? "unrated",
+    averageWpm: user.averageWpm ?? null,
+  };
+}
+
+// =============================================================================
+// MAIN FUNCTION
+// =============================================================================
+
+async function main(): Promise<void> {
   const PORT = envInt("PORT", 8787);
-  const db: GatewayDb = gatewayDb as unknown as GatewayDb;
+  const db: GatewayDb = gatewayDb;
   const matchRepository = new MatchRepository(db);
   const state = new InMemoryState();
   matchCache = new MatchCache();
@@ -1756,10 +1342,11 @@ async function main() {
   const INPUT_UPDATE_FLUSH_INTERVAL_MS = envMs("PVP_INPUT_UPDATE_FLUSH_INTERVAL_MS", 100);
   const INPUT_UPDATE_FLUSH_MAX_ENQUEUED = envInt("PVP_INPUT_UPDATE_FLUSH_MAX_ENQUEUED", 32);
 
-  const getActiveMatchCount = () => {
+  const getActiveMatchCount = (): number => {
     let activeMatches = 0;
     for (const match of state.matches.values()) {
-      if (match.state === "finished" || match.state === "aborted") continue;
+      const m = match as LocalMatch;
+      if (m.state === "finished" || m.state === "aborted") continue;
       activeMatches += 1;
     }
     return activeMatches;
@@ -1785,7 +1372,7 @@ async function main() {
     draining: gatewayHealthController.isDraining(),
   });
 
-  eventBus.on("match:finished", ({ reason }) => {
+  eventBus.on("match:finished", ({ reason }: { reason: string }) => {
     if (reason === "opponent_disconnected") {
       gatewayMetrics?.incrementMatchResult("abandon");
       return;
@@ -1795,7 +1382,10 @@ async function main() {
     }
   });
 
-  const server = createGatewayServer();
+  const server = createGatewayServer({
+    getGatewayMetrics: () => gatewayMetrics,
+    getHealthController: () => gatewayHealthController,
+  });
 
   const WS_MAX_PAYLOAD_BYTES = envInt("PVP_WS_MAX_PAYLOAD_BYTES", 64 * 1024);
   const WS_MAX_MSG_PER_SEC = envInt("PVP_WS_MAX_MSG_PER_SEC", 40);
@@ -1806,7 +1396,6 @@ async function main() {
   const localMinConnectionsPerIp = TEST_FORCE_BOT_MATCH ? 400 : 200;
   const localMinAttemptsPerMin = TEST_FORCE_BOT_MATCH ? 12_000 : 4_000;
   const localMinAttemptsBurst = TEST_FORCE_BOT_MATCH ? 2_000 : 600;
-  // Keep strict defaults in production; relax local/dev defaults so load tests do not fail on connection admission.
   const configuredWsMaxConnectionsPerIp = envInt(
     "PVP_WS_MAX_CONNECTIONS_PER_IP",
     TEST_FORCE_BOT_MATCH || LOCAL_RELAXED_WS_LIMITS ? 400 : 5,
@@ -1875,20 +1464,56 @@ async function main() {
   const noShowTimers = new Map<string, NodeJS.Timeout>();
   const pendingInputUpdatesByMatch = new Map<string, PendingInputUpdateBatch>();
   const inputUpdateFlushRetriesByMatch = new Map<string, number>();
-  let inputUpdateFlushInProgress = false;
-  let inputUpdateFlushRequested = false;
+
+  // -------------------------------------------------------------------------
+  // P4: Per-match FIFO lock registry — eliminates concurrency races
+  // P3: Centralised cleanup service — fixes all remaining memory leaks
+  // -------------------------------------------------------------------------
+  matchLockRegistry = new MatchLockRegistry();
+  matchCleanupService = new MatchCleanupService(
+    matchFinalizationLocks,
+    matchCleanupTimers,
+    matchCache,
+    state,
+    noShowTimers,
+    disconnectForfeitTimers,
+    rematchStartedByMatchId,
+    pendingInputUpdatesByMatch,
+    inputUpdateFlushRetriesByMatch,
+    matchLockRegistry,
+  );
+  // MatchAggregate: Command Bus + Aggregate Root (P2/P4).
+  // Phase 2 uses withMatchLock() directly at call sites for minimal diff.
+  // Phase 3 will migrate full handler logic into this aggregate.
+  const matchAggregate = new MatchAggregate(matchLockRegistry, {
+    inputUpdate: async () => {
+      // Phase 3 migration target: INPUT_UPDATE mutation block from ws handler.
+    },
+    startCountdown: async () => {
+      // Phase 3 migration target: DB-first serverStartAtMs write.
+    },
+    finalizeComplete: async () => {
+      // Phase 3 migration target: delegate to finalizeMatchResults inside lock.
+    },
+    abort: async () => {
+      // Phase 3 migration target: delegate to abortMatchLifecycle inside lock.
+    },
+  });
+  // Silence unused-variable lint; the aggregate is exercised via tests today
+  // and will be wired into hot paths during Phase 3.
+  void matchAggregate;
   const INPUT_UPDATE_FLUSH_MAX_RETRIES = envInt("PVP_INPUT_UPDATE_FLUSH_MAX_RETRIES", 8);
   const DISCONNECT_FORFEIT_JOIN_DEFER_MS = envMs("PVP_DISCONNECT_FORFEIT_JOIN_DEFER_MS", 500);
 
-  const getMatchJoinSessionKey = (matchId: string, userId: string) => `${matchId}:${userId}`;
+  const getMatchJoinSessionKey = (matchId: string, userId: string): string => `${matchId}:${userId}`;
 
-  const beginMatchJoinInFlight = (matchId: string, userId: string) => {
+  const beginMatchJoinInFlight = (matchId: string, userId: string): void => {
     const key = getMatchJoinSessionKey(matchId, userId);
     const next = (inFlightMatchJoins.get(key) ?? 0) + 1;
     inFlightMatchJoins.set(key, next);
   };
 
-  const endMatchJoinInFlight = (matchId: string, userId: string) => {
+  const endMatchJoinInFlight = (matchId: string, userId: string): void => {
     const key = getMatchJoinSessionKey(matchId, userId);
     const next = (inFlightMatchJoins.get(key) ?? 0) - 1;
     if (next > 0) {
@@ -1898,11 +1523,11 @@ async function main() {
     inFlightMatchJoins.delete(key);
   };
 
-  const isMatchJoinInFlight = (matchId: string, userId: string) => {
+  const isMatchJoinInFlight = (matchId: string, userId: string): boolean => {
     return (inFlightMatchJoins.get(getMatchJoinSessionKey(matchId, userId)) ?? 0) > 0;
   };
 
-  const getPendingInputQueueStats = () => {
+  const getPendingInputQueueStats = (): { pendingMatches: number; totalEnqueued: number; oldestAgeMs: number } => {
     const nowMs = Date.now();
     let totalEnqueued = 0;
     let oldestAgeMs = 0;
@@ -1919,7 +1544,7 @@ async function main() {
     };
   };
 
-  const enqueueInputUpdateBatch = (matchId: string, userId: string, seq: number) => {
+  const enqueueInputUpdateBatch = (matchId: string, userId: string, seq: number): void => {
     const nowMs = Date.now();
     const existing = pendingInputUpdatesByMatch.get(matchId);
     if (!existing) {
@@ -1938,7 +1563,7 @@ async function main() {
     existing.enqueuedCount += 1;
   };
 
-  const mergePendingInputBatch = (matchId: string, batch: PendingInputUpdateBatch) => {
+  const mergePendingInputBatch = (matchId: string, batch: PendingInputUpdateBatch): void => {
     const existing = pendingInputUpdatesByMatch.get(matchId);
     if (!existing) {
       pendingInputUpdatesByMatch.set(matchId, {
@@ -1960,14 +1585,13 @@ async function main() {
     existing.firstEnqueuedAtMs = Math.min(existing.firstEnqueuedAtMs, batch.firstEnqueuedAtMs);
   };
 
-  const persistInputUpdateBatch = async (matchId: string, batch: PendingInputUpdateBatch) => {
-    const match = state.matches.get(matchId);
+  const persistInputUpdateBatch = async (matchId: string, batch: PendingInputUpdateBatch): Promise<void> => {
+    const match = state.matches.get(matchId) as LocalMatch | undefined;
     if (!match) {
       return;
     }
 
-    const persistAtRevision = async (revisionToUse: number) => {
-      const isTerminalState = match.state === "finished" || match.state === "aborted";
+    const persistAtRevision = async (revisionToUse: number): Promise<{ applied: boolean; nextRevision: number }> => {
       return matchRepository.withTransaction(async (tx) => {
         return matchRepository.updateWithRevision(tx, match.matchId, {
           expectedRevision: revisionToUse,
@@ -1976,7 +1600,7 @@ async function main() {
           instanceId: INSTANCE_ID,
           serverStartAt: new Date(match.serverStartAtMs),
           startedAt: match.state === "waiting_for_both" ? null : new Date(match.serverStartAtMs),
-          endedAt: isTerminalState ? new Date(match.stateChangedAt) : null,
+          endedAt: (match.state === "finished" || match.state === "aborted") ? new Date(match.stateChangedAt) : null,
         });
       });
     };
@@ -1989,7 +1613,6 @@ async function main() {
         throw new Error("Match state sync failed while flushing pending INPUT_UPDATE batch");
       }
 
-      // If all pending seq values are already represented in DB, avoid redundant writes.
       let fullyCoveredByLatest = true;
       for (const [userId, pendingSeq] of batch.maxSeqByUser.entries()) {
         const latestSeq = latest.liveState?.participants?.[userId]?.seq ?? -1;
@@ -2013,78 +1636,45 @@ async function main() {
     match.revision = persistResult.nextRevision;
   };
 
-  const flushPendingInputUpdates = async (reason: "timer" | "threshold" | "shutdown") => {
-    if (inputUpdateFlushInProgress) {
-      inputUpdateFlushRequested = true;
-      return;
-    }
-
-    if (pendingInputUpdatesByMatch.size === 0) {
-      return;
-    }
-
-    inputUpdateFlushInProgress = true;
-    const startedAt = Date.now();
-    incrementGatewayMetric("pvp_input_update_flush_total", { reason });
-
-    try {
-      do {
-        inputUpdateFlushRequested = false;
-        const batches = Array.from(pendingInputUpdatesByMatch.entries());
-        pendingInputUpdatesByMatch.clear();
-
-        for (const [matchId, batch] of batches) {
-          try {
-            await persistInputUpdateBatch(matchId, batch);
-            inputUpdateFlushRetriesByMatch.delete(matchId);
-          } catch (error) {
-            // Requeue on transient failures to avoid dropping accepted local progress.
-            const retries = (inputUpdateFlushRetriesByMatch.get(matchId) ?? 0) + 1;
-            inputUpdateFlushRetriesByMatch.set(matchId, retries);
-            mergePendingInputBatch(matchId, batch);
-            inputUpdateFlushRequested = true;
-            incrementGatewayMetric("pvp_input_update_requeue_total", { reason });
-            gatewayLogWarn("INPUT_UPDATE batch flush failed; requeued", {
-              matchId,
-              reason,
-              retries,
-              maxRetries: INPUT_UPDATE_FLUSH_MAX_RETRIES,
-              enqueuedCount: batch.enqueuedCount,
-              ageMs: Date.now() - batch.firstEnqueuedAtMs,
-              error: error instanceof Error ? error.message : String(error),
-            });
-
-            if (retries >= INPUT_UPDATE_FLUSH_MAX_RETRIES) {
-              gatewayLogWarn("INPUT_UPDATE batch reached retry threshold; keeping latest seq in queue", {
-                matchId,
-                retries,
-                maxRetries: INPUT_UPDATE_FLUSH_MAX_RETRIES,
-              });
-            }
-          }
-        }
-      } while (inputUpdateFlushRequested && pendingInputUpdatesByMatch.size > 0);
-    } finally {
-      inputUpdateFlushInProgress = false;
+  // -------------------------------------------------------------------------
+  // Input-update flush coordinator (P9 + P13)
+  // Replaces the old dual-boolean mutex pattern.  See:
+  //   src/infrastructure/input-flush-coordinator.ts
+  // -------------------------------------------------------------------------
+  const inputFlushCoordinator = new InputFlushCoordinator({
+    pendingInputUpdatesByMatch,
+    inputUpdateFlushRetriesByMatch,
+    inputUpdateFlushMaxRetries: INPUT_UPDATE_FLUSH_MAX_RETRIES,
+    persistBatch: persistInputUpdateBatch,
+    mergeBatch: mergePendingInputBatch,
+    onFlushStart: (reason) => incrementGatewayMetric("pvp_input_update_flush_total", { reason }),
+    onFlushEnd: (reason, durationMs) =>
       observeGatewayHistogram(
         "pvp_input_update_flush_duration_ms",
-        Date.now() - startedAt,
+        durationMs,
         [5, 10, 25, 50, 100, 250, 500, 1_000, 2_000, 5_000],
-        { reason }
-      );
-      gatewayLogDebug("INPUT_UPDATE flush cycle completed", {
-        reason,
-        durationMs: Date.now() - startedAt,
-        pendingMatches: pendingInputUpdatesByMatch.size,
-      });
-    }
+        { reason },
+      ),
+    onRequeue: (reason) => incrementGatewayMetric("pvp_input_update_requeue_total", { reason }),
+  });
+
+  /**
+   * Schedule a flush of pending input-update batches to the database.
+   * Returns immediately — the coordinator ensures serialized execution and
+   * exactly one catch-up flush is buffered while a flush is running.
+   *
+   * For awaitable drain during shutdown use `inputFlushCoordinator.drain()`.
+   */
+  const flushPendingInputUpdates = (_reason: "timer" | "threshold" | "shutdown"): Promise<void> => {
+    inputFlushCoordinator.schedule(_reason);
+    return Promise.resolve();
   };
 
   const inputUpdateFlushInterval = setInterval(() => {
     void flushPendingInputUpdates("timer");
   }, INPUT_UPDATE_FLUSH_INTERVAL_MS);
 
-  const clearDisconnectForfeitTimer = (matchId: string, userId: string) => {
+  const clearDisconnectForfeitTimer = (matchId: string, userId: string): void => {
     const key = getDisconnectForfeitKey(matchId, userId);
     const existing = disconnectForfeitTimers.get(key);
     if (!existing) return;
@@ -2092,16 +1682,14 @@ async function main() {
     disconnectForfeitTimers.delete(key);
   };
 
-  const clearNoShowTimer = (matchId: string) => {
+  const clearNoShowTimer = (matchId: string): void => {
     const existing = noShowTimers.get(matchId);
     if (!existing) return;
     clearTimeout(existing);
     noShowTimers.delete(matchId);
   };
 
-  const isParticipantReadyForMatchStart = (matchId: string, userId: string) => {
-    // Bot participants do not own websocket sessions, so they are immediately
-    // considered ready once the server creates the local match state.
+  const isParticipantReadyForMatchStart = (matchId: string, userId: string): boolean => {
     if (isAiUserId(userId)) return true;
 
     const session = activeMatchSessions.get(`${matchId}:${userId}`);
@@ -2111,7 +1699,7 @@ async function main() {
     return true;
   };
 
-  const getReadyParticipantCount = (matchId: string, match: InMemoryState["matches"] extends Map<string, infer T> ? T : never) => {
+  const getReadyParticipantCount = (matchId: string, match: LocalMatch): number => {
     let ready = 0;
     for (const userId of match.participants.keys()) {
       if (!isParticipantReadyForMatchStart(matchId, userId)) continue;
@@ -2120,14 +1708,14 @@ async function main() {
     return ready;
   };
 
-  const getMatchOpponentType = (match: InMemoryState["matches"] extends Map<string, infer T> ? T : never) => {
+  const getMatchOpponentType = (match: LocalMatch): "bot" | "human" => {
     for (const userId of match.participants.keys()) {
-      if (isAiUserId(userId)) return "bot" as const;
+      if (isAiUserId(userId)) return "bot";
     }
-    return "human" as const;
+    return "human";
   };
 
-  const maybeStartRankedCountdown = async (match: InMemoryState["matches"] extends Map<string, infer T> ? T : never) => {
+  const maybeStartRankedCountdown = async (match: LocalMatch): Promise<boolean> => {
     if (match.roomCode !== null) return false;
     if (match.state !== "waiting_for_both") return false;
 
@@ -2218,7 +1806,7 @@ async function main() {
 
     for (const participant of match.participants.values()) {
       if (isAiUserId(participant.userId)) continue;
-      sendToUser(wss, participant.userId, "MATCH_STATE", buildMatchStatePayload(match));
+      sendToUser(wss, participant.userId, "MATCH_STATE", buildMatchStatePayload(match as unknown as Parameters<typeof buildMatchStatePayload>[0]));
     }
 
     gatewayLogInfo("Ranked countdown started", {
@@ -2232,17 +1820,17 @@ async function main() {
     return true;
   };
 
-  const scheduleNoShowTimeout = (matchId: string) => {
+  const scheduleNoShowTimeout = (matchId: string): void => {
     clearNoShowTimer(matchId);
 
-    const initialMatch = state.matches.get(matchId);
+    const initialMatch = state.matches.get(matchId) as LocalMatch | undefined;
     if (initialMatch && Array.from(initialMatch.participants.keys()).some((userId) => isAiUserId(userId))) {
       return;
     }
 
     const timer = setTimeout(() => {
       noShowTimers.delete(matchId);
-      const match = state.matches.get(matchId);
+      const match = state.matches.get(matchId) as LocalMatch | undefined;
       if (!match) return;
       if (match.roomCode !== null) return;
       if (match.state !== "waiting_for_both") return;
@@ -2268,7 +1856,7 @@ async function main() {
         clearDisconnectForfeitTimer(matchId, userId);
       }
 
-      void abortMatchLifecycle({
+      void withMatchLock(toMatchId(matchId), () => abortMatchLifecycle({
         db,
         wss,
         state,
@@ -2276,8 +1864,8 @@ async function main() {
         matchId,
         reasonCode: "no_show",
         reasonMessage: "The opponent did not connect in time, so the match was cancelled.",
-      }).catch(() => {
-        // ignore
+      })).catch((err: unknown) => {
+        gatewayLogError("No-show abort failed", err, { matchId });
       });
     }, MATCH_NO_SHOW_TIMEOUT_MS);
 
@@ -2288,13 +1876,13 @@ async function main() {
     noShowTimers.set(matchId, timer);
   };
 
-  const persistReconnectGraceWindow = async (matchId: string, userId: string, reconnectUntilMs: number) => {
+  const persistReconnectGraceWindow = async (matchId: string, userId: string, reconnectUntilMs: number): Promise<void> => {
     await matchRepository.withTransaction(async (tx) => {
       const locked = await matchRepository.loadForUpdate(tx, matchId);
       if (!locked) return;
       if (locked.status === "FINISHED" || locked.status === "ABORTED") return;
 
-      const liveState =
+      const liveState: MatchLiveState =
         locked.liveState ??
         createInitialLiveState({
           state: matchStateFromDbStatus(locked.status),
@@ -2317,7 +1905,7 @@ async function main() {
     });
   };
 
-  const scheduleDisconnectForfeit = (matchId: string, userId: string, delayMs = DISCONNECT_FORFEIT_GRACE_MS) => {
+  const scheduleDisconnectForfeit = (matchId: string, userId: string, delayMs = DISCONNECT_FORFEIT_GRACE_MS): void => {
     clearDisconnectForfeitTimer(matchId, userId);
     const timer = setTimeout(() => {
       disconnectForfeitTimers.delete(getDisconnectForfeitKey(matchId, userId));
@@ -2327,7 +1915,7 @@ async function main() {
         return;
       }
 
-      const activeMatch = state.matches.get(matchId);
+      const activeMatch = state.matches.get(matchId) as LocalMatch | undefined;
       if (!activeMatch) return;
       if (
         !shouldScheduleDisconnectForfeit({
@@ -2344,15 +1932,15 @@ async function main() {
         return;
       }
 
-      void finalizeMatchByDisconnectForfeit({
+      void withMatchLock(toMatchId(matchId), () => finalizeMatchByDisconnectForfeit({
         db,
         wss,
         state,
         eventBus,
         matchId,
         forfeitedUserId: userId,
-      }).catch(() => {
-        // ignore
+      })).catch((err: unknown) => {
+        gatewayLogError("Disconnect forfeit failed", err, { matchId, userId });
       });
     }, delayMs);
 
@@ -2367,7 +1955,7 @@ async function main() {
     sourceMatchId: string;
     users: Array<ConnectionUser & { slot: number }>;
     persistUserIds: string[];
-  }) => {
+  }): Promise<boolean> => {
     if (rematchStartedByMatchId.has(params.sourceMatchId)) {
       return false;
     }
@@ -2379,15 +1967,15 @@ async function main() {
       startDelayMs: RANKED_MATCH_START_DELAY_MS,
     });
 
-    const sourceMatch = state.matches.get(params.sourceMatchId);
+    const sourceMatch = state.matches.get(params.sourceMatchId) as LocalMatch | undefined;
     if (sourceMatch) {
-      sourceMatch.rematchMatchId = created.matchId;
+      sourceMatch.rematchMatchId = toMatchId(created.matchId);
     }
 
     return true;
   };
 
-  const releaseMatchSession = (ws: WsConn) => {
+  const releaseMatchSession = (ws: WsConn): void => {
     const key = ws.matchSessionKey;
     if (!key) return;
     const current = activeMatchSessions.get(key);
@@ -2403,20 +1991,20 @@ async function main() {
     ws.matchSessionKey = undefined;
   };
 
-  const updateSocketRoomSubscription = (ws: WsConn, nextRoomCode?: string) => {
+  const updateSocketRoomSubscription = (ws: WsConn, nextRoomCode?: string): void => {
     const previousRoomCode = ws.roomCode;
     if (previousRoomCode && previousRoomCode !== nextRoomCode) {
       matchCache?.removeRoomSocket(previousRoomCode, ws);
     }
 
-    ws.roomCode = nextRoomCode;
+    ws.roomCode = nextRoomCode ? toRoomCode(nextRoomCode) : undefined;
 
     if (nextRoomCode) {
       matchCache?.addRoomSocket(nextRoomCode, ws);
     }
   };
 
-  const claimMatchSession = (matchId: string, userId: string, ws: WsConn) => {
+  const claimMatchSession = (matchId: string, userId: string, ws: WsConn): void => {
     const key = `${matchId}:${userId}`;
     const existing = activeMatchSessions.get(key);
     const graceSeconds = Math.max(1, Math.round(MATCH_SESSION_SUPERSEDE_GRACE_MS / 1000));
@@ -2458,7 +2046,7 @@ async function main() {
     matchCache?.addSocket(matchId, ws);
   };
 
-  const sweepStaleMatches = async () => {
+  const sweepStaleMatches = async (): Promise<void> => {
     const now = Date.now();
 
     const staleDbRows = await db
@@ -2494,7 +2082,7 @@ async function main() {
 
         if (!staleReason && !shouldAbortPendingNoShow) return false;
 
-        const liveState = locked.liveState ?? {
+        const liveState: MatchLiveState = locked.liveState ?? {
           state: matchStateFromDbStatus(locked.status),
           stateChangedAtMs: now,
           participants: {},
@@ -2535,7 +2123,7 @@ async function main() {
 
       if (!markedStale) continue;
 
-      const local = state.matches.get(row.id);
+      const local = state.matches.get(row.id) as LocalMatch | undefined;
       if (local) {
         for (const participant of local.participants.values()) {
           if (isAiUserId(participant.userId)) continue;
@@ -2545,53 +2133,43 @@ async function main() {
             message: "This match was closed because the session became stale.",
             finalResultsPending: false,
           });
-          clearDisconnectForfeitTimer(row.id, participant.userId);
-          clearParticipantMetricAccumulator(row.id, participant.userId);
         }
-
-        clearNoShowTimer(row.id);
-        clearScheduledMatchCleanup(row.id);
-        state.clearAiInterval(row.id);
-        state.matches.delete(row.id);
       }
 
-      matchCache?.clearMatch(row.id);
-      clearMatchMetricAccumulators(row.id);
+      // MatchCleanupService.dispose handles all timer cancellations, map
+      // deletions, cache release, and state removal in one atomic call (P3).
+      matchCleanupService?.dispose(toMatchId(row.id));
     }
 
     for (const [matchId, match] of state.matches.entries()) {
-      if ((match.state === "finished" || match.state === "aborted") && match.finalizedAtMs && now - match.finalizedAtMs >= MATCH_RESULT_RETENTION_MS) {
-        clearNoShowTimer(matchId);
-        clearScheduledMatchCleanup(matchId);
-        state.clearAiInterval(matchId);
-        state.matches.delete(matchId);
-        matchCache?.clearMatch(matchId);
-        clearMatchMetricAccumulators(matchId);
+      const m = match as LocalMatch;
+      if ((m.state === "finished" || m.state === "aborted") && m.finalizedAtMs && now - m.finalizedAtMs >= MATCH_RESULT_RETENTION_MS) {
+        // P3: single dispose call replaces 5 manual resource-release lines.
+        matchCleanupService?.dispose(toMatchId(matchId));
         continue;
       }
 
       const staleReason = getStaleMatchAbortReason({
-        state: match.state,
-        stateAgeMs: now - match.stateChangedAt,
+        state: m.state,
+        stateAgeMs: now - m.stateChangedAt,
         maxCountdownAgeMs: MATCH_MAX_COUNTDOWN_AGE_MS,
         maxLiveAgeMs: MATCH_MAX_LIVE_AGE_MS,
       });
 
       if (staleReason) {
-        gatewayLogWarn("Sweeping stale active match", { matchId, staleReason, state: match.state });
+        gatewayLogWarn("Sweeping stale active match", { matchId, staleReason, state: m.state });
         clearNoShowTimer(matchId);
-        for (const userId of match.participants.keys()) {
+        for (const userId of m.participants.keys()) {
           clearDisconnectForfeitTimer(matchId, userId);
-          clearParticipantMetricAccumulator(matchId, userId);
         }
-        await abortMatchLifecycle({
+        await withMatchLock(toMatchId(matchId), () => abortMatchLifecycle({
           db,
           wss,
           state,
           eventBus,
           matchId,
           reasonMessage: staleReason === "stale_countdown" ? "This match expired before it could start." : "This match was closed because the session became stale.",
-        });
+        }));
       }
     }
 
@@ -2619,7 +2197,7 @@ async function main() {
   };
 
   const staleMatchSweepInterval = setInterval(() => {
-    void sweepStaleMatches().catch((error) => {
+    void sweepStaleMatches().catch((error: unknown) => {
       gatewayLogError("Failed to sweep stale matches", error);
     });
   }, MATCH_SWEEP_INTERVAL_MS);
@@ -2630,7 +2208,7 @@ async function main() {
   let roomLifecycleSweepInterval: NodeJS.Timeout | null = null;
   if (isGatewayDbConfigured) {
     roomLifecycleSweepInterval = setInterval(() => {
-      void sweepRoomLifecycle(db, wss, maybeAutoStartPublicRoom).catch((error) => {
+      void sweepRoomLifecycle(db, wss, maybeAutoStartPublicRoom).catch((error: unknown) => {
         gatewayLogError("Failed to sweep room lifecycle", error);
       });
     }, ROOM_SWEEP_INTERVAL_MS);
@@ -2643,7 +2221,7 @@ async function main() {
     });
   }
 
-  const snapshotGatewayMetrics = () => {
+  const snapshotGatewayMetrics = (): void => {
     const pendingInputStats = getPendingInputQueueStats();
 
     setGatewayGauge("pvp_active_connections", wss.clients.size);
@@ -2667,6 +2245,10 @@ async function main() {
   if (typeof metricSnapshotInterval.unref === "function") {
     metricSnapshotInterval.unref();
   }
+
+  // =============================================================================
+  // REDIS SETUP
+  // =============================================================================
 
   if (USE_REDIS) {
     if (!REDIS_URL) throw new Error("PVP_USE_REDIS is enabled but PVP_REDIS_URL/REDIS_URL is missing");
@@ -2723,6 +2305,14 @@ async function main() {
 -- ARGV[2] = minRating
 -- ARGV[3] = maxRating
 -- ARGV[4] = onlinePrefix
+--
+-- Returns: otherId (string) on successful mutual dequeue, nil otherwise.
+--
+-- Rollback contract:
+--   r1=0, r2=0  neither removed (already dequeued by another node) → skip
+--   r1=1, r2=0  "me" removed but opponent already gone → restore me
+--   r1=0, r2=1  opponent removed but "me" already gone → restore opponent
+--   r1=1, r2=1  both removed → return opponent
 local me = ARGV[1]
 local minR = tonumber(ARGV[2])
 local maxR = tonumber(ARGV[3])
@@ -2733,19 +2323,33 @@ if not myScore then
   return nil
 end
 
-local candidates = redis.call('ZRANGEBYSCORE', KEYS[1], minR, maxR, 'LIMIT', 0, 20)
+-- P14: Widened candidate window (was 20, now 50) to reduce miss rate under
+-- moderate queue depths.
+local candidates = redis.call('ZRANGEBYSCORE', KEYS[1], minR, maxR, 'LIMIT', 0, 50)
 for i = 1, #candidates do
   local other = candidates[i]
   if other ~= me then
     local online = redis.call('EXISTS', onlinePrefix .. other)
     if online == 1 then
+      -- Save opponent's score BEFORE attempting removal so we can restore on
+      -- partial failure (P14 rollback fix: r1=0, r2=1 case).
+      local otherScore = redis.call('ZSCORE', KEYS[1], other)
       local r1 = redis.call('ZREM', KEYS[1], me)
       local r2 = redis.call('ZREM', KEYS[1], other)
       if r1 == 1 and r2 == 1 then
         return other
       else
         if r1 == 1 then
+          -- We dequeued ourselves but opponent was concurrently removed.
+          -- Restore our own entry.
           redis.call('ZADD', KEYS[1], myScore, me)
+        end
+        if r2 == 1 then
+          -- Opponent was dequeued but we were already gone (concurrent dequeue
+          -- by another gateway instance). Restore opponent's entry.
+          if otherScore then
+            redis.call('ZADD', KEYS[1], otherScore, other)
+          end
         end
       end
     end
@@ -2755,25 +2359,20 @@ end
 return nil
 `;
 
-  type QueuedUserMeta = {
-    bucketKey: string;
-    joinedAtMs: number;
-    preference: MatchmakingPreference;
-    rating: number;
-  };
+  /**
+   * Lazily loaded SHA-1 of `QUEUE_MATCH_LUA` for EVALSHA caching (P14).
+   * `null` means the script has not been loaded into this Redis instance yet.
+   */
+  let queueMatchLuaSha: string | null = null;
 
-  function getQueueMetaKey(userId: string) {
-    return `${QUEUE_META_KEY_PREFIX}${userId}`;
-  }
-
-  async function markOnline(userId: string) {
+  async function markOnline(userId: string): Promise<void> {
     if (!redis) return;
     await redis.set(`${ONLINE_KEY_PREFIX}${userId}`, INSTANCE_ID, "EX", ONLINE_TTL_SEC);
   }
 
   async function readQueueMeta(userId: string): Promise<QueuedUserMeta | null> {
     if (!redis) return null;
-    const raw = await redis.get(getQueueMetaKey(userId));
+    const raw = await redis.get(`${QUEUE_META_KEY_PREFIX}${userId}`);
     if (!raw) return null;
 
     try {
@@ -2783,17 +2382,17 @@ return nil
     }
   }
 
-  async function queueLeave(userId: string) {
+  async function queueLeave(userId: string): Promise<number> {
     if (!redis) return 0;
     const meta = await readQueueMeta(userId);
     if (!meta) return 0;
 
     const removed = await redis.zrem(meta.bucketKey, userId);
-    await redis.del(getQueueMetaKey(userId));
+    await redis.del(`${QUEUE_META_KEY_PREFIX}${userId}`);
     return removed;
   }
 
-  async function queueJoin(user: ConnectionUser) {
+  async function queueJoin(user: ConnectionUser): Promise<QueuedUserMeta | null> {
     if (!redis) return null;
 
     const preference = normalizeMatchmakingPreference(user.matchmakingPreference);
@@ -2807,7 +2406,7 @@ return nil
     };
 
     await redis.zadd(bucketKey, String(user.pvpRating), user.userId);
-    await redis.set(getQueueMetaKey(user.userId), JSON.stringify(meta), "EX", Math.ceil(AI_QUEUE_TIMEOUT_MS / 1000) + 120);
+    await redis.set(`${QUEUE_META_KEY_PREFIX}${user.userId}`, JSON.stringify(meta), "EX", Math.ceil(AI_QUEUE_TIMEOUT_MS / 1000) + 120);
     return meta;
   }
 
@@ -2822,21 +2421,51 @@ return nil
     });
     const minR = user.pvpRating - currentRange;
     const maxR = user.pvpRating + currentRange;
-    const otherId = (await redis.eval(
-      QUEUE_MATCH_LUA,
-      1,
-      me.bucketKey,
-      user.userId,
-      String(minR),
-      String(maxR),
-      ONLINE_KEY_PREFIX
-    )) as string | null;
+    const evalArgs = [1, me.bucketKey, user.userId, String(minR), String(maxR), ONLINE_KEY_PREFIX] as const;
+
+    let otherId: string | null = null;
+
+    // P14: Use EVALSHA to avoid re-transmitting the script on every call.
+    // Falls back to EVAL with a fresh SCRIPT LOAD on NOSCRIPT errors (e.g.
+    // Redis restart, Redis Cluster migration).
+    if (queueMatchLuaSha) {
+      try {
+        otherId = await redis.evalsha(queueMatchLuaSha, ...evalArgs) as string | null;
+      } catch (evalShaErr: unknown) {
+        const isNoscript =
+          evalShaErr instanceof Error && evalShaErr.message.includes("NOSCRIPT");
+        if (!isNoscript) throw evalShaErr;
+        // Script evicted from server cache — reload and fall through to EVAL.
+        queueMatchLuaSha = null;
+        otherId = await redis.eval(QUEUE_MATCH_LUA, ...evalArgs) as string | null;
+      }
+    } else {
+      otherId = await redis.eval(QUEUE_MATCH_LUA, ...evalArgs) as string | null;
+      // Eagerly cache the SHA so subsequent calls use EVALSHA.
+      try {
+        queueMatchLuaSha = await redis.script("LOAD", QUEUE_MATCH_LUA) as string;
+      } catch {
+        // Non-fatal — next call will EVAL again and retry the load.
+      }
+    }
+
     if (!otherId || typeof otherId !== "string") return null;
 
     const other = await readQueueMeta(otherId);
-    await redis.del(getQueueMetaKey(user.userId), getQueueMetaKey(otherId));
+    await redis.del(`${QUEUE_META_KEY_PREFIX}${user.userId}`, `${QUEUE_META_KEY_PREFIX}${otherId}`);
     return { otherId, me, other };
   }
+
+  // ---------------------------------------------------------------------------
+  // Unified queue adapter (P10)
+  // ---------------------------------------------------------------------------
+  const queueAdapter = redis
+    ? new RedisQueueAdapter({ queueJoin, queueLeave, readQueueMeta, tryMatchQueuedUser })
+    : new LocalMemoryQueueAdapter();
+
+  // =============================================================================
+  // REMATCH STATE
+  // =============================================================================
 
   const AI_REMATCH_COOLDOWN_MS = envMs("PVP_AI_REMATCH_COOLDOWN_MS", 20 * 60 * 1000);
   const aiRematchRefuseUntilByHumanId = new Map<string, number>();
@@ -2844,14 +2473,14 @@ return nil
   const rematchAcceptedTouchedAtByMatchId = new Map<string, number>();
   const REMATCH_ACCEPTED_TTL_MS = envMs("PVP_REMATCH_ACCEPTED_TTL_MS", 10 * 60 * 1000);
 
-  const touchRematchAccepted = (matchId: string) => {
-    rematchAcceptedTouchedAtByMatchId.set(matchId, Date.now());
-  };
-
-  const clearRematchAccepted = (matchId: string) => {
+  const clearRematchAccepted = (matchId: string): void => {
     rematchAcceptedByMatchId.delete(matchId);
     rematchAcceptedTouchedAtByMatchId.delete(matchId);
   };
+
+  // =============================================================================
+  // ROOM MATCH START
+  // =============================================================================
 
   const startRoomMatch = async (params: {
     roomId: string;
@@ -2864,7 +2493,7 @@ return nil
       user: { username: string | null; profile: { avatar: string | null } | null };
     }>;
     startDelayMs?: number;
-  }) => {
+  }): Promise<{ matchId: string; local: LocalMatch; serverStartAtMs: number } | null> => {
     const activeMembers = params.members.filter((member) => member.leftAt === null);
     if (activeMembers.length < 2) {
       return null;
@@ -2898,7 +2527,7 @@ return nil
         slot: member.colorSlot,
       })),
       serverStartAtMs,
-    });
+    }) as LocalMatch;
     eventBus.emit("match:countdown", {
       matchId: match.id,
       from: "lobby",
@@ -2934,6 +2563,7 @@ return nil
       matchId: match.id,
       textSnapshot: local.textSnapshot,
       serverStartAt: new Date(serverStartAtMs).toISOString(),
+      inputNonce: local.inputNonce,
       players: Array.from(local.participants.values()).map((participant) => ({
         userId: participant.userId,
         username: participant.username,
@@ -2945,7 +2575,7 @@ return nil
     return { matchId: match.id, local, serverStartAtMs };
   };
 
-  const maybeAutoStartPublicRoom = async (roomCode: string) => {
+  const maybeAutoStartPublicRoom = async (roomCode: string): Promise<boolean> => {
     const roomRows = await db
       .select({
         id: pvpRooms.id,
@@ -3012,13 +2642,17 @@ return nil
     return true;
   };
 
+  // =============================================================================
+  // DATABASE PREPARED STATEMENTS
+  // =============================================================================
+
   const loadConnectionUserWithPreferencePrepared = db.query.users
     .findFirst({
       columns: {
         username: true,
         banned: true,
       },
-      where: eq(users.id, placeholder("userId")),
+      where: eq(users.id, sql.placeholder("userId")),
       with: {
         profile: {
           columns: {
@@ -3047,7 +2681,7 @@ return nil
         username: true,
         banned: true,
       },
-      where: eq(users.id, placeholder("userId")),
+      where: eq(users.id, sql.placeholder("userId")),
       with: {
         profile: {
           columns: {
@@ -3073,33 +2707,65 @@ return nil
 
     return cache.getOrLoad(userId, async () => {
       const shouldSkipPreferenceLookup =
-        hasPvpMatchmakingPreferenceTable === false &&
-        Date.now() - pvpMatchmakingPreferenceTableLastCheckedAt < PVP_PREFERENCE_TABLE_RETRY_MS;
+        hasPvpMatchmakingPreferenceTable.value === false &&
+        Date.now() - pvpMatchmakingPreferenceTableLastCheckedAt.value < PVP_PREFERENCE_TABLE_RETRY_MS;
 
-      const loadUserWithoutPreference = async () => {
-        return loadConnectionUserWithoutPreferencePrepared.execute({ userId });
+      let user:
+        | {
+            username: string;
+            banned: boolean;
+            profile: { avatar: string | null; longTermStats: unknown };
+            pvpRating: { rating: number; deviation: number };
+            pvpMatchmakingPreference?: { preferredMode: string };
+          }
+        | null
+        | undefined;
+
+      const loadUserWithoutPreference = async (): Promise<{
+        username: string;
+        banned: boolean;
+        profile: { avatar: string | null; longTermStats: unknown };
+        pvpRating: { rating: number; deviation: number };
+        pvpMatchmakingPreference?: { preferredMode: string };
+      } | null> => {
+        const result = await loadConnectionUserWithoutPreferencePrepared.execute({ userId });
+        if (!result) {
+          return null;
+        }
+        return {
+          ...result,
+          pvpMatchmakingPreference: undefined,
+        };
       };
 
-      const loadUserWithPreference = async () => {
-        return loadConnectionUserWithPreferencePrepared.execute({ userId });
+      const loadUserWithPreference = async (): Promise<{
+        username: string;
+        banned: boolean;
+        profile: { avatar: string | null; longTermStats: unknown };
+        pvpRating: { rating: number; deviation: number };
+        pvpMatchmakingPreference: { preferredMode: string };
+      } | null> => {
+        const result = await loadConnectionUserWithPreferencePrepared.execute({ userId });
+        if (!result) {
+          return null;
+        }
+        return result;
       };
-
-      let user: Awaited<ReturnType<typeof loadUserWithPreference>> | null;
 
       if (shouldSkipPreferenceLookup) {
         user = await loadUserWithoutPreference();
       } else {
         try {
           user = await loadUserWithPreference();
-          hasPvpMatchmakingPreferenceTable = true;
-          pvpMatchmakingPreferenceTableLastCheckedAt = Date.now();
+          hasPvpMatchmakingPreferenceTable.value = true;
+          pvpMatchmakingPreferenceTableLastCheckedAt.value = Date.now();
         } catch (error) {
           if (!isMissingPvpMatchmakingPreferenceTable(error)) {
             throw error;
           }
 
-          hasPvpMatchmakingPreferenceTable = false;
-          pvpMatchmakingPreferenceTableLastCheckedAt = Date.now();
+          hasPvpMatchmakingPreferenceTable.value = false;
+          pvpMatchmakingPreferenceTableLastCheckedAt.value = Date.now();
           logMissingGatewayPreferenceTableOnce();
           user = await loadUserWithoutPreference();
         }
@@ -3130,17 +2796,21 @@ return nil
         rankTier: rankInfo.tier,
         averageWpm: extractAverageWpm(user.profile?.longTermStats),
         matchmakingPreference: normalizeMatchmakingPreference({
-          mode: user.pvpMatchmakingPreference?.preferredMode,
+          mode: user.pvpMatchmakingPreference?.preferredMode ?? undefined,
         }),
       };
     });
   }
 
+  // =============================================================================
+  // CREATE RANKED MATCH
+  // =============================================================================
+
   async function createRanked1v1Match(params: {
     users: Array<(ConnectionUser & { slot: number })>;
     persistUserIds: string[];
     startDelayMs?: number;
-  }) {
+  }): Promise<{ matchId: string; local: LocalMatch; serverStartAtMs: number; payload: unknown }> {
     const matchId = crypto.randomUUID();
     const hasAiParticipant = params.users.some((user) => isAiUserId(user.userId));
     const initialState: MatchLifecycleState = hasAiParticipant ? "countdown" : "waiting_for_both";
@@ -3234,7 +2904,7 @@ return nil
       textSnapshot: rankedText.textSnapshot,
       textId: rankedText.textId,
       inputNonce,
-    });
+    }) as LocalMatch;
 
     if (hasAiParticipant) {
       eventBus.emit("match:countdown", {
@@ -3280,2199 +2950,130 @@ return nil
     return { matchId, local, serverStartAtMs, payload };
   }
 
-  const resendExistingRematch = (matchId: string, userId: string) => {
-    const rematch = state.matches.get(matchId);
-    if (!rematch) return false;
+  // =============================================================================
+  // WEBSOCKET CONNECTION HANDLER
+  // =============================================================================
 
-    sendToUser(wss, userId, "MATCH_FOUND", {
-      matchId: rematch.matchId,
-      textSnapshot: rematch.textSnapshot,
-      textId: rematch.textId,
-      inputNonce: rematch.inputNonce,
-      serverStartAt: new Date(rematch.serverStartAtMs).toISOString(),
-      players: Array.from(rematch.participants.values()).map((participant) => ({
-        userId: participant.userId,
-        username: participant.username,
-        avatar: participant.avatar,
-        slot: participant.slot,
-      })),
-    });
-
-    return true;
+  // ---------------------------------------------------------------------------
+  // Wire up the GatewayDeps container — one snapshot of all runtime services,
+  // mutable-state maps, constants, and callback closures extracted from main().
+  // ---------------------------------------------------------------------------
+  const deps: GatewayDeps = {
+    // Core services
+    db,
+    redisBus,
+    state,
+    matchCache,
+    connectionUserCache,
+    wss,
+    messageBatcher,
+    matchRepository,
+    matchLockRegistry,
+    matchCleanupService,
+    eventBus,
+    gatewayMetrics,
+    gatewayHealthController,
+    idempotencyStore,
+    // Mutable state collections
+    disconnectForfeitTimers,
+    noShowTimers,
+    activeMatchSessions,
+    rematchStartedByMatchId,
+    pendingInputUpdatesByMatch,
+    inputUpdateFlushRetriesByMatch,
+    roomActionLastSeen,
+    inFlightMatchJoins,
+    matchFinalizationLocks,
+    matchCleanupTimers,
+    firstPlaceFinalizationTimers,
+    rematchAcceptedByMatchId,
+    rematchAcceptedTouchedAtByMatchId,
+    aiRematchRefuseUntilByHumanId,
+    // Mutable primitive flags (passed as { value } refs so mutations are visible)
+    hasPvpMatchmakingPreferenceTable,
+    pvpMatchmakingPreferenceTableLastCheckedAt,
+    // Runtime constants
+    instanceId: INSTANCE_ID,
+    allowParticipantPersistFallback: ALLOW_PARTICIPANT_PERSIST_FALLBACK,
+    testForceBotMatch: TEST_FORCE_BOT_MATCH,
+    testBypass: TEST_BYPASS,
+    aiQueueTimeoutMs: AI_QUEUE_TIMEOUT_MS,
+    inputUpdateFlushMaxRetries: INPUT_UPDATE_FLUSH_MAX_RETRIES,
+    inputUpdateFlushMaxEnqueued: INPUT_UPDATE_FLUSH_MAX_ENQUEUED,
+    matchResumeDeltaLimit: MATCH_RESUME_DELTA_LIMIT,
+    disconnectForfeitJoinDeferMs: DISCONNECT_FORFEIT_JOIN_DEFER_MS,
+    matchSnapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
+    roomActionCooldownMs: ROOM_ACTION_COOLDOWN_MS,
+    onlineKeyPrefix: ONLINE_KEY_PREFIX,
+    onlineTtlSec: ONLINE_TTL_SEC,
+    presenceRefreshMs: PRESENCE_REFRESH_MS,
+    queueKeyPrefix: QUEUE_KEY_PREFIX,
+    queueMetaKeyPrefix: QUEUE_META_KEY_PREFIX,
+    queueRatingRange: QUEUE_RATING_RANGE,
+    rematchAcceptedTtlMs: REMATCH_ACCEPTED_TTL_MS,
+    aiRematchCooldownMs: AI_REMATCH_COOLDOWN_MS,
+    wsPingIntervalMs: WS_PING_INTERVAL_MS,
+    // Locks
+    localQueueLock,
+    matchJoinLock,
+    // Callbacks
+    flushPendingInputUpdates,
+    scheduleNoShowTimeout,
+    clearNoShowTimer,
+    clearDisconnectForfeitTimer,
+    scheduleDisconnectForfeit,
+    maybeStartRankedCountdown,
+    loadConnectionUser,
+    createRanked1v1Match,
+    startRoomMatch,
+    maybeAutoStartPublicRoom,
+    beginMatchJoinInFlight,
+    endMatchJoinInFlight,
+    isMatchJoinInFlight,
+    claimMatchSession,
+    releaseMatchSession,
+    updateSocketRoomSubscription,
+    markOnline,
+    createLockedHumanRematch,
+    enqueueInputUpdateBatch,
+    queueAdapter,
+    persistReconnectGraceWindow,
   };
 
-  wss.on("connection", (ws: WsConn, req: http.IncomingMessage) => {
-    ws.connectionId = crypto.randomUUID();
-
-    if (!gatewayHealthController?.canAcceptTraffic()) {
-      gatewayMetrics?.incrementWsHandshake("rejected");
-      incrementGatewayMetric("ws_connection_rejected", { reason: "gateway_not_ready" });
-      gatewayLogWarn("Rejected websocket connection because gateway cannot accept traffic", {
-        ip: ws.ip ?? getClientIp(req),
-        ready: gatewayHealthController?.isReady() ?? false,
-        draining: gatewayHealthController?.isDraining() ?? false,
-        activeConnections: wss.clients.size,
-      });
-      ws.close(1013, "Gateway not ready");
-      return;
-    }
-
-    if (!isSecureGatewayRequest(req)) {
-      gatewayMetrics?.incrementWsHandshake("rejected");
-      incrementGatewayMetric("ws_connection_rejected", { reason: "insecure_transport" });
-      ws.close(1008, "Secure websocket required");
-      return;
-    }
-
-    if (!originAllowed(req.headers.origin)) {
-      gatewayMetrics?.incrementWsHandshake("rejected");
-      incrementGatewayMetric("ws_connection_rejected", { reason: "origin_not_allowed" });
-      ws.close(1008, "Origin not allowed");
-      return;
-    }
-
-    const ip = getClientIp(req);
-    ws.ip = ip;
-
-    if (globalConnectionBucket && !tryConsume(globalConnectionBucket, 1, Date.now())) {
-      gatewayMetrics?.incrementWsHandshake("rejected");
-      incrementGatewayMetric("ws_connection_rejected", { reason: "global_connection_rate_limit" });
-      gatewayLogWarn("Rejected websocket connection by global connection rate limit", {
-        ip,
-        refillPerSec: WS_GLOBAL_CONNECTIONS_PER_SEC,
-        burst: WS_GLOBAL_CONNECTIONS_BURST,
-      });
-      ws.close(1013, "Gateway busy");
-      return;
-    }
-
-    gatewayLogDebug("Incoming websocket connection", {
-      ip,
-      origin: req.headers.origin ?? null,
-      userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
-    });
-
-    let attemptBucket = connectionAttemptBuckets.get(ip);
-    if (!attemptBucket) {
-      attemptBucket = createTokenBucket({
-        capacity: WS_CONNECTION_ATTEMPTS_BURST,
-        refillPerSec: WS_CONNECTION_ATTEMPTS_PER_MIN / 60,
-        nowMs: Date.now(),
-      });
-      connectionAttemptBuckets.set(ip, attemptBucket);
-    }
-
-    if (!tryConsume(attemptBucket, 1, Date.now())) {
-      gatewayMetrics?.incrementWsHandshake("rejected");
-      incrementGatewayMetric("ws_connection_rejected", { reason: "connection_attempt_rate_limit", ip });
-      gatewayLogWarn("Rejected websocket connection by per-IP connection attempt rate limit", {
-        ip,
-        attemptsPerMin: WS_CONNECTION_ATTEMPTS_PER_MIN,
-        burst: WS_CONNECTION_ATTEMPTS_BURST,
-      });
-      ws.close(1013, "Too many connection attempts");
-      return;
-    }
-
-    const activeForIp = activeConnectionsByIp.get(ip) ?? 0;
-    if (activeForIp >= WS_MAX_CONNECTIONS_PER_IP) {
-      gatewayMetrics?.incrementWsHandshake("rejected");
-      incrementGatewayMetric("ws_connection_rejected", { reason: "connection_cap", ip });
-      gatewayLogWarn("Rejected websocket connection by per-IP active connection cap", {
-        ip,
-        activeForIp,
-        maxConnectionsPerIp: WS_MAX_CONNECTIONS_PER_IP,
-      });
-      ws.close(1013, "Too many active connections");
-      return;
-    }
-    activeConnectionsByIp.set(ip, activeForIp + 1);
-    gatewayMetrics?.setConnectionsActive(wss.clients.size);
-
-    const nextSpikeCount = incrementGatewayMetric("ws_connection_opened", { ip });
-    if (nextSpikeCount >= CONNECTION_SPIKE_ALERT_THRESHOLD) {
-      console.warn(`[pvp-gateway] abnormal connection spike detected for ${ip}: ${nextSpikeCount}`);
-    }
-
-    const connectedAtMs = Date.now();
-    ws.rawMsgStrikes = 0;
-    ws.rl = {
-      general: createTokenBucket({ capacity: WS_MAX_MSG_BURST, refillPerSec: WS_MAX_MSG_PER_SEC, nowMs: connectedAtMs }),
-      input: createTokenBucket({ capacity: WS_MAX_INPUT_MSG_BURST, refillPerSec: WS_MAX_INPUT_MSG_PER_SEC, nowMs: connectedAtMs }),
-      roomAction: createTokenBucket({ capacity: 1, refillPerSec: 1000 / ROOM_ACTION_COOLDOWN_MS, nowMs: connectedAtMs }),
-    };
-
-    // Keepalive ping to avoid idle timeouts (~30s) killing the connection.
-    const pingInterval =
-      WS_PING_INTERVAL_MS > 0
-        ? setInterval(() => {
-            try {
-              if (ws.readyState === WebSocket.OPEN) ws.ping();
-            } catch {
-              // ignore
-            }
-          }, WS_PING_INTERVAL_MS)
-        : null;
-
-    send(ws, "QUEUE_STATUS", { status: "CONNECTED" });
-
-    ws.on("message", async (data: RawData) => {
-      const messageStartedAt = process.hrtime.bigint();
-      let metricMessageType = "unknown";
-      const nowMs = Date.now();
-      const byteLength =
-        typeof data === "string"
-          ? Buffer.byteLength(data, "utf8")
-          : Buffer.isBuffer(data)
-            ? data.length
-            : data instanceof ArrayBuffer
-              ? data.byteLength
-              : ArrayBuffer.isView(data)
-                ? data.byteLength
-                : 0;
-
-      if (byteLength > WS_MAX_PAYLOAD_BYTES) {
-        incrementGatewayMetric("ws_validation_failed", { reason: "payload_too_large" });
-        ws.close(1009, "Message too large");
-        return;
-      }
-
-      if (ws.rl && !tryConsume(ws.rl.general, 1, nowMs)) {
-        incrementGatewayMetric("ws_rate_limit_rejected", { reason: "general_message_rate" });
-        ws.rawMsgStrikes = (ws.rawMsgStrikes ?? 0) + 1;
-        if ((ws.rawMsgStrikes ?? 0) >= 3) {
-          gatewayLogWarn("Closing websocket due to repeated general message rate limit violations", {
-            ip: ws.ip ?? "unknown",
-            userId: ws.user?.userId ?? null,
-            strikes: ws.rawMsgStrikes,
-            wsMaxMsgPerSec: WS_MAX_MSG_PER_SEC,
-            wsMaxMsgBurst: WS_MAX_MSG_BURST,
-          });
-          ws.close(1013, "Rate limit");
-        }
-        return;
-      }
-
-      const raw = typeof data === "string" ? data : data.toString("utf-8");
-      const parsedMessage = safeParseClientMessage(raw);
-      if (!parsedMessage.success) {
-        incrementGatewayMetric("ws_validation_failed", { reason: parsedMessage.error });
-        send(ws, "ERROR", { message: parsedMessage.error });
-        return;
-      }
-      const msg = parsedMessage.data;
-      metricMessageType = msg.type;
-      incrementGatewayMetric("pvp_ws_inbound_messages_total", { type: msg.type });
-
-      if (msg.type === "INPUT_UPDATE" && ws.rl && !tryConsume(ws.rl.input, 1, nowMs)) {
-        incrementGatewayMetric("ws_rate_limit_rejected", { reason: "input_message_rate" });
-        // Do not close immediately; ignore input spam.
-        return;
-      }
-
-      try {
-        if (msg.type === "HELLO") {
-          let authed: WsAuthContext;
-
-          if (TEST_BYPASS) {
-            authed = buildBypassWsAuthContext(msg.payload.token, ws.connectionId ?? crypto.randomUUID());
-            ws.authBypass = true;
-            gatewayLogWarn("Accepted HELLO using PVP_TEST_BYPASS_AUTH in non-production", {
-              connectionId: ws.connectionId,
-              userId: authed.userId,
-              ip: ws.ip ?? "unknown",
-            });
-          } else {
-            try {
-              authed = await verifyWsTokenFast(msg.payload.token, {
-                clientSecret: msg.payload.clientSecret,
-                userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
-              });
-            } catch (authError) {
-              const mapped = mapHelloAuthFailure(authError);
-              gatewayLogWarn("Rejected HELLO authentication", {
-                code: mapped.code,
-                reason: authError instanceof Error ? authError.message : "unknown",
-                requestId: msg.requestId,
-                connectionId: ws.connectionId,
-                ip: ws.ip ?? "unknown",
-              });
-              throw new PvpClientVisibleError({
-                ...mapped,
-                details: {
-                  requestId: msg.requestId,
-                  phase: "hello_auth",
-                },
-              });
-            }
-          }
-
-          ws.user = {
-            userId: authed.userId,
-            username: authed.username,
-            avatar: authed.avatar,
-            pvpRating: authed.pvpRating,
-            pvpDeviation: authed.pvpDeviation,
-            tokenVersion: authed.tokenVersion,
-            validAfter: authed.validAfter,
-            issuedAt: authed.issuedAt,
-          };
-          gatewayMetrics?.incrementWsHandshake("success");
-
-          gatewayLogInfo("Websocket client authenticated", {
-            userId: ws.user.userId,
-            ip: ws.ip ?? "unknown",
-          });
-
-          matchCache?.addUserSocket(ws);
-
-          await markOnline(ws.user.userId);
-          if (redis) {
-            ws.presenceInterval = setInterval(() => {
-              if (!ws.user) return;
-              void markOnline(ws.user.userId);
-            }, PRESENCE_REFRESH_MS);
-          }
-
-          send(ws, "HELLO_OK", {
-            user: {
-              userId: ws.user.userId,
-              username: ws.user.username,
-              avatar: ws.user.avatar,
-            },
-          });
-          return;
-        }
-
-        if (msg.type === "AUTH_REFRESH") {
-          if (!ws.user) {
-            send(ws, "ERROR", { message: "Unauthenticated" });
-            return;
-          }
-
-          const refreshed = await verifyWsTokenStrict(msg.payload.token, {
-            db,
-            clientSecret: msg.payload.clientSecret,
-            userAgent: sanitizeUserAgent(req.headers["user-agent"] ?? null),
-            expectedUserId: ws.user.userId,
-          });
-
-          ws.user = {
-            ...ws.user,
-            username: refreshed.username,
-            avatar: refreshed.avatar,
-            pvpRating: refreshed.pvpRating,
-            pvpDeviation: refreshed.pvpDeviation,
-            tokenVersion: refreshed.tokenVersion,
-            validAfter: refreshed.validAfter,
-            issuedAt: refreshed.issuedAt,
-          };
-
-          await markOnline(ws.user.userId);
-          gatewayLogDebug("Websocket auth refresh completed", {
-            userId: ws.user.userId,
-          });
-          send(ws, "AUTH_REFRESH_OK", { expiresAt: Math.floor(Date.now() / 1000) + envInt("PVP_WS_TOKEN_TTL_SECONDS", 900) });
-          return;
-        }
-
-        if (!ws.user) {
-          send(ws, "ERROR", { message: "Unauthenticated" });
-          return;
-        }
-
-        if (msg.type === "QUEUE_JOIN" || msg.type === "MATCH_JOIN") {
-          if (!ws.authBypass) {
-            await assertWsTokenState(db, {
-              userId: ws.user.userId,
-              username: ws.user.username,
-              avatar: ws.user.avatar,
-              pvpRating: ws.user.pvpRating,
-              pvpDeviation: ws.user.pvpDeviation,
-              tokenVersion: ws.user.tokenVersion,
-              validAfter: ws.user.validAfter,
-              issuedAt: ws.user.issuedAt,
-            });
-          }
-        }
-
-        const idempotency = await loadIdempotencyHit({
-          redis,
-          store: idempotencyStore,
-          eventBus,
-          userId: ws.user.userId,
-          messageType: msg.type,
-          requestId: "requestId" in msg ? msg.requestId : undefined,
-        });
-        if (idempotency?.record) {
-          if (idempotency.record.response) {
-            send(ws, idempotency.record.response.type, idempotency.record.response.payload);
-          }
-          return;
-        }
-
-        if (msg.type === "QUEUE_JOIN") {
-          const requestId = "requestId" in msg ? msg.requestId : undefined;
-          const queueLogContext = {
-            userId: ws.user.userId,
-            requestId,
-            connectionId: ws.connectionId,
-            queueMode: redis ? "redis" : "local",
-          };
-
-          if (!gatewayHealthController?.canAcceptTraffic()) {
-            gatewayLogWarn("Rejected ranked queue join because the gateway is draining", queueLogContext);
-            send(ws, "ERROR", {
-              code: PVP_ERROR_CODES.QUEUE_GATEWAY_DRAINING,
-              message: "Gateway is draining",
-              retryable: true,
-              details: { requestId, phase: "queue_join_precondition" },
-            });
-            send(ws, "QUEUE_STATUS", { status: "IDLE" });
-            return;
-          }
-
-          gatewayLogInfo("Ranked queue join requested", {
-            ...queueLogContext,
-            useRedis: Boolean(redis),
-          });
-          // Dev TEST: force a match vs a synthetic AI user to guarantee ai: semantics.
-          if (TEST_FORCE_BOT_MATCH) {
-            const me = await loadConnectionUser(ws.user.userId);
-            ws.user = {
-              ...me,
-              tokenVersion: ws.user.tokenVersion,
-              validAfter: ws.user.validAfter,
-              issuedAt: ws.user.issuedAt,
-            };
-            const aiUserId = process.env.PVP_TEST_AI_USER_ID ?? "ai:test-bot";
-            const aiUsername = process.env.PVP_TEST_AI_USERNAME ?? "Kai";
-
-            state.removeFromQueue(me.userId);
-            state.clearQueueTimeout(me.userId);
-
-            const created = await createRanked1v1Match({
-              users: [
-                { ...me, slot: 0 },
-                {
-                  userId: aiUserId,
-                  username: aiUsername,
-                  avatar: null,
-                  pvpRating: me.pvpRating,
-                  pvpDeviation: 180,
-                  slot: 1,
-                },
-              ],
-              persistUserIds: [me.userId],
-              startDelayMs: RANKED_MATCH_START_DELAY_MS,
-            });
-
-            await startAiSimulationAdaptive({
-              db,
-              wss,
-              matchCache,
-              matchRepository,
-              matchId: created.matchId,
-              humanId: me.userId,
-              aiUserId,
-              snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
-              state,
-              forceFinishHumanAfterMs: envMs("PVP_FORCE_BOT_FINISH_HUMAN_AFTER_MS", 10_000),
-              onFinalizeMatchIfComplete: (matchId) =>
-                finalizeMatchIfComplete({
-                  db,
-                  wss,
-                  state,
-                  eventBus,
-                  matchId,
-                }),
-              onBroadcastMatchSnapshot: (matchId, nowMs, intervalMs) => {
-                const liveMatch = state.matches.get(matchId);
-                if (!liveMatch) return false;
-                return maybeBroadcastMatchSnapshot(wss, liveMatch, nowMs, intervalMs);
-              },
-            });
-
-            await storeIdempotencyHit({
-              redis,
-              store: idempotencyStore,
-              key: idempotency?.key,
-              messageType: msg.type,
-              value: { response: { type: "MATCH_FOUND", payload: created.payload } },
-            });
-
-            return;
-          }
-
-          const me = await loadConnectionUser(ws.user.userId);
-          ws.user = {
-            ...me,
-            tokenVersion: ws.user.tokenVersion,
-            validAfter: ws.user.validAfter,
-            issuedAt: ws.user.issuedAt,
-          };
-          await markOnline(me.userId);
-
-          // Redis-backed queue + atomic pairing (multi-instance safe)
-          if (redis) {
-            const existingQueued = await readQueueMeta(me.userId);
-            if (existingQueued) {
-              gatewayLogInfo("Resumed existing ranked queue search", {
-                ...queueLogContext,
-                queuedForMs: Math.max(0, Date.now() - existingQueued.joinedAtMs),
-                bucketKey: existingQueued.bucketKey,
-              });
-              await storeIdempotencyHit({
-                redis,
-                store: idempotencyStore,
-                key: idempotency?.key,
-                messageType: msg.type,
-                value: { response: { type: "QUEUE_STATUS", payload: { status: "SEARCHING" } } },
-              });
-              send(ws, "QUEUE_STATUS", { status: "SEARCHING" });
-              return;
-            }
-
-            state.clearQueueTimeout(me.userId);
-            const queuedMeta = await queueJoin(me);
-            gatewayLogDebug("Ranked queue join enqueued", {
-              ...queueLogContext,
-              bucketKey: queuedMeta?.bucketKey,
-              rating: me.pvpRating,
-            });
-
-            const queuedMatch = await tryMatchQueuedUser(me);
-            if (queuedMatch) {
-              const other = await loadConnectionUser(queuedMatch.otherId);
-
-              const otherWaitMs = queuedMatch.other ? Math.max(0, Date.now() - queuedMatch.other.joinedAtMs) : 0;
-              await recordQueueMatchMetrics(redis, {
-                queueWaitMs: [Math.max(0, Date.now() - queuedMatch.me.joinedAtMs), otherWaitMs],
-                ratingDelta: Math.abs(other.pvpRating - me.pvpRating),
-              });
-              gatewayMetrics?.observeMatchStartLatency(
-                "ranked",
-                Math.max(Math.max(0, Date.now() - queuedMatch.me.joinedAtMs), otherWaitMs) / 1000
-              );
-              gatewayLogInfo("Ranked queue matched", {
-                userIds: [other.userId, me.userId],
-                ratingDelta: Math.abs(other.pvpRating - me.pvpRating),
-                queueWaitMs: [Math.max(0, Date.now() - queuedMatch.me.joinedAtMs), otherWaitMs],
-                preference: me.matchmakingPreference,
-              });
-
-              const created = await createRanked1v1Match({
-                users: [
-                  { ...other, slot: 0 },
-                  { ...me, slot: 1 },
-                ],
-                persistUserIds: [other.userId, me.userId],
-                startDelayMs: RANKED_MATCH_START_DELAY_MS,
-              });
-              await storeIdempotencyHit({
-                redis,
-                store: idempotencyStore,
-                key: idempotency?.key,
-                messageType: msg.type,
-                value: { response: { type: "MATCH_FOUND", payload: created.payload } },
-              });
-              return;
-            }
-
-            await storeIdempotencyHit({
-              redis,
-              store: idempotencyStore,
-              key: idempotency?.key,
-              messageType: msg.type,
-              value: { response: { type: "QUEUE_STATUS", payload: { status: "SEARCHING" } } },
-            });
-
-            // Fallback: after a timeout, start a match vs AI (and remove from Redis queue first).
-            const timeout = setTimeout(() => {
-              const userId = ws.user?.userId;
-              if (!userId) return;
-
-              // If there is no live socket, just clean up queue membership.
-              const sockets = getAuthedSocketsForUser(wss, userId);
-              if (sockets.length === 0) {
-                gatewayLogInfo("Removed ranked queue user after disconnect before AI fallback", queueLogContext);
-                void queueLeave(userId);
-                state.clearQueueTimeout(userId);
-                return;
-              }
-
-              void (async () => {
-                gatewayLogInfo("Ranked queue AI fallback timer fired", {
-                  ...queueLogContext,
-                  timeoutMs: AI_QUEUE_TIMEOUT_MS,
-                });
-                const removed = await queueLeave(userId);
-                if (removed === 0) {
-                  gatewayLogDebug("Skipped ranked queue AI fallback because the user was no longer queued", queueLogContext);
-                  return;
-                }
-
-                state.clearQueueTimeout(userId);
-                const human = await loadConnectionUser(userId);
-                const aiUserId = `ai:${crypto.randomUUID()}`;
-                const created = await createRanked1v1Match({
-                  users: [
-                    { ...human, slot: 0 },
-                    {
-                      userId: aiUserId,
-                      username: "Kai",
-                      avatar: null,
-                      pvpRating: human.pvpRating,
-                      pvpDeviation: 180,
-                      slot: 1,
-                    },
-                  ],
-                  persistUserIds: [human.userId],
-                  startDelayMs: RANKED_MATCH_START_DELAY_MS,
-                });
-                gatewayLogInfo("Created ranked AI fallback match", {
-                  ...queueLogContext,
-                  matchId: created.matchId,
-                  queuedForMs: queuedMeta ? Math.max(0, Date.now() - queuedMeta.joinedAtMs) : undefined,
-                });
-                incrementGatewayMetric("pvp_queue_ai_fallback_total", { queue_mode: "redis" });
-
-                await startAiSimulationAdaptive({
-                  db,
-                  wss,
-                  matchCache,
-                  matchRepository,
-                  matchId: created.matchId,
-                  humanId: human.userId,
-                  aiUserId,
-                  snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
-                  state,
-                  onFinalizeMatchIfComplete: (matchId) =>
-                    finalizeMatchIfComplete({
-                      db,
-                      wss,
-                      state,
-                      eventBus,
-                      matchId,
-                    }),
-                  onBroadcastMatchSnapshot: (matchId, nowMs, intervalMs) => {
-                    const liveMatch = state.matches.get(matchId);
-                    if (!liveMatch) return false;
-                    return maybeBroadcastMatchSnapshot(wss, liveMatch, nowMs, intervalMs);
-                  },
-                });
-              })().catch((e) => {
-                const payload = toClientErrorPayload(e, {
-                  code: PVP_ERROR_CODES.QUEUE_AI_FALLBACK_FAILED,
-                  message: "AI fallback failed",
-                  retryable: true,
-                  details: { requestId, phase: "queue_ai_fallback" },
-                });
-                gatewayLogError("Ranked queue AI fallback failed", e, queueLogContext);
-                sendToUser(wss, userId, "ERROR", payload);
-                sendToUser(wss, userId, "QUEUE_STATUS", { status: "IDLE" });
-              });
-            }, AI_QUEUE_TIMEOUT_MS);
-
-            state.queueTimeouts.set(me.userId, timeout);
-            gatewayLogDebug("Scheduled ranked queue AI fallback timer", {
-              ...queueLogContext,
-              timeoutMs: AI_QUEUE_TIMEOUT_MS,
-            });
-            send(ws, "QUEUE_STATUS", { status: "SEARCHING" });
-            return;
-          }
-
-          let localQueueResponseType: ServerMessage["type"] | null = null;
-          let localQueueResponsePayload: unknown = null;
-          let shouldSendLocalQueueResponse = false;
-
-          await localQueueLock.runExclusive(async () => {
-            const existingEntry = state.queue.find((entry) => entry.user.userId === ws.user!.userId);
-            if (existingEntry) {
-              gatewayLogInfo("Resumed existing local ranked queue search", {
-                ...queueLogContext,
-                queuedForMs: Math.max(0, Date.now() - existingEntry.joinedAtMs),
-              });
-              localQueueResponseType = "QUEUE_STATUS";
-              localQueueResponsePayload = { status: "SEARCHING" };
-              shouldSendLocalQueueResponse = true;
-              return;
-            }
-
-            state.removeFromQueue(ws.user!.userId);
-            state.clearQueueTimeout(ws.user!.userId);
-            const queueResult = enqueueOrMatchInMemory({
-              queue: state.queue,
-              user: me,
-              ratingRange: QUEUE_RATING_RANGE,
-              requestId,
-              connectionId: ws.connectionId,
-            });
-
-            if (queueResult.kind === "matched") {
-              const [other, currentUser] = queueResult.users;
-              state.clearQueueTimeout(currentUser.userId);
-              state.clearQueueTimeout(other.userId);
-
-              gatewayLogInfo("Ranked queue matched (local)", {
-                userIds: [other.userId, currentUser.userId],
-                ratingDelta: Math.abs(other.pvpRating - currentUser.pvpRating),
-                queueWaitMs: queueResult.queueWaitMs,
-                preference: currentUser.matchmakingPreference,
-              });
-              gatewayMetrics?.observeMatchStartLatency(
-                "ranked",
-                Math.max(...queueResult.queueWaitMs.map((value) => Math.max(0, value))) / 1000
-              );
-
-              const created = await createRanked1v1Match({
-                users: [
-                  { ...other, slot: 0 },
-                  { ...currentUser, slot: 1 },
-                ],
-                persistUserIds: [other.userId, currentUser.userId],
-                startDelayMs: RANKED_MATCH_START_DELAY_MS,
-              });
-              await storeIdempotencyHit({
-                redis,
-                store: idempotencyStore,
-                key: idempotency?.key,
-                messageType: msg.type,
-                value: { response: { type: "MATCH_FOUND", payload: created.payload } },
-              });
-              localQueueResponseType = "MATCH_FOUND";
-              localQueueResponsePayload = created.payload;
-              return;
-            }
-
-            const timeout = setTimeout(() => {
-              const userId = ws.user?.userId;
-              if (!userId) return;
-              const stillQueued = state.queue.find(
-                (e) =>
-                  e.user.userId === userId &&
-                  e.requestId === requestId &&
-                  e.connectionId === ws.connectionId
-              );
-              if (!stillQueued) return;
-
-              const sockets = getAuthedSocketsForUser(wss, userId);
-              if (sockets.length === 0) {
-                state.removeFromQueue(userId);
-                state.clearQueueTimeout(userId);
-                return;
-              }
-
-              state.removeFromQueue(userId);
-              state.clearQueueTimeout(userId);
-
-              void (async () => {
-                gatewayLogInfo("Local ranked queue AI fallback timer fired", {
-                  ...queueLogContext,
-                  timeoutMs: AI_QUEUE_TIMEOUT_MS,
-                });
-                const human = stillQueued.user;
-                const aiUserId = `ai:${crypto.randomUUID()}`;
-                const created = await createRanked1v1Match({
-                  users: [
-                    {
-                      userId: human.userId,
-                      username: human.username,
-                      avatar: human.avatar,
-                      pvpRating: human.pvpRating,
-                      pvpDeviation: human.pvpDeviation,
-                      slot: 0,
-                    },
-                    {
-                      userId: aiUserId,
-                      username: "Kai",
-                      avatar: null,
-                      pvpRating: human.pvpRating,
-                      pvpDeviation: 180,
-                      slot: 1,
-                    },
-                  ],
-                  persistUserIds: [human.userId],
-                  startDelayMs: RANKED_MATCH_START_DELAY_MS,
-                });
-                gatewayLogInfo("Created local ranked AI fallback match", {
-                  ...queueLogContext,
-                  matchId: created.matchId,
-                  queuedForMs: Math.max(0, Date.now() - stillQueued.joinedAtMs),
-                });
-                incrementGatewayMetric("pvp_queue_ai_fallback_total", { queue_mode: "local" });
-
-                await startAiSimulationAdaptive({
-                  db,
-                  wss,
-                  matchCache,
-                  matchRepository,
-                  matchId: created.matchId,
-                  humanId: human.userId,
-                  aiUserId,
-                  snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
-                  state,
-                  onFinalizeMatchIfComplete: (matchId) =>
-                    finalizeMatchIfComplete({
-                      db,
-                      wss,
-                      state,
-                      eventBus,
-                      matchId,
-                    }),
-                  onBroadcastMatchSnapshot: (matchId, nowMs, intervalMs) => {
-                    const liveMatch = state.matches.get(matchId);
-                    if (!liveMatch) return false;
-                    return maybeBroadcastMatchSnapshot(wss, liveMatch, nowMs, intervalMs);
-                  },
-                });
-              })().catch((e) => {
-                const payload = toClientErrorPayload(e, {
-                  code: PVP_ERROR_CODES.QUEUE_AI_FALLBACK_FAILED,
-                  message: "AI fallback failed",
-                  retryable: true,
-                  details: { requestId, phase: "queue_ai_fallback" },
-                });
-                gatewayLogError("Local ranked queue AI fallback failed", e, queueLogContext);
-                sendToUser(wss, userId, "ERROR", payload);
-                sendToUser(wss, userId, "QUEUE_STATUS", { status: "IDLE" });
-              });
-            }, AI_QUEUE_TIMEOUT_MS);
-            state.queueTimeouts.set(ws.user!.userId, timeout);
-            gatewayLogDebug("Scheduled local ranked queue AI fallback timer", {
-              ...queueLogContext,
-              timeoutMs: AI_QUEUE_TIMEOUT_MS,
-            });
-            localQueueResponseType = "QUEUE_STATUS";
-            localQueueResponsePayload = { status: "SEARCHING" };
-            shouldSendLocalQueueResponse = true;
-          });
-
-          if (localQueueResponseType) {
-            await storeIdempotencyHit({
-              redis,
-              store: idempotencyStore,
-              key: idempotency?.key,
-              messageType: msg.type,
-              value: {
-                response: {
-                  type: localQueueResponseType,
-                  payload: localQueueResponsePayload,
-                },
-              },
-            });
-          }
-          if (localQueueResponseType && shouldSendLocalQueueResponse) {
-            send(ws, localQueueResponseType, localQueueResponsePayload);
-          }
-          return;
-        }
-
-        if (msg.type === "QUEUE_LEAVE") {
-          state.removeFromQueue(ws.user.userId);
-          state.clearQueueTimeout(ws.user.userId);
-          await queueLeave(ws.user.userId);
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { response: { type: "QUEUE_STATUS", payload: { status: "IDLE" } } },
-          });
-          send(ws, "QUEUE_STATUS", { status: "IDLE" });
-          return;
-        }
-
-        if (msg.type === "MATCH_JOIN") {
-          const lastSeenRevision = Math.max(0, msg.payload.lastSeenRevision ?? 0);
-          const fullUser = await loadConnectionUser(ws.user.userId);
-          ws.user = {
-            ...fullUser,
-            tokenVersion: ws.user.tokenVersion,
-            validAfter: ws.user.validAfter,
-            issuedAt: ws.user.issuedAt,
-          };
-          gatewayLogDebug("Match join requested", {
-            userId: ws.user.userId,
-            matchId: msg.payload.matchId,
-          });
-          beginMatchJoinInFlight(msg.payload.matchId, ws.user.userId);
-
-          try {
-            await matchJoinLock.runExclusive(async () => {
-              const sessionKey = `${msg.payload.matchId}:${ws.user!.userId}`;
-              const cachedMatch = state.matches.get(msg.payload.matchId);
-
-            if (
-              ws.matchId === msg.payload.matchId &&
-              ws.matchSessionKey === sessionKey &&
-              cachedMatch?.participants.has(ws.user!.userId)
-            ) {
-              const cachedPayload = buildMatchStatePayload(cachedMatch);
-              await storeIdempotencyHit({
-                redis,
-                store: idempotencyStore,
-                key: idempotency?.key,
-                messageType: msg.type,
-                value: {
-                  response: {
-                    type: "MATCH_STATE",
-                    payload: cachedPayload,
-                  },
-                },
-              });
-              send(ws, "MATCH_STATE", cachedPayload);
-              return;
-            }
-
-            const joinSnapshot = await matchRepository.withTransaction(async (tx) => {
-              const dbMatch = await matchRepository.loadForUpdate(tx, msg.payload.matchId);
-              const fallbackLiveParticipant = dbMatch?.liveState?.participants?.[ws.user!.userId] ?? null;
-
-              const participantRows = await tx
-                .select({
-                  slot: pvpParticipants.slot,
-                  username: users.username,
-                  avatar: playerProfiles.avatar,
-                })
-                .from(pvpParticipants)
-                .innerJoin(users, eq(pvpParticipants.userId, users.id))
-                .leftJoin(playerProfiles, eq(pvpParticipants.userId, playerProfiles.userId))
-                .where(and(eq(pvpParticipants.matchId, msg.payload.matchId), eq(pvpParticipants.userId, ws.user!.userId)))
-                .limit(1);
-
-              const participantRow =
-                participantRows[0] ??
-                (ALLOW_PARTICIPANT_PERSIST_FALLBACK && fallbackLiveParticipant
-                  ? {
-                      slot: fallbackLiveParticipant.slot,
-                      username: fallbackLiveParticipant.username,
-                      avatar: fallbackLiveParticipant.avatar,
-                    }
-                  : null);
-
-              const matchJoinAccess = canJoinPvpMatchSocket({
-                status: dbMatch?.status ?? "FINISHED",
-                participantExists: Boolean(participantRow),
-                userId: ws.user!.userId,
-              });
-
-              if (!matchJoinAccess.allowed) {
-                return {
-                  ok: false as const,
-                  error:
-                    matchJoinAccess.reason === "not_participant"
-                      ? "Not a participant"
-                      : "Match can no longer be joined",
-                };
-              }
-
-              if (!dbMatch) {
-                return { ok: false as const, error: "Match not found" };
-              }
-
-              const participants = await tx
-                .select({
-                  userId: pvpParticipants.userId,
-                  slot: pvpParticipants.slot,
-                  username: users.username,
-                  avatar: playerProfiles.avatar,
-                })
-                .from(pvpParticipants)
-                .innerJoin(users, eq(pvpParticipants.userId, users.id))
-                .leftJoin(playerProfiles, eq(pvpParticipants.userId, playerProfiles.userId))
-                .where(eq(pvpParticipants.matchId, dbMatch.id));
-
-              const liveState: MatchLiveState =
-                dbMatch.liveState ??
-                createInitialLiveState({
-                  state: matchStateFromDbStatus(dbMatch.status),
-                  participants: participants.map((participant) => ({
-                    userId: participant.userId,
-                    username: sanitizeDisplayName(participant.username ?? "user", 32) || "user",
-                    avatar: sanitizeAvatarUrl(participant.avatar ?? null),
-                    slot: participant.slot,
-                  })),
-                });
-
-              const participantsFromLiveState = Object.values(liveState.participants ?? {}).map((participant) => ({
-                userId: participant.userId,
-                slot: participant.slot,
-                username: participant.username,
-                avatar: participant.avatar,
-              }));
-              const effectiveParticipants =
-                participants.length > 0 ? participants : participantsFromLiveState;
-
-              const participantState = liveState.participants[ws.user!.userId];
-              if (participantState) {
-                participantState.lastInputAtMs = Date.now();
-              }
-
-              if (liveState.reconnectUntilByUserId) {
-                delete liveState.reconnectUntilByUserId[ws.user!.userId];
-              }
-
-              const staleGap = Math.max(0, dbMatch.revision - lastSeenRevision);
-              const shouldReplayProgressDeltas = staleGap > 0 && staleGap <= MATCH_RESUME_DELTA_LIMIT;
-              const progressDeltas = shouldReplayProgressDeltas
-                ? (liveState.deltas ?? [])
-                    .filter((delta) => delta.type === "PROGRESS" && delta.revision > lastSeenRevision)
-                    .slice(-MATCH_RESUME_DELTA_LIMIT)
-                    .map((delta) => delta.payload)
-                : [];
-
-              const updateResult = await matchRepository.updateWithRevision(tx, dbMatch.id, {
-                expectedRevision: dbMatch.revision,
-                nextState: liveState.state,
-                liveState,
-                instanceId: INSTANCE_ID,
-                serverStartAt: dbMatch.serverStartAt,
-                startedAt: dbMatch.startedAt,
-                endedAt: dbMatch.endedAt,
-              });
-
-              return {
-                ok: true as const,
-                dbMatch,
-                participants: effectiveParticipants,
-                participantRow,
-                liveState,
-                revision: updateResult.applied ? updateResult.nextRevision : dbMatch.revision,
-                progressDeltas,
-              };
-            });
-
-            if (!joinSnapshot.ok) {
-              gatewayLogWarn("Blocked invalid match join", {
-                userId: ws.user!.userId,
-                matchId: msg.payload.matchId,
-                reason: joinSnapshot.error,
-              });
-              send(ws, "ERROR", { message: joinSnapshot.error });
-              return;
-            }
-
-            const participantRow = joinSnapshot.participantRow;
-            const db = joinSnapshot.dbMatch;
-            const match = state.matches.get(msg.payload.matchId);
-            if (!match) {
-              const lifecycleState = matchStateFromDbStatus(db.status);
-              state.matches.set(db.id, {
-                matchId: db.id,
-                roomCode: null,
-                state: lifecycleState,
-                stateChangedAt: joinSnapshot.liveState.stateChangedAtMs,
-                revision: joinSnapshot.revision,
-                lastSnapshotBroadcastAtMs: 0,
-                status: matchStateToLegacyStatus(lifecycleState),
-                textSnapshot: db.textSnapshot,
-                textId: db.textId ?? null,
-                inputNonce: db.inputNonce ?? null,
-                serverStartAtMs: db.serverStartAt ? db.serverStartAt.getTime() : Date.now() + 3000,
-                participants: new Map(),
-                endedReason: joinSnapshot.liveState.endedReason,
-                forfeitedUserId: joinSnapshot.liveState.forfeitedUserId,
-                rematchMatchId: joinSnapshot.liveState.rematchMatchId,
-                finalizedAtMs: joinSnapshot.liveState.finalizedAtMs,
-                cleanupScheduledAtMs: null,
-                reconnectUntilByUserId: joinSnapshot.liveState.reconnectUntilByUserId ?? {},
-                recentDeltas: joinSnapshot.liveState.deltas ?? [],
-              });
-
-              const hydrated = state.matches.get(db.id);
-              if (hydrated) {
-                for (const participant of joinSnapshot.participants) {
-                  hydrated.participants.set(participant.userId, {
-                    userId: participant.userId,
-                    username: sanitizeDisplayName(participant.username ?? "user", 32) || "user",
-                    avatar: sanitizeAvatarUrl(participant.avatar ?? null),
-                    slot: participant.slot,
-                    input: joinSnapshot.liveState.participants[participant.userId]?.input ?? "",
-                    seq: joinSnapshot.liveState.participants[participant.userId]?.seq ?? 0,
-                    errors: joinSnapshot.liveState.participants[participant.userId]?.errors ?? 0,
-                    wpm: joinSnapshot.liveState.participants[participant.userId]?.wpm ?? 0,
-                    accuracy: joinSnapshot.liveState.participants[participant.userId]?.accuracy ?? 100,
-                    finishedAt: joinSnapshot.liveState.participants[participant.userId]?.finishedAt ?? null,
-                    lastInputAtMs: joinSnapshot.liveState.participants[participant.userId]?.lastInputAtMs ?? undefined,
-                    inputEvents: joinSnapshot.liveState.participants[participant.userId]?.inputEvents ?? [],
-                  });
-
-                  participantMetricAccumulators.set(
-                    getParticipantMetricKey(db.id, participant.userId),
-                    {
-                      correctChars: joinSnapshot.liveState.participants[participant.userId]?.correctChars ?? 0,
-                      mismatchChars: joinSnapshot.liveState.participants[participant.userId]?.mismatchChars ?? 0,
-                    }
-                  );
-                }
-              }
-
-              await registerReplayNonce(redis, db.id, db.inputNonce ?? null);
-            }
-
-            const effective = state.matches.get(msg.payload.matchId)!;
-            effective.revision = Math.max(effective.revision, joinSnapshot.revision);
-            effective.reconnectUntilByUserId = joinSnapshot.liveState.reconnectUntilByUserId ?? effective.reconnectUntilByUserId ?? {};
-            effective.recentDeltas = joinSnapshot.liveState.deltas ?? effective.recentDeltas ?? [];
-            const effectiveAccess = canJoinPvpMatchSocket({
-              status: effective.status,
-              participantExists: Boolean(participantRow) || effective.participants.has(ws.user!.userId),
-              userId: ws.user!.userId,
-              forfeitedUserId: effective.forfeitedUserId,
-              endedReason: effective.endedReason,
-            });
-            if (!effectiveAccess.allowed) {
-              send(ws, "ERROR", {
-                message: effectiveAccess.reason === "disconnect_forfeit" ? "Reconnect is not allowed after disconnect forfeit" : "Match can no longer be joined",
-              });
-              return;
-            }
-            const p = effective.participants.get(ws.user!.userId);
-            if (!p) {
-              if (!participantRow) {
-                send(ws, "ERROR", { message: "Not a participant" });
-                return;
-              }
-
-              effective.participants.set(ws.user!.userId, {
-                userId: ws.user!.userId,
-                username: ws.user!.username,
-                avatar: ws.user!.avatar,
-                slot: participantRow.slot,
-                input: "",
-                seq: 0,
-                errors: 0,
-                wpm: 0,
-                accuracy: 100,
-                finishedAt: null,
-              });
-            }
-
-              ws.matchId = msg.payload.matchId;
-              claimMatchSession(msg.payload.matchId, ws.user!.userId, ws);
-              clearDisconnectForfeitTimer(msg.payload.matchId, ws.user!.userId);
-
-            if (effective.roomCode === null && effective.state === "waiting_for_both") {
-              await maybeStartRankedCountdown(effective);
-            }
-
-            const matchStatePayload = buildMatchStatePayload(effective);
-            const localResumeDeltas = (effective.recentDeltas ?? [])
-              .filter((delta) => delta.type === "PROGRESS" && delta.revision > lastSeenRevision)
-              .slice(-MATCH_RESUME_DELTA_LIMIT)
-              .map((delta) => delta.payload);
-
-            const replayProgressDeltas = localResumeDeltas.length > 0 ? localResumeDeltas : joinSnapshot.progressDeltas;
-            await storeIdempotencyHit({
-              redis,
-              store: idempotencyStore,
-              key: idempotency?.key,
-              messageType: msg.type,
-              value: {
-                response: {
-                  type: "MATCH_STATE",
-                  payload: matchStatePayload,
-                },
-              },
-            });
-            send(ws, "MATCH_STATE", matchStatePayload);
-
-            if (replayProgressDeltas.length > 0) {
-              for (const deltaPayload of replayProgressDeltas) {
-                send(ws, "PROGRESS", deltaPayload);
-              }
-            }
-            });
-          } finally {
-            endMatchJoinInFlight(msg.payload.matchId, ws.user.userId);
-          }
-
-          return;
-        }
-
-        if (msg.type === "MATCH_LEAVE") {
-          const match = state.matches.get(msg.payload.matchId);
-          if (!match) {
-            send(ws, "ERROR", { message: "Unknown match" });
-            return;
-          }
-
-          if (!match.participants.has(ws.user.userId)) {
-            send(ws, "ERROR", { message: "Not a participant" });
-            return;
-          }
-
-          clearDisconnectForfeitTimer(match.matchId, ws.user.userId);
-          releaseMatchSession(ws);
-          ws.matchId = undefined;
-
-          if (match.participants.size === 2 && !isTerminalPvpMatchStatus(match.status)) {
-            if (match.state === "live") {
-              await finalizeMatchByDisconnectForfeit({
-                db,
-                wss,
-                state,
-                eventBus,
-                matchId: match.matchId,
-                forfeitedUserId: ws.user.userId,
-              });
-            } else {
-              await abortMatchLifecycle({
-                db,
-                wss,
-                state,
-                eventBus,
-                matchId: match.matchId,
-                reasonCode: "no_show",
-                reasonMessage: "The match was cancelled because a player left before it started.",
-              });
-            }
-          }
-
-          return;
-        }
-
-        if (msg.type === "INPUT_UPDATE") {
-          const match = state.matches.get(msg.payload.matchId);
-          if (!match) {
-            send(ws, "ERROR", { message: "Unknown match" });
-            return;
-          }
-
-          const participant = match.participants.get(ws.user.userId);
-          if (!participant) {
-            send(ws, "ERROR", { message: "Not joined" });
-            return;
-          }
-
-          if (match.state === "waiting_for_both") {
-            send(ws, "ERROR", { message: "Waiting for both players to connect" });
-            return;
-          }
-
-          // Authoritative timing
-          const nowMs = Date.now();
-          if (nowMs < match.serverStartAtMs) {
-            send(ws, "ERROR", { message: "Match not started" });
-            return;
-          }
-
-          if (match.state === "countdown") {
-            applyMatchTransition({ match, nextState: "live", eventBus, reason: "completed" });
-          }
-
-          const inputDecision = shouldAcceptInputUpdate({
-            lastProcessedSeq: participant.seq,
-            incomingSeq: msg.payload.seq,
-            cachedProcessedSeq: idempotency?.record?.processedSeq,
-          });
-          if (!inputDecision.accept) return;
-
-          if (!msg.payload.inputNonce && !IS_PROD) {
-            gatewayLogWarn("Accepted INPUT_UPDATE without inputNonce in non-production", {
-              matchId: match.matchId,
-              userId: ws.user.userId,
-              seq: msg.payload.seq,
-              requestId: msg.requestId,
-            });
-          } else {
-            const replayDecision = await validateReplayProtectedInput({
-              redis,
-              matchId: match.matchId,
-              userId: ws.user.userId,
-              seq: msg.payload.seq,
-              inputNonce: msg.payload.inputNonce,
-              expectedNonce: match.inputNonce,
-            });
-            if (!replayDecision.accept) {
-              gatewayLogWarn("Rejected INPUT_UPDATE by replay validation", {
-                matchId: match.matchId,
-                userId: ws.user.userId,
-                reason: replayDecision.reason,
-                seq: msg.payload.seq,
-                inputNonce: msg.payload.inputNonce ?? null,
-                expectedNonce: match.inputNonce ?? null,
-              });
-              incrementGatewayMetric("pvp_anti_cheat_nonce_reject_total", {
-                reason:
-                  replayDecision.reason === "missing_nonce"
-                    ? "missing"
-                    : replayDecision.reason === "mismatch_nonce"
-                      ? "mismatch"
-                      : "replayed_seq",
-              });
-              send(ws, "ERROR", {
-                code:
-                  replayDecision.reason === "missing_nonce"
-                    ? PVP_ERROR_CODES.INPUT_NONCE_MISSING
-                    : PVP_ERROR_CODES.INPUT_NONCE_INVALID,
-                message:
-                  replayDecision.reason === "replayed_seq"
-                    ? "This PvP input was already processed. Please refresh and try again."
-                    : "This PvP client is out of date. Please refresh and try again.",
-                retryable: false,
-                details: {
-                  requestId: msg.requestId,
-                  phase: "input_update_replay",
-                },
-              });
-              return;
-            }
-          }
-
-          // Anti-cheat: input must evolve by append or backspace only.
-          const prev = participant.input;
-          const next = msg.payload.input;
-          if (next.length > match.textSnapshot.length) {
-            incrementGatewayMetric("ws_validation_failed", { reason: "input_exceeds_text" });
-            send(ws, "ERROR", { message: "Input exceeds match text length" });
-            return;
-          }
-
-          const isAppend = next.startsWith(prev);
-          const isBackspace = prev.startsWith(next);
-          if (!isAppend && !isBackspace) {
-            incrementGatewayMetric("ws_validation_failed", { reason: "invalid_input_evolution" });
-            send(ws, "ERROR", { message: "Invalid input evolution" });
-            return;
-          }
-
-          if (isAppend) {
-            const added = next.slice(prev.length);
-            if (added.length > 32) {
-              incrementGatewayMetric("ws_validation_failed", { reason: "input_delta_too_large" });
-              send(ws, "ERROR", { message: "Input delta too large" });
-              return;
-            }
-
-            // Verify appended chars against text snapshot to prevent skipping.
-            for (let i = 0; i < added.length; i += 1) {
-              const pos = prev.length + i;
-              if (pos >= match.textSnapshot.length) break;
-              // We allow wrong chars (typing errors), but disallow jumping positions.
-              void match.textSnapshot[pos];
-            }
-          }
-
-          const nextInput = next.slice(0, match.textSnapshot.length);
-          updateParticipantMetricsIncremental({
-            matchId: match.matchId,
-            textSnapshot: match.textSnapshot,
-            participant,
-            nextInput,
-            nowMs,
-            startedAtMs: match.serverStartAtMs,
-          });
-
-          participant.seq = msg.payload.seq;
-          participant.inputEvents = participant.inputEvents ?? [];
-          participant.inputEvents.push({
-            atMs: nowMs,
-            inputLength: participant.input.length,
-            deltaChars: participant.input.length - (participant.lastInputLen ?? 0),
-            wpm: participant.wpm,
-          });
-          if (participant.inputEvents.length > 64) {
-            participant.inputEvents.shift();
-          }
-          participant.lastInputAtMs = nowMs;
-          participant.lastInputLen = participant.input.length;
-          observeGatewayHistogram("pvp_input_update_chars", participant.input.length, [8, 16, 32, 64, 128, 256, 512, 1024]);
-
-          enqueueInputUpdateBatch(match.matchId, ws.user.userId, msg.payload.seq);
-          const queuedBatch = pendingInputUpdatesByMatch.get(match.matchId);
-          if (queuedBatch && queuedBatch.enqueuedCount >= INPUT_UPDATE_FLUSH_MAX_ENQUEUED) {
-            void flushPendingInputUpdates("threshold");
-          }
-
-          await registerAcceptedReplaySeq(redis, match.matchId, ws.user.userId, msg.payload.seq);
-
-          if (participant.input.length >= match.textSnapshot.length && participant.finishedAt === null) {
-            participant.finishedAt = nowMs;
-          }
-
-          // Broadcast progress
-          const progressPayload = buildProgressPayload(match, participant, nowMs);
-          appendMatchDelta(match, {
-            type: "PROGRESS",
-            payload: progressPayload,
-            atMs: nowMs,
-          });
-          broadcastMatch(wss, match.matchId, "PROGRESS", progressPayload);
-          maybeBroadcastMatchSnapshot(wss, match, nowMs, MATCH_SNAPSHOT_INTERVAL_MS);
-
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { processedSeq: msg.payload.seq },
-          });
-
-          await finalizeMatchIfComplete({ db, wss, state, eventBus, matchId: match.matchId });
-
-          return;
-        }
-
-        if (msg.type === "FINISH") {
-          const match = state.matches.get(msg.payload.matchId);
-          if (!match) {
-            send(ws, "ERROR", { message: "Unknown match" });
-            return;
-          }
-
-          const participant = match.participants.get(ws.user.userId);
-          if (!participant) {
-            send(ws, "ERROR", { message: "Not joined" });
-            return;
-          }
-
-          if (participant.finishedAt == null) {
-            participant.finishedAt = Date.now();
-          }
-
-          // Persist participant final stats best-effort
-          await db
-            .update(pvpParticipants)
-            .set({
-              finalWpm: participant.wpm,
-              finalAccuracy: participant.accuracy,
-              finalErrors: participant.errors,
-              timeSpentSec: Math.max(0, Math.floor((participant.finishedAt - match.serverStartAtMs) / 1000)),
-              completedAt: new Date(participant.finishedAt),
-            })
-            .where(and(eq(pvpParticipants.matchId, match.matchId), eq(pvpParticipants.userId, participant.userId)));
-
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { processedSeq: participant.seq },
-          });
-
-          await finalizeMatchIfComplete({ db, wss, state, eventBus, matchId: match.matchId });
-
-          return;
-        }
-
-        if (msg.type === "REMATCH_REQUEST") {
-          const match = state.matches.get(msg.payload.matchId);
-          if (!match) {
-            send(ws, "ERROR", { message: "Unknown match" });
-            return;
-          }
-          if (match.rematchMatchId) {
-            resendExistingRematch(match.rematchMatchId, ws.user.userId);
-            return;
-          }
-          if (match.status !== "FINISHED") {
-            send(ws, "ERROR", { message: "Match not finished" });
-            return;
-          }
-          if (match.roomCode !== null) {
-            send(ws, "ERROR", { message: "Rematch not supported for rooms" });
-            return;
-          }
-
-          const participants = Array.from(match.participants.values());
-          if (participants.length !== 2) {
-            send(ws, "ERROR", { message: "Rematch only supported for 1v1" });
-            return;
-          }
-
-          const meId = ws.user.userId;
-          const me = match.participants.get(meId);
-          if (!me) {
-            send(ws, "ERROR", { message: "Not a participant" });
-            return;
-          }
-
-          const other = participants.find((p) => p.userId !== meId)!;
-
-          // AI rematch: probabilistic accept/reject with cooldown to prevent farming.
-          if (isAiUserId(other.userId)) {
-            const now = Date.now();
-            const refuseUntil = aiRematchRefuseUntilByHumanId.get(meId) ?? 0;
-            if (refuseUntil > 0 && now >= refuseUntil) {
-              aiRematchRefuseUntilByHumanId.delete(meId);
-            }
-            if (now < refuseUntil) {
-              sendToUser(wss, meId, "REMATCH_DECLINED", {
-                matchId: msg.payload.matchId,
-                byUserId: other.userId,
-                reason: "AI_COOLDOWN",
-              });
-              return;
-            }
-
-            const flip = Math.floor(Math.random() * 2); // 0 => accept, 1 => reject
-            if (flip === 1) {
-              aiRematchRefuseUntilByHumanId.set(meId, now + AI_REMATCH_COOLDOWN_MS);
-              sendToUser(wss, meId, "REMATCH_DECLINED", {
-                matchId: msg.payload.matchId,
-                byUserId: other.userId,
-                reason: "AI_REFUSED",
-              });
-              return;
-            }
-
-            aiRematchRefuseUntilByHumanId.set(meId, now + AI_REMATCH_COOLDOWN_MS);
-
-            // Start a new AI match immediately.
-            const createdRows = await db
-              .insert(pvpMatches)
-              .values({ status: "PENDING", textSnapshot: "placeholder" })
-              .returning({ id: pvpMatches.id });
-
-            const matchRow = createdRows[0];
-            if (!matchRow) {
-              send(ws, "ERROR", { message: "Failed to create rematch" });
-              return;
-            }
-
-            const rankedText = await selectRankedText({
-              matchId: matchRow.id,
-              userIds: [meId],
-              redis,
-            });
-            const inputNonce = createInputNonce();
-
-            const serverStartAtMs = Date.now() + RANKED_MATCH_START_DELAY_MS;
-            const aiUserId = `ai:${matchRow.id}`;
-
-            const local = state.createLocalMatch({
-              matchId: matchRow.id,
-              roomCode: null,
-              users: [
-                {
-                  userId: ws.user.userId,
-                  username: ws.user.username,
-                  avatar: ws.user.avatar,
-                  pvpRating: ws.user.pvpRating,
-                  pvpDeviation: ws.user.pvpDeviation,
-                  slot: me.slot,
-                },
-                {
-                  userId: aiUserId,
-                  username: other.username,
-                  avatar: null,
-                  pvpRating: ws.user.pvpRating,
-                  pvpDeviation: 180,
-                  slot: other.slot,
-                },
-              ],
-              serverStartAtMs,
-              textSnapshot: rankedText.textSnapshot,
-              textId: rankedText.textId,
-              inputNonce,
-            });
-
-            await registerReplayNonce(redis, matchRow.id, local.inputNonce);
-
-            await db
-              .update(pvpMatches)
-              .set({
-                status: "COUNTDOWN",
-                textSnapshot: local.textSnapshot,
-                textId: local.textId,
-                inputNonce: local.inputNonce,
-                serverStartAt: new Date(serverStartAtMs),
-                updatedAt: new Date(),
-              })
-              .where(eq(pvpMatches.id, matchRow.id));
-
-            await db
-              .insert(pvpParticipants)
-              .values([{ matchId: matchRow.id, userId: ws.user.userId, slot: me.slot }])
-              .onConflictDoNothing();
-
-            sendToUser(wss, meId, "MATCH_FOUND", {
-              matchId: matchRow.id,
-              textSnapshot: local.textSnapshot,
-              textId: local.textId,
-              inputNonce: local.inputNonce,
-              serverStartAt: new Date(serverStartAtMs).toISOString(),
-              players: Array.from(local.participants.values()).map((p) => ({
-                userId: p.userId,
-                username: p.username,
-                avatar: p.avatar,
-                slot: p.slot,
-              })),
-            });
-
-            await startAiSimulationAdaptive({
-              db,
-              wss,
-              matchCache,
-              matchRepository,
-              matchId: matchRow.id,
-              humanId: meId,
-              aiUserId,
-              snapshotIntervalMs: MATCH_SNAPSHOT_INTERVAL_MS,
-              state,
-              onFinalizeMatchIfComplete: (matchId) =>
-                finalizeMatchIfComplete({
-                  db,
-                  wss,
-                  state,
-                  eventBus,
-                  matchId,
-                }),
-              onBroadcastMatchSnapshot: (matchId, nowMs, intervalMs) => {
-                const liveMatch = state.matches.get(matchId);
-                if (!liveMatch) return false;
-                return maybeBroadcastMatchSnapshot(wss, liveMatch, nowMs, intervalMs);
-              },
-            });
-
-            return;
-          }
-
-          // Human vs human: require both to accept.
-          let accepted = rematchAcceptedByMatchId.get(match.matchId);
-          if (!accepted) {
-            accepted = new Set<string>();
-            rematchAcceptedByMatchId.set(match.matchId, accepted);
-          }
-          touchRematchAccepted(match.matchId);
-
-          accepted.add(meId);
-
-          const acceptedUserIds = Array.from(accepted);
-          sendToUser(wss, meId, "REMATCH_STATUS", { matchId: match.matchId, acceptedUserIds });
-          sendToUser(wss, other.userId, "REMATCH_OFFER", { matchId: match.matchId, fromUserId: meId });
-          sendToUser(wss, other.userId, "REMATCH_STATUS", { matchId: match.matchId, acceptedUserIds });
-
-          if (accepted.size >= 2) {
-            clearRematchAccepted(match.matchId);
-
-            const [aConn, bConn] = await Promise.all([
-              loadConnectionUser(meId),
-              loadConnectionUser(other.userId),
-            ]);
-
-            await createLockedHumanRematch({
-              sourceMatchId: match.matchId,
-              users: [
-                { ...aConn, slot: me.slot },
-                { ...bConn, slot: other.slot },
-              ],
-              persistUserIds: [meId, other.userId],
-            });
-          }
-
-          return;
-        }
-
-        if (msg.type === "REMATCH_RESPONSE") {
-          const match = state.matches.get(msg.payload.matchId);
-          if (!match) {
-            send(ws, "ERROR", { message: "Unknown match" });
-            return;
-          }
-          if (match.rematchMatchId) {
-            resendExistingRematch(match.rematchMatchId, ws.user.userId);
-            return;
-          }
-          if (match.status !== "FINISHED") {
-            send(ws, "ERROR", { message: "Match not finished" });
-            return;
-          }
-          if (match.roomCode !== null) {
-            send(ws, "ERROR", { message: "Rematch not supported for rooms" });
-            return;
-          }
-
-          const participants = Array.from(match.participants.values());
-          if (participants.length !== 2) {
-            send(ws, "ERROR", { message: "Rematch only supported for 1v1" });
-            return;
-          }
-
-          const meId = ws.user.userId;
-          const me = match.participants.get(meId);
-          if (!me) {
-            send(ws, "ERROR", { message: "Not a participant" });
-            return;
-          }
-
-          const other = participants.find((p) => p.userId !== meId)!;
-
-          if (!msg.payload.accept) {
-            clearRematchAccepted(match.matchId);
-            sendToUser(wss, other.userId, "REMATCH_DECLINED", {
-              matchId: match.matchId,
-              byUserId: meId,
-              reason: "DECLINED",
-            });
-            sendToUser(wss, meId, "REMATCH_DECLINED", {
-              matchId: match.matchId,
-              byUserId: meId,
-              reason: "DECLINED",
-            });
-            return;
-          }
-
-          let accepted = rematchAcceptedByMatchId.get(match.matchId);
-          if (!accepted) {
-            accepted = new Set<string>();
-            rematchAcceptedByMatchId.set(match.matchId, accepted);
-          }
-          touchRematchAccepted(match.matchId);
-
-          accepted.add(meId);
-          const acceptedUserIds = Array.from(accepted);
-          sendToUser(wss, meId, "REMATCH_STATUS", { matchId: match.matchId, acceptedUserIds });
-          sendToUser(wss, other.userId, "REMATCH_STATUS", { matchId: match.matchId, acceptedUserIds });
-
-          if (accepted.size >= 2) {
-            clearRematchAccepted(match.matchId);
-
-            const [aConn, bConn] = await Promise.all([
-              loadConnectionUser(meId),
-              loadConnectionUser(other.userId),
-            ]);
-
-            await createLockedHumanRematch({
-              sourceMatchId: match.matchId,
-              users: [
-                { ...aConn, slot: me.slot },
-                { ...bConn, slot: other.slot },
-              ],
-              persistUserIds: [meId, other.userId],
-            });
-          } else {
-            sendToUser(wss, other.userId, "REMATCH_OFFER", { matchId: match.matchId, fromUserId: meId });
-          }
-
-          return;
-        }
-
-        if (msg.type === "ROOM_JOIN") {
-          const roomActionKey = `${ws.user.userId}:room_join`;
-          const now = Date.now();
-          const lastRoomAction = roomActionLastSeen.get(roomActionKey) ?? 0;
-          if (now - lastRoomAction < ROOM_ACTION_COOLDOWN_MS) {
-            incrementGatewayMetric("ws_rate_limit_rejected", { reason: "room_join_cooldown" });
-            send(ws, "ERROR", { message: "Room join cooldown active" });
-            return;
-          }
-          roomActionLastSeen.set(roomActionKey, now);
-
-          const code = sanitizeRoomCode(msg.payload.code);
-          if (code.length < 4) {
-            incrementGatewayMetric("ws_validation_failed", { reason: "room_code_invalid" });
-            send(ws, "ERROR", { message: "Invalid room code" });
-            return;
-          }
-          const previousRoomCode = ws.roomCode;
-
-          const roomRows = await db
-            .select({
-              id: pvpRooms.id,
-              code: pvpRooms.code,
-              status: pvpRooms.status,
-              visibility: pvpRooms.visibility,
-              minPlayers: pvpRooms.minPlayers,
-              maxPlayers: pvpRooms.maxPlayers,
-              autoStartAt: pvpRooms.autoStartAt,
-              expiresAt: pvpRooms.expiresAt,
-              hostUserId: pvpRooms.hostUserId,
-            })
-            .from(pvpRooms)
-            .where(eq(pvpRooms.code, code))
-            .limit(1);
-
-          const room = roomRows[0] ?? null;
-          if (!room) {
-            send(ws, "ERROR", { message: "Room not found" });
-            return;
-          }
-          if (room.expiresAt && room.expiresAt.getTime() < Date.now()) {
-            send(ws, "ERROR", { message: "Room expired" });
-            return;
-          }
-          if (room.status !== "OPEN") {
-            send(ws, "ERROR", { message: "Room not open" });
-            return;
-          }
-
-          // Determine color slot
-          const members = await db
-            .select({
-              userId: pvpRoomMembers.userId,
-              colorSlot: pvpRoomMembers.colorSlot,
-              readyAt: pvpRoomMembers.readyAt,
-              username: users.username,
-              avatar: playerProfiles.avatar,
-            })
-            .from(pvpRoomMembers)
-            .innerJoin(users, eq(pvpRoomMembers.userId, users.id))
-            .leftJoin(playerProfiles, eq(pvpRoomMembers.userId, playerProfiles.userId))
-            .where(and(eq(pvpRoomMembers.roomId, room.id), isNull(pvpRoomMembers.leftAt)));
-
-          const existingMember = members.find((member) => member.userId === ws.user!.userId) ?? null;
-
-          if (members.length >= room.maxPlayers && !existingMember) {
-            send(ws, "ERROR", { message: "Room full" });
-            return;
-          }
-
-          const used = new Set(members.map((m) => m.colorSlot));
-          let slot = existingMember?.colorSlot ?? 0;
-          if (!existingMember) {
-            while (used.has(slot) && slot < room.maxPlayers) slot += 1;
-            if (slot >= room.maxPlayers) slot = Math.min(room.maxPlayers - 1, 5);
-          }
-
-          const reconnectKey = buildRoomReconnectKey(room.id, ws.user.userId);
-          const restoringMembership = redis ? (await redis.exists(reconnectKey)) === 1 : false;
-
-          await db
-            .insert(pvpRoomMembers)
-            .values({ roomId: room.id, userId: ws.user.userId, colorSlot: slot, leftAt: null, readyAt: null })
-            .onConflictDoUpdate({
-              target: [pvpRoomMembers.roomId, pvpRoomMembers.userId],
-              set: restoringMembership ? { leftAt: null } : { leftAt: null, readyAt: null },
-            });
-
-          if (redis && restoringMembership) {
-            await redis.del(reconnectKey);
-          }
-
-          updateSocketRoomSubscription(ws, code);
-          if (previousRoomCode && previousRoomCode !== code) {
-            gatewayLogDebug("Socket room subscription moved", {
-              userId: ws.user.userId,
-              fromRoom: previousRoomCode,
-              toRoom: code,
-            });
-          }
-
-          await touchRoomExpiry(db, room.id);
-
-          if (!room.hostUserId) {
-            await db
-              .update(pvpRooms)
-              .set({ hostUserId: ws.user.userId, updatedAt: new Date() })
-              .where(eq(pvpRooms.id, room.id));
-          }
-
-          await broadcastRoomState(db, wss, code);
-          if (room.visibility === "PUBLIC") {
-            await maybeAutoStartPublicRoom(code);
-          }
-
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { response: null },
-          });
-
-          return;
-        }
-
-        if (msg.type === "READY") {
-          const roomActionKey = `${ws.user.userId}:ready`;
-          const now = Date.now();
-          const lastRoomAction = roomActionLastSeen.get(roomActionKey) ?? 0;
-          if (now - lastRoomAction < ROOM_ACTION_COOLDOWN_MS) {
-            incrementGatewayMetric("ws_rate_limit_rejected", { reason: "ready_cooldown" });
-            send(ws, "ERROR", { message: "Ready cooldown active" });
-            return;
-          }
-          roomActionLastSeen.set(roomActionKey, now);
-
-          const code = sanitizeRoomCode(msg.payload?.roomCode ?? ws.roomCode ?? "");
-          if (!code) {
-            send(ws, "ERROR", { message: "No room" });
-            return;
-          }
-
-          const roomRows = await db
-            .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, maxPlayers: pvpRooms.maxPlayers })
-            .from(pvpRooms)
-            .where(eq(pvpRooms.code, code))
-            .limit(1);
-          const room = roomRows[0] ?? null;
-          if (!room) {
-            send(ws, "ERROR", { message: "Room not found" });
-            return;
-          }
-          if (room.status !== "OPEN") {
-            send(ws, "ERROR", { message: "Room not open" });
-            return;
-          }
-
-          await db
-            .update(pvpRoomMembers)
-            .set({ readyAt: new Date() })
-            .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user.userId)));
-
-          await touchRoomExpiry(db, room.id);
-          await broadcastRoomState(db, wss, code);
-          if (room.visibility === "PUBLIC") {
-            await maybeAutoStartPublicRoom(code);
-          }
-
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { response: null },
-          });
-
-          return;
-        }
-
-        if (msg.type === "ROOM_START") {
-          const code = sanitizeRoomCode(msg.payload.roomCode ?? ws.roomCode ?? "");
-          if (!code) {
-            send(ws, "ERROR", { message: "No room" });
-            return;
-          }
-
-          const roomRows = await db
-            .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, hostUserId: pvpRooms.hostUserId })
-            .from(pvpRooms)
-            .where(eq(pvpRooms.code, code))
-            .limit(1);
-          const room = roomRows[0] ?? null;
-          if (!room) {
-            send(ws, "ERROR", { message: "Room not found" });
-            return;
-          }
-          if (room.status !== "OPEN") {
-            send(ws, "ERROR", { message: "Room not open" });
-            return;
-          }
-          if (room.visibility !== "PRIVATE") {
-            send(ws, "ERROR", { message: "Public rooms start automatically" });
-            return;
-          }
-          if (room.hostUserId !== ws.user.userId) {
-            send(ws, "ERROR", { message: "Host only action" });
-            return;
-          }
-
-          const memberRows = await db
-            .select({
-              userId: pvpRoomMembers.userId,
-              colorSlot: pvpRoomMembers.colorSlot,
-              readyAt: pvpRoomMembers.readyAt,
-              leftAt: pvpRoomMembers.leftAt,
-              username: users.username,
-              avatar: playerProfiles.avatar,
-            })
-            .from(pvpRoomMembers)
-            .innerJoin(users, eq(pvpRoomMembers.userId, users.id))
-            .leftJoin(playerProfiles, eq(pvpRoomMembers.userId, playerProfiles.userId))
-            .where(and(eq(pvpRoomMembers.roomId, room.id), isNull(pvpRoomMembers.leftAt)))
-            .orderBy(asc(pvpRoomMembers.joinedAt));
-
-          const members = memberRows.map((member) => ({
-            userId: member.userId,
-            colorSlot: member.colorSlot,
-            readyAt: member.readyAt,
-            leftAt: member.leftAt,
-            user: {
-              username: member.username,
-              profile: { avatar: member.avatar },
-            },
-          }));
-
-          if (!isRoomReadyToStart({ members })) {
-            send(ws, "ERROR", { message: "All players must be ready before the host can start" });
-            return;
-          }
-
-          await startRoomMatch({
-            roomId: room.id,
-            roomCode: code,
-            members,
-          });
-
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { response: null },
-          });
-
-          return;
-        }
-
-        if (msg.type === "ROOM_KICK") {
-          const code = sanitizeRoomCode(msg.payload.roomCode ?? ws.roomCode ?? "");
-          if (!code) {
-            send(ws, "ERROR", { message: "No room" });
-            return;
-          }
-
-          const roomRows = await db
-            .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, hostUserId: pvpRooms.hostUserId })
-            .from(pvpRooms)
-            .where(eq(pvpRooms.code, code))
-            .limit(1);
-          const room = roomRows[0] ?? null;
-          if (!room) {
-            send(ws, "ERROR", { message: "Room not found" });
-            return;
-          }
-          if (room.visibility !== "PRIVATE") {
-            send(ws, "ERROR", { message: "Public rooms do not support host kicks" });
-            return;
-          }
-          if (room.hostUserId !== ws.user.userId) {
-            send(ws, "ERROR", { message: "Host only action" });
-            return;
-          }
-          if (msg.payload.userId === ws.user.userId) {
-            send(ws, "ERROR", { message: "Host cannot kick itself" });
-            return;
-          }
-
-          try {
-            await db
-              .update(pvpRoomMembers)
-              .set({ leftAt: new Date(), readyAt: null })
-              .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, msg.payload.userId)));
-          } catch (error) {
-            gatewayLogError("Failed to kick room member", error, {
-              roomId: room.id,
-              roomCode: room.code,
-              actorUserId: ws.user.userId,
-              targetUserId: msg.payload.userId,
-            });
-            throw error;
-          }
-
-          if (redis) {
-            await redis.del(buildRoomReconnectKey(room.id, msg.payload.userId));
-          }
-
-          sendToUser(wss, msg.payload.userId, "ERROR", { message: "Kicked from room" });
-          await transferRoomHostIfNeeded(db, room.id);
-          await touchRoomExpiry(db, room.id);
-          await broadcastRoomState(db, wss, code);
-
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { response: null },
-          });
-
-          return;
-        }
-
-        if (msg.type === "ROOM_LEAVE") {
-          const code = sanitizeRoomCode(msg.payload?.roomCode ?? ws.roomCode ?? "");
-          if (!code) {
-            send(ws, "ERROR", { message: "No room" });
-            return;
-          }
-
-          const roomRows = await db
-            .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility })
-            .from(pvpRooms)
-            .where(eq(pvpRooms.code, code))
-            .limit(1);
-          const room = roomRows[0] ?? null;
-          if (!room) {
-            send(ws, "ERROR", { message: "Room not found" });
-            return;
-          }
-
-          try {
-            await db
-              .update(pvpRoomMembers)
-              .set({ leftAt: new Date(), readyAt: null })
-              .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user.userId)));
-          } catch (error) {
-            gatewayLogError("Failed to mark room leave", error, {
-              roomId: room.id,
-              roomCode: room.code,
-              userId: ws.user.userId,
-            });
-            throw error;
-          }
-
-          if (redis) {
-            await redis.del(buildRoomReconnectKey(room.id, ws.user.userId));
-          }
-
-          updateSocketRoomSubscription(ws, undefined);
-          await transferRoomHostIfNeeded(db, room.id);
-          await touchRoomExpiry(db, room.id);
-          await broadcastRoomState(db, wss, code);
-          if (room.visibility === "PUBLIC") {
-            await maybeAutoStartPublicRoom(code);
-          }
-
-          await storeIdempotencyHit({
-            redis,
-            store: idempotencyStore,
-            key: idempotency?.key,
-            messageType: msg.type,
-            value: { response: null },
-          });
-
-          return;
-        }
-
-      } catch (e) {
-        if (metricMessageType === "HELLO") {
-          gatewayMetrics?.incrementWsHandshake("failure");
-        }
-        const requestId = parsedMessage.success && "requestId" in parsedMessage.data ? parsedMessage.data.requestId : undefined;
-        const errorPayload = toClientErrorPayload(e, {
-          message: e instanceof Error ? e.message : "Unknown error",
-          retryable: parsedMessage.success ? parsedMessage.data.type === "QUEUE_JOIN" : undefined,
-          details: {
-            requestId,
-            phase: parsedMessage.success ? parsedMessage.data.type.toLowerCase() : "message_handler",
-          },
-        });
-        gatewayLogError("Websocket message handler failed", e, {
-          userId: ws.user?.userId,
-          ip: ws.ip ?? "unknown",
-          messageType: parsedMessage.success ? parsedMessage.data.type : "unknown",
-          requestId,
-          connectionId: ws.connectionId,
-        });
-        send(ws, "ERROR", errorPayload);
-        if (parsedMessage.success && parsedMessage.data.type === "QUEUE_JOIN") {
-          send(ws, "QUEUE_STATUS", { status: "IDLE" });
-        }
-      } finally {
-        gatewayMetrics?.recordWsMessage({
-          direction: "in",
-          type: metricMessageType,
-          durationSeconds: Number(process.hrtime.bigint() - messageStartedAt) / 1_000_000_000,
-        });
-      }
-    });
-
-    ws.on("close", () => {
-      gatewayLogDebug("Websocket connection closed", {
-        userId: ws.user?.userId,
-        ip: ws.ip ?? "unknown",
-        matchId: ws.matchId,
-        roomCode: ws.roomCode,
-      });
-      messageBatcher?.drop(ws);
-      if (pingInterval) clearInterval(pingInterval);
-      if (ws.presenceInterval) clearInterval(ws.presenceInterval);
-      if (ws.ip) {
-        const next = Math.max(0, (activeConnectionsByIp.get(ws.ip) ?? 1) - 1);
-        if (next === 0) {
-          activeConnectionsByIp.delete(ws.ip);
-        } else {
-          activeConnectionsByIp.set(ws.ip, next);
-        }
-      }
-      gatewayMetrics?.setConnectionsActive(wss.clients.size);
-      if (ws.user) {
-        state.removeFromQueue(ws.user.userId);
-        state.clearQueueTimeout(ws.user.userId);
-        void queueLeave(ws.user.userId);
-        matchCache?.removeUserSocket(ws);
-        releaseMatchSession(ws);
-        if (ws.roomCode) {
-          matchCache?.removeRoomSocket(ws.roomCode, ws);
-        }
-
-        const otherSockets = getAuthedSocketsForUser(wss, ws.user.userId).filter((socket) => socket !== ws);
-        if (otherSockets.length === 0) {
-          const activeMatch = findActiveMatchByUserId(state, ws.user.userId);
-          if (
-            activeMatch &&
-            shouldScheduleDisconnectForfeit({
-              policy: getDisconnectForfeitPolicy({
-                roomCode: activeMatch.roomCode,
-                participantCount: activeMatch.participants.size,
-              }),
-              participantCount: activeMatch.participants.size,
-              otherActiveSocketsForUser: otherSockets.length,
-              matchState: activeMatch.state,
-              matchStatus: activeMatch.status,
-            })
-          ) {
-            const reconnectUntilMs = Date.now() + DISCONNECT_FORFEIT_GRACE_MS;
-            activeMatch.reconnectUntilByUserId = activeMatch.reconnectUntilByUserId ?? {};
-            activeMatch.reconnectUntilByUserId[ws.user.userId] = reconnectUntilMs;
-            scheduleDisconnectForfeit(activeMatch.matchId, ws.user.userId);
-            void persistReconnectGraceWindow(activeMatch.matchId, ws.user.userId, reconnectUntilMs).catch((error) => {
-              gatewayLogWarn("Failed to persist reconnect grace window", {
-                matchId: activeMatch.matchId,
-                userId: ws.user?.userId,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            });
-          }
-        }
-      }
-
-      if (ws.user && ws.roomCode) {
-        const code = ws.roomCode;
-        void (async () => {
-          const roomRows = await db
-            .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility })
-            .from(pvpRooms)
-            .where(eq(pvpRooms.code, code))
-            .limit(1);
-          const room = roomRows[0] ?? null;
-          if (!room) return;
-
-          if (room.status === "OPEN" && redis) {
-            await redis.set(
-              buildRoomReconnectKey(room.id, ws.user!.userId),
-              INSTANCE_ID,
-              "EX",
-              Math.ceil(ROOM_RECONNECT_GRACE_MS / 1000)
-            );
-            return;
-          }
-
-          try {
-            await db
-              .update(pvpRoomMembers)
-              .set({ leftAt: new Date() })
-              .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user!.userId)));
-          } catch (error) {
-            gatewayLogError("Failed to mark room member offline on socket close", error, {
-              roomId: room.id,
-              roomCode: room.code,
-              userId: ws.user?.userId,
-            });
-            throw error;
-          }
-
-          await transferRoomHostIfNeeded(db, room.id);
-          await broadcastRoomState(db, wss, code);
-          if (room.visibility === "PUBLIC") {
-            await maybeAutoStartPublicRoom(code);
-          }
-        })().catch(() => {
-          // ignore
-        });
-      }
-    });
-  });
+  const wsOpts: WsServerOpts = {
+    maxPayloadBytes: WS_MAX_PAYLOAD_BYTES,
+    maxMsgBurst: WS_MAX_MSG_BURST,
+    maxMsgPerSec: WS_MAX_MSG_PER_SEC,
+    maxInputMsgBurst: WS_MAX_INPUT_MSG_BURST,
+    maxInputMsgPerSec: WS_MAX_INPUT_MSG_PER_SEC,
+    maxConnectionsPerIp: WS_MAX_CONNECTIONS_PER_IP,
+    connectionAttemptsBurst: WS_CONNECTION_ATTEMPTS_BURST,
+    connectionAttemptsPerMin: WS_CONNECTION_ATTEMPTS_PER_MIN,
+    pingIntervalMs: WS_PING_INTERVAL_MS,
+    roomActionCooldownMs: ROOM_ACTION_COOLDOWN_MS,
+    connectionSpikeAlertThreshold: CONNECTION_SPIKE_ALERT_THRESHOLD,
+    globalConnPerSec: WS_GLOBAL_CONNECTIONS_PER_SEC,
+    globalConnBurst: WS_GLOBAL_CONNECTIONS_BURST,
+    disconnectForfeitGraceMs: DISCONNECT_FORFEIT_GRACE_MS,
+    roomReconnectGraceMs: ROOM_RECONNECT_GRACE_MS,
+  };
+
+  const connWsState: WsServerState = {
+    activeConnectionsByIp,
+    connectionAttemptBuckets,
+    globalConnectionBucket,
+  };
+
+  setupWssConnectionHandler(wss, deps, wsOpts, connWsState);
+
+  // =============================================================================
+  // SHUTDOWN HANDLING
+  // =============================================================================
 
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
   let shutdownPromise: Promise<void> | null = null;
-  const beginGracefulShutdown = (signal: string) => {
+  const beginGracefulShutdown = (signal: string): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
 
     shutdownPromise = (async () => {
@@ -5521,7 +3122,8 @@ return nil
       messageBatcher?.flushAll();
       messageBatcher?.stop();
       clearInterval(inputUpdateFlushInterval);
-      await flushPendingInputUpdates("shutdown");
+      inputFlushCoordinator.stop();
+      await inputFlushCoordinator.drain();
 
       for (const client of Array.from(wss.clients)) {
         try {
@@ -5562,6 +3164,10 @@ return nil
         clearTimeout(timer);
       }
       matchCleanupTimers.clear();
+      for (const timer of firstPlaceFinalizationTimers.values()) {
+        clearTimeout(timer);
+      }
+      firstPlaceFinalizationTimers.clear();
       for (const interval of state.aiIntervals.values()) {
         clearInterval(interval);
       }
@@ -5574,7 +3180,7 @@ return nil
         signal,
         instanceId: INSTANCE_ID,
       });
-    })().catch((error) => {
+    })().catch((error: unknown) => {
       gatewayLogError("Graceful shutdown failed", error, {
         signal,
         instanceId: INSTANCE_ID,
@@ -5593,7 +3199,7 @@ return nil
   });
 
   let startupErrorHandled = false;
-  const handleStartupServerError = (error: unknown) => {
+  const handleStartupServerError = (error: unknown): void => {
     if (startupErrorHandled) return;
     startupErrorHandled = true;
 
@@ -5627,7 +3233,7 @@ return nil
   });
 }
 
-void main().catch((error) => {
+void main().catch((error: unknown) => {
   gatewayLogError("PvP gateway failed to start", error, {
     instanceId: INSTANCE_ID,
   });

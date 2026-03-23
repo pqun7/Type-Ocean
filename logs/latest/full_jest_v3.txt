@@ -1,0 +1,606 @@
+PASS services/pvp-gateway/src/__tests__/pvp-leaderboard-cache.test.ts (7.001 s)
+PASS src/__tests__/xpCalculations.mythic.test.ts
+  ● Console
+
+    console.debug
+      [2026-03-23T00:06:42.847Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:42.943Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:42.986Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:42.988Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:42.990Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:42.991Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:42.995Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:42.997Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:42.999Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.001Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.003Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.004Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.006Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.009Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.011Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.012Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.015Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.017Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.020Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.060Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.062Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.063Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.064Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.065Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.103Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.104Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.108Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.109Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.111Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.112Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.114Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.115Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.118Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.120Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.132Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.133Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.143Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.144Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.215Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.216Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.218Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.219Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.220Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.221Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.224Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.225Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.228Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.229Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.230Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.231Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.233Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.234Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.236Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.237Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.239Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.240Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.242Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.243Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:43.246Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:43.247Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+PASS services/pvp-gateway/src/__tests__/queue-adapter.test.ts
+PASS services/pvp-gateway/src/__tests__/participant-stats.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-integration-flows.test.ts
+PASS services/pvp-gateway/src/__tests__/input-flush-coordinator.test.ts
+  ● Console
+
+    console.warn
+      [2026-03-23T00:06:47.302Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch flush failed; re-queued for retry
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "reason": "timer",
+        "retries": 1,
+        "maxRetries": 3,
+        "enqueuedCount": 1,
+        "ageMs": 1,
+        "error": "DB unavailable"
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      [2026-03-23T00:06:47.309Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch flush failed; re-queued for retry
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "reason": "timer",
+        "retries": 1,
+        "maxRetries": 3,
+        "enqueuedCount": 1,
+        "ageMs": 0,
+        "error": "transient error"
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      [2026-03-23T00:06:47.312Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch flush failed; re-queued for retry
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "reason": "timer",
+        "retries": 3,
+        "maxRetries": 3,
+        "enqueuedCount": 1,
+        "ageMs": 1,
+        "error": "permanent error"
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      [2026-03-23T00:06:47.312Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch reached retry threshold — keeping latest seq in queue
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:202:25)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "retries": 3,
+        "maxRetries": 3
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:202:25)
+
+    console.warn
+      [2026-03-23T00:06:47.315Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch flush failed; re-queued for retry
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "reason": "timer",
+        "retries": 1,
+        "maxRetries": 3,
+        "enqueuedCount": 1,
+        "ageMs": 1,
+        "error": "boom"
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+PASS services/pvp-gateway/src/__tests__/pvp-self-cache.test.ts
+PASS src/features/level/utils/challengeHelpers.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-api-schemas.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-room-lifecycle.test.ts
+PASS src/features/typing/utils/__tests__/performance-intelligence.test.ts
+PASS services/pvp-gateway/src/__tests__/matchmaking-lua.test.ts
+PASS services/pvp-gateway/src/__tests__/match-lock.test.ts
+PASS services/pvp-gateway/src/__tests__/ws-schemas.test.ts
+PASS src/__tests__/email-verification-otp.actions.test.ts
+PASS services/pvp-gateway/src/__tests__/match-aggregate.test.ts
+PASS src/__tests__/reset-password.actions.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-match-access.test.ts
+PASS src/components/TypingTest/__tests__/keyboardPerformance.test.ts
+PASS src/features/typing/utils/__tests__/activity-strength.test.ts
+PASS services/pvp-gateway/src/__tests__/health.test.ts
+PASS src/features/level/hooks/useChallengeHandler.test.tsx
+  ● Console
+
+    console.debug
+      [2026-03-23T00:06:58.326Z] DEBUG [CHALLENGE] - No challenge or user ID - skipping challenge update
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:58.419Z] DEBUG [CHALLENGE] - Applied optimistic challenge update
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:58.421Z] DEBUG [CHALLENGE] - Challenge update completed successfully
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-23T00:06:58.422Z] INFO [CHALLENGE] - Daily challenge completed
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:58.423Z] DEBUG [CHALLENGE] - Challenge update operation completed
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:58.427Z] DEBUG [CHALLENGE] - Applied optimistic challenge update
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:58.428Z] DEBUG [CHALLENGE] - Challenge update completed successfully
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:58.429Z] DEBUG [CHALLENGE] - Daily challenge progress updated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-23T00:06:58.429Z] DEBUG [CHALLENGE] - Challenge update operation completed
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+PASS src/__tests__/anomaly.test.ts
+PASS src/__tests__/admin-feedback.route.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-error-utils.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-input-update.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-queue.integration.test.ts
+PASS src/__tests__/flagging.test.ts
+PASS src/__tests__/admin-users.route.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-match-session-guards.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-fingerprint.test.ts
+PASS src/__tests__/shared-auth-banned.test.ts
+PASS src/__tests__/api-session-banned.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-matchmaking-bands.test.ts
+PASS services/pvp-gateway/src/__tests__/metrics.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-match-fsm.test.ts
+PASS services/pvp-gateway/src/__tests__/text-selection.test.ts
+PASS src/features/typing/utils/__tests__/consistency.test.ts
+PASS src/__tests__/sanitize.test.ts
+PASS src/__tests__/ranking.rating.test.ts
+PASS services/pvp-gateway/src/__tests__/replay.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-idempotency.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-message-batcher.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-disconnect-forfeit.test.ts
+PASS src/__tests__/challenge-schemas.test.ts
+PASS src/features/level/services/dailyChallengeService.test.ts
+PASS src/components/TypingTest/__tests__/overallKeyboardPerformance.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-match-sync.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-metrics.test.ts
+PASS src/__tests__/level.reducer.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-disconnect-sequencing.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-events.test.ts
+
+Test Suites: 52 passed, 52 total
+Tests:       282 passed, 282 total
+Snapshots:   0 total
+Time:        43.255 s, estimated 116 s
+Ran all test suites.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

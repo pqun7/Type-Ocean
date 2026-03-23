@@ -12,8 +12,21 @@ export type MatchLiveParticipantState = {
   accuracy: number;
   finishedAt: number | null;
   lastInputAtMs: number | null;
-  // Internal counters used for incremental metric updates.
-  correctChars?: number;
+  /**
+   * Number of characters in `input` that exactly match the reference text at
+   * the same index. Populated by `recomputeParticipantStats()` on every
+   * INPUT_UPDATE and persisted inside the `liveState` JSONB column so that
+   * stats survive a gateway restart without a separate in-memory accumulator Map.
+   *
+   * Always equals `(correctChars / input.length) * 100` when cross-checked
+   * against `accuracy`. Required (not optional) since the P5/P12 refactor.
+   */
+  correctChars: number;
+  /**
+   * @deprecated Derivable as `input.length - correctChars`.
+   * Kept as optional for backward-compatibility when reading JSONB rows
+   * written by older gateway versions. Do not write this field from new code.
+   */
   mismatchChars?: number;
   inputEvents?: Array<{
     atMs: number;
@@ -32,6 +45,8 @@ export type MatchLiveState = {
   rematchMatchId: string | null;
   finalizedAtMs: number | null;
   reconnectUntilByUserId?: Record<string, number>;
+  /** Timestamp (ms) when the first participant finished (tie-detection window). */
+  tieWindowStartedAt?: number | null;
   deltas?: Array<{
     revision: number;
     type: "PROGRESS" | "MATCH_STATE";

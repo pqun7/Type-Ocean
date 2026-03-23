@@ -1,0 +1,4 @@
+
+> type-space@0.1.0 pvp:gateway:build
+> tsc -p services/pvp-gateway/tsconfig.json
+

@@ -4,9 +4,11 @@ import { AUTO_SANCTION_THRESHOLD, FLAG_THRESHOLD, recordCheatAssessment } from "
 
 describe("anti-cheat flagging", () => {
   it("does not persist below the flag threshold", async () => {
-    const upsert = jest.fn();
+    const onConflictDoUpdate = jest.fn();
+    const values = jest.fn(() => ({ onConflictDoUpdate }));
+    const insert = jest.fn(() => ({ values }));
     const result = await recordCheatAssessment({
-      db: { cheatFlag: { upsert } } as never,
+      db: { insert } as never,
       userId: "user-1",
       matchId: "match-1",
       confidence: FLAG_THRESHOLD - 0.1,
@@ -14,13 +16,15 @@ describe("anti-cheat flagging", () => {
     });
 
     expect(result.persisted).toBe(false);
-    expect(upsert).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it("persists flags once the threshold is reached", async () => {
-    const upsert = jest.fn().mockResolvedValue(null);
+    const onConflictDoUpdate = jest.fn().mockResolvedValue(null);
+    const values = jest.fn(() => ({ onConflictDoUpdate }));
+    const insert = jest.fn(() => ({ values }));
     const result = await recordCheatAssessment({
-      db: { cheatFlag: { upsert } } as never,
+      db: { insert } as never,
       userId: "user-2",
       matchId: "match-2",
       confidence: FLAG_THRESHOLD,
@@ -28,13 +32,16 @@ describe("anti-cheat flagging", () => {
     });
 
     expect(result.persisted).toBe(true);
-    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(onConflictDoUpdate).toHaveBeenCalledTimes(1);
   });
 
   it("marks high-confidence assessments as sanction candidates without banning", async () => {
-    const upsert = jest.fn().mockResolvedValue(null);
+    const onConflictDoUpdate = jest.fn().mockResolvedValue(null);
+    const values = jest.fn(() => ({ onConflictDoUpdate }));
+    const insert = jest.fn(() => ({ values }));
     const result = await recordCheatAssessment({
-      db: { cheatFlag: { upsert } } as never,
+      db: { insert } as never,
       userId: "user-3",
       matchId: "match-3",
       confidence: AUTO_SANCTION_THRESHOLD,
@@ -42,6 +49,7 @@ describe("anti-cheat flagging", () => {
     });
 
     expect(result.wouldSanction).toBe(true);
-    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(onConflictDoUpdate).toHaveBeenCalledTimes(1);
   });
 });

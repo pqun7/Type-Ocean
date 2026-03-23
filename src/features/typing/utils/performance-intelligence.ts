@@ -185,17 +185,21 @@ function linearRegression(x: number[], y: number[]) {
     };
   }
 
-  const xSlice = x.slice(0, n);
-  const ySlice = y.slice(0, n);
-
-  const xMean = mean(xSlice);
-  const yMean = mean(ySlice);
+  // Compute both means in a single pass to avoid two separate reduce() calls.
+  let xSum = 0;
+  let ySum = 0;
+  for (let i = 0; i < n; i++) {
+    xSum += x[i];
+    ySum += y[i];
+  }
+  const xMean = xSum / n;
+  const yMean = ySum / n;
 
   let num = 0;
   let den = 0;
   for (let i = 0; i < n; i++) {
-    const dx = xSlice[i] - xMean;
-    num += dx * (ySlice[i] - yMean);
+    const dx = x[i] - xMean;
+    num += dx * (y[i] - yMean);
     den += dx * dx;
   }
 
@@ -206,9 +210,9 @@ function linearRegression(x: number[], y: number[]) {
   let ssRes = 0;
   let ssTot = 0;
   for (let i = 0; i < n; i++) {
-    const yHat = slope * xSlice[i] + intercept;
-    ssRes += (ySlice[i] - yHat) ** 2;
-    ssTot += (ySlice[i] - yMean) ** 2;
+    const yHat = slope * x[i] + intercept;
+    ssRes += (y[i] - yHat) ** 2;
+    ssTot += (y[i] - yMean) ** 2;
   }
   const r2 = ssTot === 0 ? 0 : clamp(1 - ssRes / ssTot, 0, 1);
 
@@ -232,14 +236,20 @@ function quadraticRegression(x: number[], y: number[]): { a: number; b: number; 
     return { a: 0, b: 0, c: 0, r2: 0 };
   }
 
-  // Prepare matrix for normal equations: X = [x², x, 1]
-  const sumX = x.reduce((s, v) => s + v, 0);
-  const sumX2 = x.reduce((s, v) => s + v * v, 0);
-  const sumX3 = x.reduce((s, v) => s + v * v * v, 0);
-  const sumX4 = x.reduce((s, v) => s + v * v * v * v, 0);
-  const sumY = y.reduce((s, v) => s + v, 0);
-  const sumX2Y = x.reduce((s, v, i) => s + v * v * y[i], 0);
-  const sumXY = x.reduce((s, v, i) => s + v * y[i], 0);
+  // Compute all sums in a single pass instead of 7 separate reduce() calls.
+  let sumX = 0, sumX2 = 0, sumX3 = 0, sumX4 = 0, sumY = 0, sumX2Y = 0, sumXY = 0;
+  for (let i = 0; i < n; i++) {
+    const xi = x[i];
+    const yi = y[i];
+    const xi2 = xi * xi;
+    sumX += xi;
+    sumX2 += xi2;
+    sumX3 += xi2 * xi;
+    sumX4 += xi2 * xi2;
+    sumY += yi;
+    sumX2Y += xi2 * yi;
+    sumXY += xi * yi;
+  }
 
   // Solve normal equations:
   // [ sumX4 sumX3 sumX2 ] [a] = [sumX2Y]
@@ -343,9 +353,12 @@ function buildActiveDailySeries(
   dailyActivity: PerformanceIntelligenceDailyActivity[],
   windowDays: number
 ): Array<{ localDate: string; avgWpm: number; avgAccuracy: number }> {
+  // Precompute timestamps once to avoid repeated string parsing in the sort comparator.
   const sorted = [...(dailyActivity ?? [])]
     .filter((row) => safeNumber(row.sessionsCount, 0) > 0)
-    .sort((a, b) => toTimestamp(a.localDate) - toTimestamp(b.localDate));
+    .map((row) => ({ row, ts: toTimestamp(row.localDate) }))
+    .sort((a, b) => a.ts - b.ts)
+    .map(({ row }) => row);
 
   const normalized = sorted.map((row) => {
     const sessions = Math.max(1, safeNumber(row.sessionsCount, 0));

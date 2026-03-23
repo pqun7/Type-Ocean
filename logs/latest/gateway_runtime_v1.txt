@@ -1,0 +1,36 @@
+
+> type-space@0.1.0 pvp:gateway:start
+> node services/pvp-gateway/dist/services/pvp-gateway/src/index.js
+
+[dotenv@17.3.1] injecting env (76) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.3.1] injecting env (10) from .env.local -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[2026-03-23T00:15:43.414Z] [INFO] [PVP-GATEWAY] Starting PvP gateway
+{
+  "port": 8787,
+  "environment": "development",
+  "instanceId": "c237f7b8-bd9f-43c7-9ff8-d8053464d0a5"
+}
+[2026-03-23T00:15:43.463Z] [INFO] [PVP-GATEWAY] Gateway runtime tuning
+{
+  "testForceBotMatch": true,
+  "localRelaxedWsLimits": true,
+  "aiQueueTimeoutMs": 1500,
+  "rankedMatchStartDelayMs": 1200,
+  "wsMaxConnectionsPerIp": 400,
+  "wsConnectionAttemptsPerMin": 12000,
+  "allowParticipantPersistFallback": true
+}
+[2026-03-23T00:15:43.528Z] [ERROR] [PVP-GATEWAY] PvP gateway failed to bind listen port
+{
+  "port": 8787
+}
+{
+  "name": "Error",
+  "message": "listen EADDRINUSE: address already in use :::8787",
+  "stack": "Error: listen EADDRINUSE: address already in use :::8787\n    at Server.setupListenHandle [as _listen2] (node:net:1940:16)\n    at listenInCluster (node:net:1997:12)\n    at Server.listen (node:net:2102:7)\n    at main (D:\\Web projects\\Type Space\\type-space\\services\\pvp-gateway\\dist\\services\\pvp-gateway\\src\\index.js:2700:12)\n    at Object.<anonymous> (D:\\Web projects\\Type Space\\type-space\\services\\pvp-gateway\\dist\\services\\pvp-gateway\\src\\index.js:2704:6)\n    at Module._compile (node:internal/modules/cjs/loader:1706:14)\n    at Object..js (node:internal/modules/cjs/loader:1839:10)\n    at Module.load (node:internal/modules/cjs/loader:1441:32)\n    at Function._load (node:internal/modules/cjs/loader:1263:12)\n    at TracingChannel.traceSync (node:diagnostics_channel:328:14)"
+}
+[2026-03-23T00:15:43.533Z] [WARN] [PVP-GATEWAY] Port is already in use. Stop the other gateway process or set a different PORT.
+{
+  "port": 8787,
+  "hint": "Example: set PORT=8788 before starting the gateway"
+}

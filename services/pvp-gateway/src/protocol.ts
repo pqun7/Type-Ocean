@@ -3,6 +3,8 @@ import {
   type PvpClientMessage as ClientMessage,
 } from "../../../src/lib/validation/ws-schemas";
 
+export type { PvpClientMessage as ClientMessage } from "../../../src/lib/validation/ws-schemas";
+
 export function safeParseClientMessage(raw: string):
   | { success: true; data: ClientMessage }
   | { success: false; error: string } {

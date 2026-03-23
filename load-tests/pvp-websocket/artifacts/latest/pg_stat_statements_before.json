@@ -1,0 +1,329 @@
+{
+  "capturedAt": "2026-03-23T04:05:56.339Z",
+  "extensionAvailable": true,
+  "extensionError": null,
+  "topByCalls": [
+    {
+      "calls": "28465",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 110.08701199999939,
+      "mean_exec_time": 0.0038674516774986844,
+      "query": "-- Get the current LSN from Postgres as a pg_lsn type.\nSELECT CASE\n    WHEN pg_catalog.pg_is_in_recovery() THEN pg_catalog.pg_last_wal_replay_lsn()\n    ELSE pg_catalog.pg_current_wal_lsn()\nEND AS lsn, CURRENT_TIMESTAMP"
+    },
+    {
+      "calls": "28151",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 196.4220389999995,
+      "mean_exec_time": 0.006977444460232329,
+      "query": "select count(*) from pg_stat_subscription where pid is not null"
+    },
+    {
+      "calls": "28151",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 3258.3606149999728,
+      "mean_exec_time": 0.11574582128521167,
+      "query": "SELECT state, pg_catalog.to_char(state_change, $1::pg_catalog.text) AS state_change\n                FROM pg_stat_activity\n                    WHERE backend_type OPERATOR(pg_catalog.=) $2::pg_catalog.text\n                    AND pid OPERATOR(pg_catalog.!=) pg_catalog.pg_backend_pid()\n                    AND usename OPERATOR(pg_catalog.!=) $3::pg_catalog.name"
+    },
+    {
+      "calls": "28151",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 120.62192400000039,
+      "mean_exec_time": 0.004284818443394575,
+      "query": "SELECT $1"
+    },
+    {
+      "calls": "28151",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 696.9762520000019,
+      "mean_exec_time": 0.02475849000035518,
+      "query": "SELECT COALESCE(pg_catalog.sum(active_time), $1)::pg_catalog.float8 AS total_active_time,\n            COALESCE(pg_catalog.sum(sessions), $2)::pg_catalog.int8 AS total_sessions\n        FROM pg_catalog.pg_stat_database\n        WHERE datname NOT IN (\n                $3,\n                $4,\n                $5\n            )"
+    },
+    {
+      "calls": "28151",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 1897.5573429999918,
+      "mean_exec_time": 0.06740639206422448,
+      "query": "select count(*) from pg_stat_activity where backend_type = $1"
+    },
+    {
+      "calls": "28151",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 2294.2709470000104,
+      "mean_exec_time": 0.08149873706085069,
+      "query": "select count(*) from pg_stat_replication where application_name != $1"
+    },
+    {
+      "calls": "13232",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 162.17589800000061,
+      "mean_exec_time": 0.01225634053808948,
+      "query": "SELECT COALESCE(lfc_value, $1) AS count FROM neon.neon_lfc_stats WHERE lfc_key = $2"
+    },
+    {
+      "calls": "6869",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 39.43008699999987,
+      "mean_exec_time": 0.0057402950939001215,
+      "query": "select \"pvpRooms\".\"id\", \"pvpRooms\".\"code\", \"pvpRooms\".\"visibility\", \"pvpRooms\".\"expiresAt\", \"pvpRooms\".\"status\", \"pvpRooms_members\".\"data\" as \"members\" from \"pvp_room\" \"pvpRooms\" left join lateral (select coalesce(json_agg(json_build_array(\"pvpRooms_members\".\"userId\", \"pvpRooms_members\".\"joinedAt\", \"pvpRooms_members\".\"readyAt\", \"pvpRooms_members\".\"leftAt\") order by \"pvpRooms_members\".\"joinedAt\" asc), $3::json) as \"data\" from (select * from \"pvp_room_member\" \"pvpRooms_members\" where \"pvpRooms_members\".\"roomId\" = \"pvpRooms\".\"id\" order by \"pvpRooms_members\".\"joinedAt\" asc) \"pvpRooms_members\") \"pvpRooms_members\" on $4 where (\"pvpRooms\".\"status\" = $1 or \"pvpRooms\".\"expiresAt\" <= $2)"
+    },
+    {
+      "calls": "4962",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 598.0271490000002,
+      "mean_exec_time": 0.12052139238210384,
+      "query": "SELECT bucket_le, value FROM neon.neon_perf_counters WHERE metric = $1"
+    },
+    {
+      "calls": "2599",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 70.75964799999993,
+      "mean_exec_time": 0.027225720661793015,
+      "query": "-- Returns no rows when get_compute_primary_memory_bytes() returns NULL, causing sql_exporter\n-- to NOT emit the metric. This matches autoscaling_metrics behavior.\nSELECT bytes FROM (SELECT get_compute_primary_memory_bytes() AS bytes) t WHERE bytes IS NOT NULL"
+    },
+    {
+      "calls": "1659",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 16.767791999999965,
+      "mean_exec_time": 0.01010716817359854,
+      "query": "SELECT pg_size_bytes(current_setting($1))"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 387.8326400000005,
+      "mean_exec_time": 0.2344816444981862,
+      "query": "WITH c AS (SELECT pg_catalog.jsonb_object_agg(metric, value) jb FROM neon.neon_perf_counters)\n\nSELECT d.* FROM pg_catalog.jsonb_to_record((SELECT jb FROM c)) AS d(\n  file_cache_read_wait_seconds_count numeric,\n  file_cache_read_wait_seconds_sum numeric,\n  file_cache_write_wait_seconds_count numeric,\n  file_cache_write_wait_seconds_sum numeric,\n  getpage_wait_seconds_count numeric,\n  getpage_wait_seconds_sum numeric,\n  getpage_prefetch_requests_total numeric,\n  getpage_sync_requests_total numeric,\n  compute_getpage_stuck_requests_total numeric,\n  compute_getpage_max_inflight_stuck_time_ms numeric,\n  getpage_prefetch_misses_total numeric,\n  getpage_prefetch_discards_total numeric,\n  getpage_prefetches_buffered numeric,\n  pageserver_requests_sent_total numeric,\n  pageserver_disconnects_total numeric,\n  pageserver_send_flushes_total numeric,\n  pageserver_open_requests numeric,\n  sql_index_corruption_count numeric,\n  sql_data_corruption_count numeric,\n  sql_internal_error_count numeric,\n  ps_corruption_detected numeric,\n  temp_file_size_global numeric,\n  num_active_safekeepers numeric,\n  num_configured_safekeepers numeric,\n  max_active_safekeeper_commit_lag numeric\n)"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 7.572989999999995,
+      "mean_exec_time": 0.004578591293833134,
+      "query": "SELECT pg_catalog.current_setting($1) AS max_connections"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 6.111552000000005,
+      "mean_exec_time": 0.0036950133010882746,
+      "query": "SELECT COALESCE(pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()), $1) AS bytes"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 6.283844999999988,
+      "mean_exec_time": 0.0037991807738814993,
+      "query": "/* NOTE: This metric assumes the primary is online. If it is not online, then don't use this metric. */\nSELECT\n  CASE\n    -- Primaries do not have replication delay, so report 0\n    WHEN NOT pg_catalog.pg_is_in_recovery() THEN $1\n    WHEN pg_catalog.pg_last_wal_receive_lsn() IS NOT DISTINCT FROM pg_catalog.pg_last_wal_replay_lsn() THEN $2\n    ELSE GREATEST($3, EXTRACT ($4 FROM (pg_catalog.now() - GREATEST(\n          /* approx commit time of the latest commit that was applied. depends on commits happening on primary */\n          pg_catalog.pg_last_xact_replay_timestamp(),\n          /* approx finish time of last checkpoint. depends only on primary being online */\n          (SELECT checkpoint_time FROM pg_catalog.pg_control_checkpoint())\n    ))))\n  END AS replication_delay_seconds"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 4.713336999999997,
+      "mean_exec_time": 0.0028496596130592475,
+      "query": "-- We use a GREATEST call here because this calculation can be negative. The\n-- calculation is not atomic, meaning after we've gotten the receive LSN, the\n-- replay LSN may have advanced past the receive LSN we are using for the\n-- calculation.\n\nSELECT\n  CASE\n    -- Primaries do not have replication delay, so report 0\n    WHEN NOT pg_catalog.pg_is_in_recovery() THEN $1\n    ELSE GREATEST($2, pg_catalog.pg_wal_lsn_diff(pg_catalog.pg_last_wal_receive_lsn(), pg_catalog.pg_last_wal_replay_lsn()))\n  END AS replication_delay_bytes"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 7.396814999999991,
+      "mean_exec_time": 0.00447207678355502,
+      "query": "SELECT backpressure_throttling_time AS throttling_time FROM neon.backpressure_throttling_time()"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 4.440201999999992,
+      "mean_exec_time": 0.0026845235792019285,
+      "query": "SELECT num_requested AS checkpoints_req FROM pg_catalog.pg_stat_checkpointer"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 4.512476000000003,
+      "mean_exec_time": 0.002728220072551393,
+      "query": "SELECT CASE\n  WHEN pg_catalog.pg_is_in_recovery() THEN (pg_catalog.pg_last_wal_receive_lsn() - $1)::pg_catalog.FLOAT8\n  ELSE $2\nEND AS lsn"
+    }
+  ],
+  "topByPlanning": [
+    {
+      "calls": "6869",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 39.43008699999987,
+      "mean_exec_time": 0.0057402950939001215,
+      "query": "select \"pvpRooms\".\"id\", \"pvpRooms\".\"code\", \"pvpRooms\".\"visibility\", \"pvpRooms\".\"expiresAt\", \"pvpRooms\".\"status\", \"pvpRooms_members\".\"data\" as \"members\" from \"pvp_room\" \"pvpRooms\" left join lateral (select coalesce(json_agg(json_build_array(\"pvpRooms_members\".\"userId\", \"pvpRooms_members\".\"joinedAt\", \"pvpRooms_members\".\"readyAt\", \"pvpRooms_members\".\"leftAt\") order by \"pvpRooms_members\".\"joinedAt\" asc), $3::json) as \"data\" from (select * from \"pvp_room_member\" \"pvpRooms_members\" where \"pvpRooms_members\".\"roomId\" = \"pvpRooms\".\"id\" order by \"pvpRooms_members\".\"joinedAt\" asc) \"pvpRooms_members\") \"pvpRooms_members\" on $4 where (\"pvpRooms\".\"status\" = $1 or \"pvpRooms\".\"expiresAt\" <= $2)"
+    },
+    {
+      "calls": "28151",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 696.9762520000019,
+      "mean_exec_time": 0.02475849000035518,
+      "query": "SELECT COALESCE(pg_catalog.sum(active_time), $1)::pg_catalog.float8 AS total_active_time,\n            COALESCE(pg_catalog.sum(sessions), $2)::pg_catalog.int8 AS total_sessions\n        FROM pg_catalog.pg_stat_database\n        WHERE datname NOT IN (\n                $3,\n                $4,\n                $5\n            )"
+    },
+    {
+      "calls": "32",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 1.953611,
+      "mean_exec_time": 0.06105034375000001,
+      "query": "UPDATE \"pvp_match\"\n        SET status = $1,\n            \"liveState\" = $5,\n            revision = revision + $6,\n            \"endedAt\" = $2\n        WHERE id = $3\n          AND revision = $4\n        RETURNING id"
+    },
+    {
+      "calls": "2",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 0.65328,
+      "mean_exec_time": 0.32664,
+      "query": "SELECT extname, extversion, extowner::pg_catalog.int4 FROM pg_catalog.pg_extension"
+    },
+    {
+      "calls": "32",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 0.14483200000000002,
+      "mean_exec_time": 0.0045260000000000005,
+      "query": "SAVEPOINT $1"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 7.572989999999995,
+      "mean_exec_time": 0.004578591293833134,
+      "query": "SELECT pg_catalog.current_setting($1) AS max_connections"
+    },
+    {
+      "calls": "4",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 0.07517200000000002,
+      "mean_exec_time": 0.018793000000000004,
+      "query": "select \"rating\", \"ratingDeviation\" from \"player_profile\" where \"player_profile\".\"userId\" = $1 limit $2"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 19.976418000000002,
+      "mean_exec_time": 0.012077640870616697,
+      "query": "SELECT slot_name, (restart_lsn - $1)::pg_catalog.FLOAT8 AS restart_lsn\nFROM pg_catalog.pg_replication_slots\nWHERE slot_type = $2"
+    },
+    {
+      "calls": "32",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 5.9541260000000005,
+      "mean_exec_time": 0.18606643749999996,
+      "query": "UPDATE \"pvp_match\"\n        SET revision = revision + $5,\n            \"instanceId\" = $1,\n            \"liveState\" = CAST($2 AS jsonb)\n        WHERE id = $3\n          AND revision = $4\n          AND status NOT IN ($6, $7)\n        RETURNING id"
+    },
+    {
+      "calls": "6",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 0.13827599999999998,
+      "mean_exec_time": 0.023046,
+      "query": "select \"banned\", \"pvpWsTokenVersion\", \"pvpWsTokensValidAfter\" from \"User\" where \"User\".\"id\" = $1 limit $2"
+    },
+    {
+      "calls": "4",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 0.081024,
+      "mean_exec_time": 0.020256,
+      "query": "select \"username\" from \"User\" where \"User\".\"id\" = $1 limit $2"
+    },
+    {
+      "calls": "4962",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 598.0271490000002,
+      "mean_exec_time": 0.12052139238210384,
+      "query": "SELECT bucket_le, value FROM neon.neon_perf_counters WHERE metric = $1"
+    },
+    {
+      "calls": "1",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 37.490903,
+      "mean_exec_time": 37.490903,
+      "query": "DO $$\nBEGIN\n    IF (\n        NOT EXISTS (\n            SELECT FROM pg_catalog.pg_trigger\n            WHERE tgrelid OPERATOR(pg_catalog.=) 'neon_migration.migration_id'::pg_catalog.regclass::pg_catalog.oid\n              AND tgname::pg_catalog.name OPERATOR(pg_catalog.=) 'neon_migration_id_superuser_check'::pg_catalog.name\n        )\n        AND EXISTS (\n            SELECT FROM pg_catalog.pg_proc\n            WHERE pronamespace OPERATOR(pg_catalog.=) 'neon'::pg_catalog.regnamespace\n              AND proname::pg_catalog.name OPERATOR(pg_catalog.=) 'neon_check_for_superuser'::pg_catalog.name\n        )\n    ) THEN\n        CREATE TRIGGER neon_migration_id_superuser_check\n        BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE\n        ON neon_migration.migration_id\n        EXECUTE FUNCTION neon.neon_check_for_superuser();\n    END IF;\nEND;\n$$"
+    },
+    {
+      "calls": "229",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 0.09419900000000005,
+      "mean_exec_time": 0.00041134934497816586,
+      "query": "DISCARD SEQUENCES"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 8.517697000000002,
+      "mean_exec_time": 0.0051497563482466825,
+      "query": "SELECT COALESCE(pg_cluster_size, $1) AS bytes FROM neon.pg_cluster_size()"
+    },
+    {
+      "calls": "1654",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 15.39150800000001,
+      "mean_exec_time": 0.009305627569528402,
+      "query": "-- N.B. keep in sync with compute_tools/src/monitor.rs GET_LSN_QUERY / check() function\nSELECT CASE\n  WHEN pg_catalog.pg_is_in_recovery() THEN (pg_catalog.pg_last_wal_replay_lsn() - $1)::pg_catalog.FLOAT8\n  ELSE (pg_catalog.pg_current_wal_lsn() - $2)::pg_catalog.FLOAT8\nEND AS lsn"
+    },
+    {
+      "calls": "703",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 96.93227700000003,
+      "mean_exec_time": 0.13788375106685627,
+      "query": "SELECT id, status, revision, \"instanceId\", \"liveState\", \"textSnapshot\", \"textId\", \"inputNonce\", \"updatedAt\", \"startedAt\", \"endedAt\", \"serverStartAt\"\n        FROM \"pvp_match\"\n        WHERE id = $1\n        LIMIT $2"
+    },
+    {
+      "calls": "2",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 0.026595,
+      "mean_exec_time": 0.0132975,
+      "query": "SELECT extname, extversion, extowner::pg_catalog.int4 FROM pg_catalog.pg_extension"
+    },
+    {
+      "calls": "645",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 13677.257438999986,
+      "mean_exec_time": 21.20505029302324,
+      "query": "UPDATE \"pvp_match\"\n        SET status = $1,\n            \"liveState\" = CAST($2 AS jsonb),\n            revision = revision + $9,\n            \"instanceId\" = $3,\n            \"serverStartAt\" = $4,\n            \"startedAt\" = $5,\n            \"endedAt\" = $6\n        WHERE id = $7\n          AND revision = $8\n        RETURNING id"
+    },
+    {
+      "calls": "17",
+      "total_plan_time": 0,
+      "mean_plan_time": 0,
+      "total_exec_time": 3.821357,
+      "mean_exec_time": 0.22478570588235297,
+      "query": "select calls, total_plan_time, mean_plan_time, total_exec_time, mean_exec_time, query\n      from pg_stat_statements\n      order by total_plan_time desc\n      limit $1"
+    }
+  ]
+}

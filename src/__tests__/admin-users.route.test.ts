@@ -1,33 +1,51 @@
 /** @jest-environment node */
 
 import { NextRequest } from "next/server";
+
 import { DELETE, PATCH } from "@/app/api/admin/users/route";
-import dbClient from "@/features/auth/lib/db";
 import { authorizeAdminActor, authorizePrimaryAdminRequest } from "@/app/api/shared.server";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
 
-type DbMock = {
-  user: {
-    findUnique: jest.Mock;
-    update: jest.Mock;
-  };
+const mockSelectQueue: unknown[][] = [];
+
+var mockDb: {
+  select: jest.Mock;
+  selectFrom: jest.Mock;
+  selectWhere: jest.Mock;
+  selectLimit: jest.Mock;
+  update: jest.Mock;
+  updateSet: jest.Mock;
+  updateWhere: jest.Mock;
+  updateReturning: jest.Mock;
 };
 
-const dbMock = dbClient as unknown as DbMock;
-
-jest.mock("@/features/auth/lib/db", () => {
-  const dbMock = {
-    user: {
-      findUnique: jest.fn(),
+jest.mock("@/db", () => ({
+  __esModule: true,
+  db: (() => {
+    mockDb = {
+      select: jest.fn(),
+      selectFrom: jest.fn(),
+      selectWhere: jest.fn(),
+      selectLimit: jest.fn(() => Promise.resolve(mockSelectQueue.shift() ?? [])),
       update: jest.fn(),
-    },
-  };
+      updateSet: jest.fn(),
+      updateWhere: jest.fn(),
+      updateReturning: jest.fn(),
+    };
 
-  return {
-    __esModule: true,
-    default: dbMock,
-  };
-});
+    mockDb.selectWhere.mockReturnValue({ limit: mockDb.selectLimit });
+    mockDb.selectFrom.mockReturnValue({ where: mockDb.selectWhere });
+    mockDb.select.mockReturnValue({ from: mockDb.selectFrom });
+    mockDb.updateWhere.mockReturnValue({ returning: mockDb.updateReturning });
+    mockDb.updateSet.mockReturnValue({ where: mockDb.updateWhere });
+    mockDb.update.mockReturnValue({ set: mockDb.updateSet });
+
+    return {
+      select: mockDb.select,
+      update: mockDb.update,
+    };
+  })(),
+}));
 
 jest.mock("@/app/api/shared.server", () => ({
   authorizeAdminActor: jest.fn(),
@@ -41,6 +59,9 @@ jest.mock("@/features/admin/server/audit-log", () => ({
 describe("admin users route", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSelectQueue.length = 0;
+    mockDb.updateReturning.mockReset();
+    mockDb.updateSet.mockClear();
   });
 
   it("prevents a non-primary admin from moderating another admin", async () => {
@@ -49,16 +70,17 @@ describe("admin users route", () => {
       username: "assistant-admin",
       isPrimaryAdmin: false,
     });
-
-    dbMock.user.findUnique.mockResolvedValue({
-      id: "admin-3",
-      username: "other-admin",
-      email: "other-admin@example.com",
-      role: "admin",
-      banned: false,
-      isPrimaryAdmin: false,
-      updatedAt: new Date("2026-03-12T10:00:00.000Z"),
-    });
+    mockSelectQueue.push([
+      {
+        id: "admin-3",
+        username: "other-admin",
+        email: "other-admin@example.com",
+        role: "admin",
+        banned: false,
+        isPrimaryAdmin: false,
+        updatedAt: new Date("2026-03-12T10:00:00.000Z"),
+      },
+    ]);
 
     const req = new NextRequest("http://localhost:3000/api/admin/users", {
       method: "PATCH",
@@ -72,7 +94,7 @@ describe("admin users route", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Only the primary admin can moderate another admin account",
     });
-    expect(dbMock.user.update).not.toHaveBeenCalled();
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("removes admin access for a non-primary admin", async () => {
@@ -81,24 +103,26 @@ describe("admin users route", () => {
       username: "root-admin",
       isPrimaryAdmin: true,
     });
-
-    dbMock.user.findUnique.mockResolvedValue({
-      id: "admin-2",
-      username: "assistant-admin",
-      email: "assistant-admin@example.com",
-      role: "admin",
-      isPrimaryAdmin: false,
-    });
-
-    dbMock.user.update.mockResolvedValue({
-      id: "admin-2",
-      username: "assistant-admin",
-      email: "assistant-admin@example.com",
-      role: "user",
-      banned: false,
-      isPrimaryAdmin: false,
-      updatedAt: new Date("2026-03-12T11:00:00.000Z"),
-    });
+    mockSelectQueue.push([
+      {
+        id: "admin-2",
+        username: "assistant-admin",
+        email: "assistant-admin@example.com",
+        role: "admin",
+        isPrimaryAdmin: false,
+      },
+    ]);
+    mockDb.updateReturning.mockResolvedValue([
+      {
+        id: "admin-2",
+        username: "assistant-admin",
+        email: "assistant-admin@example.com",
+        role: "user",
+        banned: false,
+        isPrimaryAdmin: false,
+        updatedAt: new Date("2026-03-12T11:00:00.000Z"),
+      },
+    ]);
 
     const req = new NextRequest("http://localhost:3000/api/admin/users", {
       method: "DELETE",
@@ -111,22 +135,13 @@ describe("admin users route", () => {
 
     expect(response.status).toBe(200);
     expect(body.user.role).toBe("user");
-    expect(dbMock.user.update).toHaveBeenCalledWith({
-      where: { id: "admin-2" },
-      data: {
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    expect(mockDb.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
         role: "user",
         isPrimaryAdmin: false,
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        role: true,
-        banned: true,
-        isPrimaryAdmin: true,
-        updatedAt: true,
-      },
-    });
+      }),
+    );
     expect(createAdminAuditLog).toHaveBeenCalledWith({
       actorUserId: "admin-1",
       action: "remove_admin_access",
@@ -148,14 +163,15 @@ describe("admin users route", () => {
       username: "root-admin",
       isPrimaryAdmin: true,
     });
-
-    dbMock.user.findUnique.mockResolvedValue({
-      id: "admin-1",
-      username: "root-admin",
-      email: "root@example.com",
-      role: "admin",
-      isPrimaryAdmin: true,
-    });
+    mockSelectQueue.push([
+      {
+        id: "admin-1",
+        username: "root-admin",
+        email: "root@example.com",
+        role: "admin",
+        isPrimaryAdmin: true,
+      },
+    ]);
 
     const req = new NextRequest("http://localhost:3000/api/admin/users", {
       method: "DELETE",
@@ -169,6 +185,6 @@ describe("admin users route", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Primary admin cannot delete their own account here",
     });
-    expect(dbMock.user.update).not.toHaveBeenCalled();
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 });

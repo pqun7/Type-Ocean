@@ -1,0 +1,212 @@
+PASS src/__tests__/email-verification-otp.actions.test.ts
+PASS src/__tests__/admin-feedback.route.test.ts
+PASS services/pvp-gateway/src/__tests__/input-flush-coordinator.test.ts
+  ● Console
+
+    console.warn
+      [2026-03-23T00:36:28.107Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch flush failed; re-queued for retry
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "reason": "timer",
+        "retries": 1,
+        "maxRetries": 3,
+        "enqueuedCount": 1,
+        "ageMs": 1,
+        "error": "DB unavailable"
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      [2026-03-23T00:36:28.163Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch flush failed; re-queued for retry
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "reason": "timer",
+        "retries": 1,
+        "maxRetries": 3,
+        "enqueuedCount": 1,
+        "ageMs": 0,
+        "error": "transient error"
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      [2026-03-23T00:36:28.167Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch flush failed; re-queued for retry
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "reason": "timer",
+        "retries": 3,
+        "maxRetries": 3,
+        "enqueuedCount": 1,
+        "ageMs": 0,
+        "error": "permanent error"
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      [2026-03-23T00:36:28.168Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch reached retry threshold — keeping latest seq in queue
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:202:25)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "retries": 3,
+        "maxRetries": 3
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:202:25)
+
+    console.warn
+      [2026-03-23T00:36:28.171Z] [WARN] [PVP-GATEWAY] INPUT_UPDATE batch flush failed; re-queued for retry
+
+    [0m [90m 41 |[39m
+     [90m 42 |[39m   [36mconst[39m consoleMethod [33m=[39m level [33m===[39m [32m"error"[39m [33m?[39m console[33m.[39merror [33m:[39m level [33m===[39m [32m"warn"[39m [33m?[39m console[33m.[39mwarn [33m:[39m console[33m.[39mlog[33m;[39m
+    [31m[1m>[22m[39m[90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m    |[39m   [31m[1m^[22m[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+     [90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m 46 |[39m   }[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:43:3)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+    console.warn
+      {
+        "matchId": "m1",
+        "reason": "timer",
+        "retries": 1,
+        "maxRetries": 3,
+        "enqueuedCount": 1,
+        "ageMs": 0,
+        "error": "boom"
+      }
+
+    [0m [90m 43 |[39m   consoleMethod([32m`[${entry.timestamp}] [${entry.level}] ${entry.message}`[39m)[33m;[39m
+     [90m 44 |[39m   [36mif[39m (entry[33m.[39mmeta [33m&&[39m [33mObject[39m[33m.[39mkeys(entry[33m.[39mmeta)[33m.[39mlength [33m>[39m [35m0[39m) {
+    [31m[1m>[22m[39m[90m 45 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39mmeta[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m
+     [90m    |[39m     [31m[1m^[22m[39m
+     [90m 46 |[39m   }
+     [90m 47 |[39m   [36mif[39m (entry[33m.[39merror) {
+     [90m 48 |[39m     consoleMethod([33mJSON[39m[33m.[39mstringify(entry[33m.[39merror[33m,[39m [36mnull[39m[33m,[39m [35m2[39m))[33m;[39m[0m
+
+      at consoleMethod (src/log/gatewayLogger.ts:45:5)
+      at Object.write [as warn] (src/log/gatewayLogger.ts:60:5)
+      at warn (services/pvp-gateway/src/shared/logger.ts:93:17)
+      at InputFlushCoordinator._run (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:188:23)
+
+PASS src/__tests__/reset-password.actions.test.ts
+PASS src/__tests__/admin-users.route.test.ts
+PASS src/__tests__/flagging.test.ts
+PASS src/__tests__/shared-auth-banned.test.ts
+
+Test Suites: 7 passed, 7 total
+Tests:       46 passed, 46 total
+Snapshots:   0 total
+Time:        16.404 s, estimated 55 s
+Ran all test suites matching /src\\__tests__\\reset-password.actions.test.ts|src\\__tests__\\email-verification-otp.actions.test.ts|src\\__tests__\\admin-users.route.test.ts|src\\__tests__\\admin-feedback.route.test.ts|src\\__tests__\\shared-auth-banned.test.ts|src\\__tests__\\flagging.test.ts|services\\pvp-gateway\\src\\__tests__\\input-flush-coordinator.test.ts/i.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

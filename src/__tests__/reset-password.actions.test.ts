@@ -1,38 +1,48 @@
 /** @jest-environment node */
 
-import { resetPassword, updatePassword } from "@/actions/reset-password";
-
-import dbClient from "@/features/auth/lib/db";
-import { generateResetToken, validateResetToken } from "@/features/auth/utils/tokens";
-import { checkRateLimit } from "@/lib/rate-limiter";
-import { sendPasswordResetEmail } from "@/features/auth/providers/nodemailer";
-import { saltAndHashPassword } from "@/features/auth/utils/password";
 import bcrypt from "bcryptjs";
 
-type DbMock = {
-  user: {
-    findUnique: jest.Mock;
-    update: jest.Mock;
-  };
-  $transaction: jest.Mock;
+import { resetPassword, updatePassword } from "@/actions/reset-password";
+import { checkRateLimit } from "@/lib/rate-limiter";
+import { sendPasswordResetEmail } from "@/features/auth/providers/nodemailer";
+import { generateResetToken, validateResetToken } from "@/features/auth/utils/tokens";
+import { saltAndHashPassword } from "@/features/auth/utils/password";
+
+var mockDb: {
+  select: jest.Mock;
+  selectFrom: jest.Mock;
+  selectWhere: jest.Mock;
+  selectLimit: jest.Mock;
+  update: jest.Mock;
+  updateSet: jest.Mock;
+  updateWhere: jest.Mock;
 };
 
-const dbMock = dbClient as unknown as DbMock;
-
-jest.mock("@/features/auth/lib/db", () => {
-  const dbMock = {
-    user: {
-      findUnique: jest.fn(),
+jest.mock("@/db", () => ({
+  __esModule: true,
+  db: (() => {
+    mockDb = {
+      select: jest.fn(),
+      selectFrom: jest.fn(),
+      selectWhere: jest.fn(),
+      selectLimit: jest.fn(),
       update: jest.fn(),
-    },
-    $transaction: jest.fn(),
-  };
+      updateSet: jest.fn(),
+      updateWhere: jest.fn(),
+    };
 
-  return {
-    __esModule: true,
-    default: dbMock,
-  };
-});
+    mockDb.selectWhere.mockReturnValue({ limit: mockDb.selectLimit });
+    mockDb.selectFrom.mockReturnValue({ where: mockDb.selectWhere });
+    mockDb.select.mockReturnValue({ from: mockDb.selectFrom });
+    mockDb.updateSet.mockReturnValue({ where: mockDb.updateWhere });
+    mockDb.update.mockReturnValue({ set: mockDb.updateSet });
+
+    return {
+      select: mockDb.select,
+      update: mockDb.update,
+    };
+  })(),
+}));
 
 jest.mock("@/features/auth/utils/tokens", () => ({
   generateResetToken: jest.fn(),
@@ -58,7 +68,10 @@ jest.mock("bcryptjs", () => ({
 jest.mock("next/headers", () => ({
   headers: async () => ({
     get: (key: string) => {
-      if (key.toLowerCase() === "x-forwarded-for") return "203.0.113.10";
+      if (key.toLowerCase() === "x-forwarded-for") {
+        return "203.0.113.10";
+      }
+
       return null;
     },
   }),
@@ -76,30 +89,22 @@ jest.mock("@/log/ServerLogger", () => ({
 describe("password reset server actions", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-
-    dbMock.$transaction.mockImplementation(async (ops: Array<unknown>) => {
-      // DB transaction mock accepts an array of promises; resolve them here.
-      return Promise.all(ops as Array<Promise<unknown>>);
-    });
+    mockDb.selectLimit.mockReset();
+    mockDb.updateWhere.mockReset();
+    mockDb.updateSet.mockClear();
 
     (checkRateLimit as jest.Mock).mockResolvedValue({
       allowed: true,
       headers: {},
     });
-
-    (sendPasswordResetEmail as jest.Mock).mockResolvedValue({
-      success: true,
-    });
-
+    (sendPasswordResetEmail as jest.Mock).mockResolvedValue({ success: true });
     (generateResetToken as jest.Mock).mockResolvedValue("raw-reset-token");
-
     (saltAndHashPassword as jest.Mock).mockResolvedValue("new-hash");
-
     (bcrypt.compare as jest.Mock).mockResolvedValue(false);
   });
 
   it("resetPassword returns success even if user not found (no enumeration)", async () => {
-    dbMock.user.findUnique.mockResolvedValue(null);
+    mockDb.selectLimit.mockResolvedValue([]);
 
     const formData = new FormData();
     formData.set("email", "missing@example.com");
@@ -124,7 +129,7 @@ describe("password reset server actions", () => {
   });
 
   it("resetPassword does not send email for social auth account (no passwordHash)", async () => {
-    dbMock.user.findUnique.mockResolvedValue({ id: "u1", passwordHash: null });
+    mockDb.selectLimit.mockResolvedValue([{ id: "u1", passwordHash: null }]);
 
     const formData = new FormData();
     formData.set("email", "social@example.com");
@@ -143,8 +148,7 @@ describe("password reset server actions", () => {
       passwordHash: "old-hash",
       emailVerified: null,
     });
-
-    dbMock.user.update.mockResolvedValue({ id: "u2" });
+    mockDb.updateWhere.mockResolvedValue(undefined);
 
     const formData = new FormData();
     formData.set("token", "raw-reset-token");
@@ -154,20 +158,18 @@ describe("password reset server actions", () => {
     const result = await updatePassword({ success: false, error: null }, formData);
 
     expect(result).toEqual({ success: true });
-    expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
-    expect(dbMock.user.update).toHaveBeenCalledTimes(1);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    expect(mockDb.updateWhere).toHaveBeenCalledTimes(1);
 
-    const updateArgs = dbMock.user.update.mock.calls[0]?.[0];
-    expect(updateArgs.where).toEqual({ id: "u2" });
-    expect(updateArgs.data.resetToken).toBeNull();
-    expect(updateArgs.data.resetTokenExpiry).toBeNull();
-    expect(updateArgs.data.passwordHash).toBe("new-hash");
-    expect(updateArgs.data.passwordResetRequests).toBeUndefined();
-
-    expect(updateArgs.data.emailVerifyToken).toBeNull();
-    expect(updateArgs.data.emailVerifyTokenExpiry).toBeNull();
-    expect(updateArgs.data.emailVerified).toBeInstanceOf(Date);
-    expect(updateArgs.data.emailVerificationAttempts).toBe(0);
+    const updateData = mockDb.updateSet.mock.calls[0]?.[0];
+    expect(updateData.resetToken).toBeNull();
+    expect(updateData.resetTokenExpiry).toBeNull();
+    expect(updateData.passwordHash).toBe("new-hash");
+    expect(updateData.passwordResetRequests).toBeUndefined();
+    expect(updateData.emailVerifyToken).toBeNull();
+    expect(updateData.emailVerifyTokenExpiry).toBeNull();
+    expect(updateData.emailVerified).toBeInstanceOf(Date);
+    expect(updateData.emailVerificationAttempts).toBe(0);
   });
 
   it("updatePassword does not overwrite emailVerified if already verified", async () => {
@@ -179,8 +181,7 @@ describe("password reset server actions", () => {
       passwordHash: "old-hash",
       emailVerified: verifiedAt,
     });
-
-    dbMock.user.update.mockResolvedValue({ id: "u4" });
+    mockDb.updateWhere.mockResolvedValue(undefined);
 
     const formData = new FormData();
     formData.set("token", "raw-reset-token");
@@ -188,13 +189,13 @@ describe("password reset server actions", () => {
     formData.set("confirmPassword", "NewPassw0rd");
 
     const result = await updatePassword({ success: false, error: null }, formData);
+
     expect(result).toEqual({ success: true });
 
-    const updateArgs = dbMock.user.update.mock.calls[0]?.[0];
-    // emailVerified should be omitted (undefined) when already verified.
-    expect(updateArgs.data.emailVerified).toBeUndefined();
-    expect(updateArgs.data.emailVerifyToken).toBeNull();
-    expect(updateArgs.data.emailVerifyTokenExpiry).toBeNull();
+    const updateData = mockDb.updateSet.mock.calls[0]?.[0];
+    expect(updateData.emailVerified).toBeUndefined();
+    expect(updateData.emailVerifyToken).toBeNull();
+    expect(updateData.emailVerifyTokenExpiry).toBeNull();
   });
 
   it("updatePassword rejects reusing the current password", async () => {
@@ -203,8 +204,7 @@ describe("password reset server actions", () => {
       email: "user@example.com",
       passwordHash: "old-hash",
     });
-
-    (bcrypt.compare as jest.Mock).mockResolvedValue(true); // newPassword matches old hash
+    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
     const formData = new FormData();
     formData.set("token", "raw-reset-token");
@@ -215,7 +215,7 @@ describe("password reset server actions", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/different from the current password/i);
-    expect(dbMock.user.update).not.toHaveBeenCalled();
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("updatePassword fails cleanly when token is missing", async () => {

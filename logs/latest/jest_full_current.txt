@@ -1,0 +1,1394 @@
+FAIL src/__tests__/admin-users.route.test.ts (8.759 s)
+  ● admin users route › prevents a non-primary admin from moderating another admin
+
+    Failed query: select "id", "username", "email", "role", "banned", "isPrimaryAdmin", "updatedAt" from "User" where "User"."id" = $1 limit $2
+    params: admin-3,1
+
+    [0m [90m 30 |[39m   [36mconst[39m nextBanned [33m=[39m action [33m===[39m [32m"ban"[39m[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                          [31m[1m^[22m[39m
+     [90m 33 |[39m     [33m.[39mselect({
+     [90m 34 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 35 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/users/route.ts:32:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:69:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 30 |[39m   [36mconst[39m nextBanned [33m=[39m action [33m===[39m [32m"ban"[39m[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                          [31m[1m^[22m[39m
+     [90m 33 |[39m     [33m.[39mselect({
+     [90m 34 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 35 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/users/route.ts:32:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:69:22)
+
+  ● admin users route › removes admin access for a non-primary admin
+
+    Failed query: select "id", "username", "email", "role", "isPrimaryAdmin" from "User" where "User"."id" = $1 limit $2
+    params: admin-2,1
+
+    [0m [90m 114 |[39m   }
+     [90m 115 |[39m
+    [31m[1m>[22m[39m[90m 116 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m     |[39m                          [31m[1m^[22m[39m
+     [90m 117 |[39m     [33m.[39mselect({
+     [90m 118 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 119 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at DELETE (src/app/api/admin/users/route.ts:116:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:109:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 114 |[39m   }
+     [90m 115 |[39m
+    [31m[1m>[22m[39m[90m 116 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m     |[39m                          [31m[1m^[22m[39m
+     [90m 117 |[39m     [33m.[39mselect({
+     [90m 118 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 119 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at DELETE (src/app/api/admin/users/route.ts:116:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:109:22)
+
+  ● admin users route › rejects deleting the primary admin through the admin removal endpoint
+
+    Failed query: select "id", "username", "email", "role", "isPrimaryAdmin" from "User" where "User"."id" = $1 limit $2
+    params: admin-1,1
+
+    [0m [90m 114 |[39m   }
+     [90m 115 |[39m
+    [31m[1m>[22m[39m[90m 116 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m     |[39m                          [31m[1m^[22m[39m
+     [90m 117 |[39m     [33m.[39mselect({
+     [90m 118 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 119 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at DELETE (src/app/api/admin/users/route.ts:116:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:166:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 114 |[39m   }
+     [90m 115 |[39m
+    [31m[1m>[22m[39m[90m 116 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m     |[39m                          [31m[1m^[22m[39m
+     [90m 117 |[39m     [33m.[39mselect({
+     [90m 118 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 119 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at DELETE (src/app/api/admin/users/route.ts:116:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:166:22)
+
+FAIL src/__tests__/reset-password.actions.test.ts
+  ● password reset server actions › resetPassword returns success even if user not found (no enumeration)
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "success": true,
+    +   "error": "An error occurred. Please try again later.",
+    +   "success": false,
+      }
+
+    [0m [90m 107 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m resetPassword({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 108 |[39m
+    [31m[1m>[22m[39m[90m 109 |[39m     expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 110 |[39m     expect(sendPasswordResetEmail)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 111 |[39m     expect(generateResetToken)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 112 |[39m   })[33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/reset-password.actions.test.ts:109:20)
+
+  ● password reset server actions › resetPassword does not send email for social auth account (no passwordHash)
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "success": true,
+    +   "error": "An error occurred. Please try again later.",
+    +   "success": false,
+      }
+
+    [0m [90m 132 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m resetPassword({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 133 |[39m
+    [31m[1m>[22m[39m[90m 134 |[39m     expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 135 |[39m     expect(generateResetToken)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 136 |[39m     expect(sendPasswordResetEmail)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 137 |[39m   })[33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/reset-password.actions.test.ts:134:20)
+
+  ● password reset server actions › updatePassword updates hash and clears reset token once
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "success": true,
+    +   "error": "Something went wrong, please try again",
+    +   "success": false,
+      }
+
+    [0m [90m 154 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m updatePassword({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 155 |[39m
+    [31m[1m>[22m[39m[90m 156 |[39m     expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 157 |[39m     expect(dbMock[33m.[39m$transaction)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m 158 |[39m     expect(dbMock[33m.[39muser[33m.[39mupdate)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m 159 |[39m[0m
+
+      at Object.toEqual (src/__tests__/reset-password.actions.test.ts:156:20)
+
+  ● password reset server actions › updatePassword does not overwrite emailVerified if already verified
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "success": true,
+    +   "error": "Something went wrong, please try again",
+    +   "success": false,
+      }
+
+    [0m [90m 189 |[39m
+     [90m 190 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m updatePassword({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+    [31m[1m>[22m[39m[90m 191 |[39m     expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 192 |[39m
+     [90m 193 |[39m     [36mconst[39m updateArgs [33m=[39m dbMock[33m.[39muser[33m.[39mupdate[33m.[39mmock[33m.[39mcalls[[35m0[39m][33m?[39m[33m.[39m[[35m0[39m][33m;[39m
+     [90m 194 |[39m     [90m// emailVerified should be omitted (undefined) when already verified.[39m[0m
+
+      at Object.toEqual (src/__tests__/reset-password.actions.test.ts:191:20)
+
+FAIL src/__tests__/email-verification-otp.actions.test.ts
+  ● email verification OTP actions › requestEmailVerificationOtp › returns OTP_COOLDOWN with retryAfterSeconds during cooldown
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "OTP_COOLDOWN"
+    Received: "SERVER_ERROR"
+
+    [0m [90m 122 |[39m       expect(result[33m.[39msuccess)[33m.[39mtoBe([36mfalse[39m)[33m;[39m
+     [90m 123 |[39m       [36mif[39m ([33m![39mresult[33m.[39msuccess) {
+    [31m[1m>[22m[39m[90m 124 |[39m         expect(result[33m.[39merror)[33m.[39mtoBe([32m"OTP_COOLDOWN"[39m)[33m;[39m
+     [90m     |[39m                              [31m[1m^[22m[39m
+     [90m 125 |[39m         expect([32m"retryAfterSeconds"[39m [36min[39m result [33m?[39m result[33m.[39mretryAfterSeconds [33m:[39m [35m0[39m)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+     [90m 126 |[39m       }
+     [90m 127 |[39m       expect(dbMock[33m.[39muser[33m.[39mupdate)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m[0m
+
+      at Object.toBe (src/__tests__/email-verification-otp.actions.test.ts:124:30)
+
+  ● email verification OTP actions › requestEmailVerificationOtp › sends OTP and stores hashed OTP for pendingEmail destination
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+    [0m [90m 146 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m requestEmailVerificationOtp()[33m;[39m
+     [90m 147 |[39m
+    [31m[1m>[22m[39m[90m 148 |[39m       expect(result[33m.[39msuccess)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+     [90m     |[39m                              [31m[1m^[22m[39m
+     [90m 149 |[39m       [36mif[39m (result[33m.[39msuccess) {
+     [90m 150 |[39m         expect([36mtypeof[39m result[33m.[39msentAt)[33m.[39mtoBe([32m"string"[39m)[33m;[39m
+     [90m 151 |[39m       }[0m
+
+      at Object.toBe (src/__tests__/email-verification-otp.actions.test.ts:148:30)
+
+  ● email verification OTP actions › verifyEmailOtp › on expired OTP: clears OTP and cancels any in-progress email change
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Object {
+    -   "error": "OTP_EXPIRED",
+    +   "error": "SERVER_ERROR",
+        "success": false,
+      }
+
+    [0m [90m 202 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m verifyEmailOtp({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 203 |[39m
+    [31m[1m>[22m[39m[90m 204 |[39m       expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [32m"OTP_EXPIRED"[39m })[33m;[39m
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 205 |[39m       expect(dbMock[33m.[39muser[33m.[39mupdate)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m 206 |[39m
+     [90m 207 |[39m       [36mconst[39m updateArgs [33m=[39m dbMock[33m.[39muser[33m.[39mupdate[33m.[39mmock[33m.[39mcalls[[35m0[39m][33m?[39m[33m.[39m[[35m0[39m][33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/email-verification-otp.actions.test.ts:204:22)
+
+  ● email verification OTP actions › verifyEmailOtp › on too many attempts: cancels request and clears OTP state
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Object {
+    -   "error": "TOO_MANY_ATTEMPTS",
+    +   "error": "SERVER_ERROR",
+        "success": false,
+      }
+
+    [0m [90m 236 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m verifyEmailOtp({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 237 |[39m
+    [31m[1m>[22m[39m[90m 238 |[39m       expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [32m"TOO_MANY_ATTEMPTS"[39m })[33m;[39m
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 239 |[39m
+     [90m 240 |[39m       [90m// When lockout triggers, it should clear OTP + pending email.[39m
+     [90m 241 |[39m       [36mconst[39m updateArgs [33m=[39m dbMock[33m.[39muser[33m.[39mupdate[33m.[39mmock[33m.[39mcalls[[35m0[39m][33m?[39m[33m.[39m[[35m0[39m][33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/email-verification-otp.actions.test.ts:238:22)
+
+  ● email verification OTP actions › verifyEmailOtp › verifies OTP (redirect=false) and applies pending email
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+    -   "error": null,
+    -   "success": true,
+    +   "error": "SERVER_ERROR",
+    +   "success": false,
+      }
+
+    [0m [90m 275 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m verifyEmailOtp({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 276 |[39m
+    [31m[1m>[22m[39m[90m 277 |[39m       expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m[33m,[39m error[33m:[39m [36mnull[39m })[33m;[39m
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 278 |[39m
+     [90m 279 |[39m       [36mconst[39m updateArgs [33m=[39m dbMock[33m.[39muser[33m.[39mupdate[33m.[39mmock[33m.[39mcalls[[35m0[39m][33m?[39m[33m.[39m[[35m0[39m][33m;[39m
+     [90m 280 |[39m       expect(updateArgs[33m.[39mdata[33m.[39memail)[33m.[39mtoBe([32m"new@example.com"[39m)[33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/email-verification-otp.actions.test.ts:277:22)
+
+  ● email verification OTP actions › verifyEmailOtp › returns EMAIL_ALREADY_IN_USE when destination email conflicts
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Object {
+    -   "error": "EMAIL_ALREADY_IN_USE",
+    +   "error": "SERVER_ERROR",
+        "success": false,
+      }
+
+    [0m [90m 313 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m verifyEmailOtp({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 314 |[39m
+    [31m[1m>[22m[39m[90m 315 |[39m       expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [32m"EMAIL_ALREADY_IN_USE"[39m })[33m;[39m
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 316 |[39m       expect(dbMock[33m.[39muser[33m.[39mupdate)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 317 |[39m     })[33m;[39m
+     [90m 318 |[39m   })[33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/email-verification-otp.actions.test.ts:315:22)
+
+FAIL src/__tests__/admin-feedback.route.test.ts
+  ● admin feedback route › updates feedback status without creating a user notice
+
+    Failed query: select "UserFeedback"."id", "UserFeedback"."userId", "UserFeedback"."subject", "UserFeedback"."status", "User"."username", "User"."email" from "UserFeedback" inner join "User" on "UserFeedback"."userId" = "User"."id" where "UserFeedback"."id" = $1 limit $2
+    params: feedback-1,1
+
+    [0m [90m 52 |[39m   }
+     [90m 53 |[39m
+    [31m[1m>[22m[39m[90m 54 |[39m   [36mconst[39m feedbackRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                        [31m[1m^[22m[39m
+     [90m 55 |[39m     [33m.[39mselect({
+     [90m 56 |[39m       id[33m:[39m userFeedback[33m.[39mid[33m,[39m
+     [90m 57 |[39m       userId[33m:[39m userFeedback[33m.[39muserId[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/feedback/route.ts:54:24)
+      at Object.<anonymous> (src/__tests__/admin-feedback.route.test.ts:110:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 52 |[39m   }
+     [90m 53 |[39m
+    [31m[1m>[22m[39m[90m 54 |[39m   [36mconst[39m feedbackRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                        [31m[1m^[22m[39m
+     [90m 55 |[39m     [33m.[39mselect({
+     [90m 56 |[39m       id[33m:[39m userFeedback[33m.[39mid[33m,[39m
+     [90m 57 |[39m       userId[33m:[39m userFeedback[33m.[39muserId[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/feedback/route.ts:54:24)
+      at Object.<anonymous> (src/__tests__/admin-feedback.route.test.ts:110:22)
+
+  ● admin feedback route › creates a notice and audit entry when replying to feedback
+
+    Failed query: select "UserFeedback"."id", "UserFeedback"."userId", "UserFeedback"."subject", "UserFeedback"."status", "User"."username", "User"."email" from "UserFeedback" inner join "User" on "UserFeedback"."userId" = "User"."id" where "UserFeedback"."id" = $1 limit $2
+    params: feedback-2,1
+
+    [0m [90m 52 |[39m   }
+     [90m 53 |[39m
+    [31m[1m>[22m[39m[90m 54 |[39m   [36mconst[39m feedbackRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                        [31m[1m^[22m[39m
+     [90m 55 |[39m     [33m.[39mselect({
+     [90m 56 |[39m       id[33m:[39m userFeedback[33m.[39mid[33m,[39m
+     [90m 57 |[39m       userId[33m:[39m userFeedback[33m.[39muserId[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/feedback/route.ts:54:24)
+      at Object.<anonymous> (src/__tests__/admin-feedback.route.test.ts:176:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 52 |[39m   }
+     [90m 53 |[39m
+    [31m[1m>[22m[39m[90m 54 |[39m   [36mconst[39m feedbackRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                        [31m[1m^[22m[39m
+     [90m 55 |[39m     [33m.[39mselect({
+     [90m 56 |[39m       id[33m:[39m userFeedback[33m.[39mid[33m,[39m
+     [90m 57 |[39m       userId[33m:[39m userFeedback[33m.[39muserId[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/feedback/route.ts:54:24)
+      at Object.<anonymous> (src/__tests__/admin-feedback.route.test.ts:176:22)
+
+FAIL src/__tests__/shared-auth-banned.test.ts
+  ● shared auth guards for banned users › resolveExistingUserId returns null for banned users
+
+    expect(received).resolves.toBeNull()
+
+    Received promise rejected instead of resolved
+    Rejected to value: [Error: Failed query:·
+          SELECT "id", "banned"
+          FROM "User"
+          WHERE "id" = $1
+          LIMIT 1·····
+    params: u-banned]
+
+    [0m [90m 60 |[39m     dbMock[33m.[39muser[33m.[39mfindUnique[33m.[39mmockResolvedValue({ id[33m:[39m [32m"u-banned"[39m[33m,[39m banned[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m 61 |[39m
+    [31m[1m>[22m[39m[90m 62 |[39m     [36mawait[39m expect(resolveExistingUserId([32m"u-banned"[39m))[33m.[39mresolves[33m.[39mtoBeNull()[33m;[39m
+     [90m    |[39m           [31m[1m^[22m[39m
+     [90m 63 |[39m   })[33m;[39m
+     [90m 64 |[39m
+     [90m 65 |[39m   it([32m"authorizeRequest rejects a banned user from NextAuth token resolution"[39m[33m,[39m [36masync[39m () [33m=>[39m {[0m
+
+      at expect (node_modules/expect/build/index.js:113:15)
+      at Object.expect (src/__tests__/shared-auth-banned.test.ts:62:11)
+
+  ● shared auth guards for banned users › authorizeRequest allows an existing non-banned user
+
+    expect(received).resolves.toBe(expected) // Object.is equality
+
+    Expected: "u-ok"
+    Received: null
+
+    [0m [90m 79 |[39m     [36mconst[39m req [33m=[39m [36mnew[39m [33mNextRequest[39m([32m"http://localhost:3000/api/profile/progress"[39m)[33m;[39m
+     [90m 80 |[39m
+    [31m[1m>[22m[39m[90m 81 |[39m     [36mawait[39m expect(authorizeRequest(req))[33m.[39mresolves[33m.[39mtoBe([32m"u-ok"[39m)[33m;[39m
+     [90m    |[39m                                                  [31m[1m^[22m[39m
+     [90m 82 |[39m   })[33m;[39m
+     [90m 83 |[39m })[33m;[39m[0m
+
+      at Object.toBe (node_modules/expect/build/index.js:174:22)
+      at Object.toBe (src/__tests__/shared-auth-banned.test.ts:81:50)
+
+FAIL src/__tests__/flagging.test.ts
+  ● anti-cheat flagging › persists flags once the threshold is reached
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+    [0m [90m 28 |[39m     })[33m;[39m
+     [90m 29 |[39m
+    [31m[1m>[22m[39m[90m 30 |[39m     expect(result[33m.[39mpersisted)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+     [90m    |[39m                              [31m[1m^[22m[39m
+     [90m 31 |[39m     expect(upsert)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m 32 |[39m   })[33m;[39m
+     [90m 33 |[39m[0m
+
+      at Object.toBe (src/__tests__/flagging.test.ts:30:30)
+
+  ● anti-cheat flagging › marks high-confidence assessments as sanction candidates without banning
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+    [0m [90m 43 |[39m
+     [90m 44 |[39m     expect(result[33m.[39mwouldSanction)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 45 |[39m     expect(upsert)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m    |[39m                    [31m[1m^[22m[39m
+     [90m 46 |[39m   })[33m;[39m
+     [90m 47 |[39m })[33m;[39m[0m
+
+      at Object.toHaveBeenCalledTimes (src/__tests__/flagging.test.ts:45:20)
+
+PASS services/pvp-gateway/src/__tests__/pvp-leaderboard-cache.test.ts (6.857 s)
+PASS services/pvp-gateway/src/__tests__/pvp-self-cache.test.ts
+PASS src/features/level/hooks/useChallengeHandler.test.tsx
+  ● Console
+
+    console.debug
+      [2026-03-22T23:44:00.652Z] DEBUG [CHALLENGE] - No challenge or user ID - skipping challenge update
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:00.796Z] DEBUG [CHALLENGE] - Applied optimistic challenge update
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:00.798Z] DEBUG [CHALLENGE] - Challenge update completed successfully
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:00.859Z] INFO [CHALLENGE] - Daily challenge completed
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:00.860Z] DEBUG [CHALLENGE] - Challenge update operation completed
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:00.864Z] DEBUG [CHALLENGE] - Applied optimistic challenge update
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:00.865Z] DEBUG [CHALLENGE] - Challenge update completed successfully
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:00.865Z] DEBUG [CHALLENGE] - Daily challenge progress updated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:00.866Z] DEBUG [CHALLENGE] - Challenge update operation completed
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+PASS services/pvp-gateway/src/__tests__/pvp-input-update.test.ts
+PASS src/__tests__/xpCalculations.mythic.test.ts
+  ● Console
+
+    console.debug
+      [2026-03-22T23:44:03.737Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.771Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.824Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.826Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.828Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.829Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.833Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.835Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.837Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.839Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.842Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.843Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.845Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.846Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.848Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.849Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.854Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.855Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.858Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.928Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.931Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.932Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.933Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.934Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.936Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.937Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.939Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.942Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.944Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.945Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.948Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.967Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.969Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.970Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.973Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:03.974Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:03.977Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.044Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.046Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.047Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.048Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.050Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.052Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.053Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.054Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.055Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.057Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.058Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.059Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.061Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.062Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.063Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.065Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.065Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.067Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.068Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.069Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.070Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.debug
+      [2026-03-22T23:44:04.072Z] DEBUG [PERF] - Starting XP calculation
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+    console.info
+      [2026-03-22T23:44:04.073Z] INFO [XP] - Session XP calculated
+
+      at ClientLogger.consoleMethod [as log] (src/log/clientLogger.ts:128:7)
+
+PASS services/pvp-gateway/src/__tests__/metrics.test.ts
+PASS services/pvp-gateway/src/__tests__/ws-schemas.test.ts
+PASS services/pvp-gateway/src/__tests__/match-lock.test.ts
+PASS services/pvp-gateway/src/__tests__/match-aggregate.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-integration-flows.test.ts
+PASS src/__tests__/ranking.rating.test.ts
+PASS src/__tests__/challenge-schemas.test.ts
+PASS src/components/TypingTest/__tests__/keyboardPerformance.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-message-batcher.test.ts
+PASS src/components/TypingTest/__tests__/overallKeyboardPerformance.test.ts
+PASS services/pvp-gateway/src/__tests__/health.test.ts
+PASS services/pvp-gateway/src/__tests__/queue-adapter.test.ts
+PASS services/pvp-gateway/src/__tests__/text-selection.test.ts
+PASS src/__tests__/sanitize.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-error-utils.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-api-schemas.test.ts
+PASS services/pvp-gateway/src/__tests__/replay.test.ts
+PASS src/__tests__/anomaly.test.ts
+PASS src/features/typing/utils/__tests__/performance-intelligence.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-idempotency.test.ts
+PASS src/__tests__/level.reducer.test.ts
+PASS src/__tests__/api-session-banned.test.ts
+PASS src/features/typing/utils/__tests__/activity-strength.test.ts
+PASS src/features/level/utils/challengeHelpers.test.ts
+PASS services/pvp-gateway/src/__tests__/matchmaking-lua.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-queue.integration.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-match-fsm.test.ts
+PASS src/features/typing/utils/__tests__/consistency.test.ts
+PASS services/pvp-gateway/src/__tests__/participant-stats.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-events.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-match-access.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-room-lifecycle.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-fingerprint.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-matchmaking-bands.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-match-sync.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-metrics.test.ts
+PASS src/features/level/services/dailyChallengeService.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-disconnect-forfeit.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-match-session-guards.test.ts
+PASS services/pvp-gateway/src/__tests__/pvp-disconnect-sequencing.test.ts
+FAIL services/pvp-gateway/src/__tests__/input-flush-coordinator.test.ts
+  ● Test suite failed to run
+
+    TypeError: crypto.randomUUID is not a function
+
+    [0m [90m 92 |[39m [90m * multiple gateway replicas.[39m
+     [90m 93 |[39m [90m */[39m
+    [31m[1m>[22m[39m[90m 94 |[39m [36mexport[39m [36mconst[39m [33mINSTANCE_ID[39m [33m=[39m process[33m.[39menv[33m.[39m[33mPVP_INSTANCE_ID[39m [33m?[39m[33m?[39m crypto[33m.[39mrandomUUID()[33m;[39m
+     [90m    |[39m                                                                  [31m[1m^[22m[39m
+     [90m 95 |[39m
+     [90m 96 |[39m [90m/**[39m
+     [90m 97 |[39m [90m * Auth-bypass mode for testing — set `PVP_TEST_BYPASS_AUTH=true` and ensure[39m[0m
+
+      at Object.randomUUID (services/pvp-gateway/src/shared/config.ts:94:66)
+      at Object.<anonymous> (services/pvp-gateway/src/shared/logger.ts:51:17)
+      at Object.<anonymous> (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:48:17)
+      at Object.<anonymous> (services/pvp-gateway/src/__tests__/input-flush-coordinator.test.ts:19:32)
+
+Summary of all failing tests
+FAIL src/__tests__/admin-users.route.test.ts (8.759 s)
+  ● admin users route › prevents a non-primary admin from moderating another admin
+
+    Failed query: select "id", "username", "email", "role", "banned", "isPrimaryAdmin", "updatedAt" from "User" where "User"."id" = $1 limit $2
+    params: admin-3,1
+
+    [0m [90m 30 |[39m   [36mconst[39m nextBanned [33m=[39m action [33m===[39m [32m"ban"[39m[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                          [31m[1m^[22m[39m
+     [90m 33 |[39m     [33m.[39mselect({
+     [90m 34 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 35 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/users/route.ts:32:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:69:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 30 |[39m   [36mconst[39m nextBanned [33m=[39m action [33m===[39m [32m"ban"[39m[33m;[39m
+     [90m 31 |[39m
+    [31m[1m>[22m[39m[90m 32 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                          [31m[1m^[22m[39m
+     [90m 33 |[39m     [33m.[39mselect({
+     [90m 34 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 35 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/users/route.ts:32:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:69:22)
+
+  ● admin users route › removes admin access for a non-primary admin
+
+    Failed query: select "id", "username", "email", "role", "isPrimaryAdmin" from "User" where "User"."id" = $1 limit $2
+    params: admin-2,1
+
+    [0m [90m 114 |[39m   }
+     [90m 115 |[39m
+    [31m[1m>[22m[39m[90m 116 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m     |[39m                          [31m[1m^[22m[39m
+     [90m 117 |[39m     [33m.[39mselect({
+     [90m 118 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 119 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at DELETE (src/app/api/admin/users/route.ts:116:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:109:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 114 |[39m   }
+     [90m 115 |[39m
+    [31m[1m>[22m[39m[90m 116 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m     |[39m                          [31m[1m^[22m[39m
+     [90m 117 |[39m     [33m.[39mselect({
+     [90m 118 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 119 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at DELETE (src/app/api/admin/users/route.ts:116:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:109:22)
+
+  ● admin users route › rejects deleting the primary admin through the admin removal endpoint
+
+    Failed query: select "id", "username", "email", "role", "isPrimaryAdmin" from "User" where "User"."id" = $1 limit $2
+    params: admin-1,1
+
+    [0m [90m 114 |[39m   }
+     [90m 115 |[39m
+    [31m[1m>[22m[39m[90m 116 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m     |[39m                          [31m[1m^[22m[39m
+     [90m 117 |[39m     [33m.[39mselect({
+     [90m 118 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 119 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at DELETE (src/app/api/admin/users/route.ts:116:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:166:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 114 |[39m   }
+     [90m 115 |[39m
+    [31m[1m>[22m[39m[90m 116 |[39m   [36mconst[39m targetUserRows [33m=[39m [36mawait[39m db
+     [90m     |[39m                          [31m[1m^[22m[39m
+     [90m 117 |[39m     [33m.[39mselect({
+     [90m 118 |[39m       id[33m:[39m users[33m.[39mid[33m,[39m
+     [90m 119 |[39m       username[33m:[39m users[33m.[39musername[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at DELETE (src/app/api/admin/users/route.ts:116:26)
+      at Object.<anonymous> (src/__tests__/admin-users.route.test.ts:166:22)
+
+FAIL src/__tests__/reset-password.actions.test.ts
+  ● password reset server actions › resetPassword returns success even if user not found (no enumeration)
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "success": true,
+    +   "error": "An error occurred. Please try again later.",
+    +   "success": false,
+      }
+
+    [0m [90m 107 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m resetPassword({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 108 |[39m
+    [31m[1m>[22m[39m[90m 109 |[39m     expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 110 |[39m     expect(sendPasswordResetEmail)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 111 |[39m     expect(generateResetToken)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 112 |[39m   })[33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/reset-password.actions.test.ts:109:20)
+
+  ● password reset server actions › resetPassword does not send email for social auth account (no passwordHash)
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "success": true,
+    +   "error": "An error occurred. Please try again later.",
+    +   "success": false,
+      }
+
+    [0m [90m 132 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m resetPassword({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 133 |[39m
+    [31m[1m>[22m[39m[90m 134 |[39m     expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 135 |[39m     expect(generateResetToken)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 136 |[39m     expect(sendPasswordResetEmail)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 137 |[39m   })[33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/reset-password.actions.test.ts:134:20)
+
+  ● password reset server actions › updatePassword updates hash and clears reset token once
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "success": true,
+    +   "error": "Something went wrong, please try again",
+    +   "success": false,
+      }
+
+    [0m [90m 154 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m updatePassword({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 155 |[39m
+    [31m[1m>[22m[39m[90m 156 |[39m     expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 157 |[39m     expect(dbMock[33m.[39m$transaction)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m 158 |[39m     expect(dbMock[33m.[39muser[33m.[39mupdate)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m 159 |[39m[0m
+
+      at Object.toEqual (src/__tests__/reset-password.actions.test.ts:156:20)
+
+  ● password reset server actions › updatePassword does not overwrite emailVerified if already verified
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "success": true,
+    +   "error": "Something went wrong, please try again",
+    +   "success": false,
+      }
+
+    [0m [90m 189 |[39m
+     [90m 190 |[39m     [36mconst[39m result [33m=[39m [36mawait[39m updatePassword({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+    [31m[1m>[22m[39m[90m 191 |[39m     expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m     |[39m                    [31m[1m^[22m[39m
+     [90m 192 |[39m
+     [90m 193 |[39m     [36mconst[39m updateArgs [33m=[39m dbMock[33m.[39muser[33m.[39mupdate[33m.[39mmock[33m.[39mcalls[[35m0[39m][33m?[39m[33m.[39m[[35m0[39m][33m;[39m
+     [90m 194 |[39m     [90m// emailVerified should be omitted (undefined) when already verified.[39m[0m
+
+      at Object.toEqual (src/__tests__/reset-password.actions.test.ts:191:20)
+
+FAIL src/__tests__/email-verification-otp.actions.test.ts
+  ● email verification OTP actions › requestEmailVerificationOtp › returns OTP_COOLDOWN with retryAfterSeconds during cooldown
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "OTP_COOLDOWN"
+    Received: "SERVER_ERROR"
+
+    [0m [90m 122 |[39m       expect(result[33m.[39msuccess)[33m.[39mtoBe([36mfalse[39m)[33m;[39m
+     [90m 123 |[39m       [36mif[39m ([33m![39mresult[33m.[39msuccess) {
+    [31m[1m>[22m[39m[90m 124 |[39m         expect(result[33m.[39merror)[33m.[39mtoBe([32m"OTP_COOLDOWN"[39m)[33m;[39m
+     [90m     |[39m                              [31m[1m^[22m[39m
+     [90m 125 |[39m         expect([32m"retryAfterSeconds"[39m [36min[39m result [33m?[39m result[33m.[39mretryAfterSeconds [33m:[39m [35m0[39m)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+     [90m 126 |[39m       }
+     [90m 127 |[39m       expect(dbMock[33m.[39muser[33m.[39mupdate)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m[0m
+
+      at Object.toBe (src/__tests__/email-verification-otp.actions.test.ts:124:30)
+
+  ● email verification OTP actions › requestEmailVerificationOtp › sends OTP and stores hashed OTP for pendingEmail destination
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+    [0m [90m 146 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m requestEmailVerificationOtp()[33m;[39m
+     [90m 147 |[39m
+    [31m[1m>[22m[39m[90m 148 |[39m       expect(result[33m.[39msuccess)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+     [90m     |[39m                              [31m[1m^[22m[39m
+     [90m 149 |[39m       [36mif[39m (result[33m.[39msuccess) {
+     [90m 150 |[39m         expect([36mtypeof[39m result[33m.[39msentAt)[33m.[39mtoBe([32m"string"[39m)[33m;[39m
+     [90m 151 |[39m       }[0m
+
+      at Object.toBe (src/__tests__/email-verification-otp.actions.test.ts:148:30)
+
+  ● email verification OTP actions › verifyEmailOtp › on expired OTP: clears OTP and cancels any in-progress email change
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Object {
+    -   "error": "OTP_EXPIRED",
+    +   "error": "SERVER_ERROR",
+        "success": false,
+      }
+
+    [0m [90m 202 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m verifyEmailOtp({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 203 |[39m
+    [31m[1m>[22m[39m[90m 204 |[39m       expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [32m"OTP_EXPIRED"[39m })[33m;[39m
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 205 |[39m       expect(dbMock[33m.[39muser[33m.[39mupdate)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m 206 |[39m
+     [90m 207 |[39m       [36mconst[39m updateArgs [33m=[39m dbMock[33m.[39muser[33m.[39mupdate[33m.[39mmock[33m.[39mcalls[[35m0[39m][33m?[39m[33m.[39m[[35m0[39m][33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/email-verification-otp.actions.test.ts:204:22)
+
+  ● email verification OTP actions › verifyEmailOtp › on too many attempts: cancels request and clears OTP state
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Object {
+    -   "error": "TOO_MANY_ATTEMPTS",
+    +   "error": "SERVER_ERROR",
+        "success": false,
+      }
+
+    [0m [90m 236 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m verifyEmailOtp({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 237 |[39m
+    [31m[1m>[22m[39m[90m 238 |[39m       expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [32m"TOO_MANY_ATTEMPTS"[39m })[33m;[39m
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 239 |[39m
+     [90m 240 |[39m       [90m// When lockout triggers, it should clear OTP + pending email.[39m
+     [90m 241 |[39m       [36mconst[39m updateArgs [33m=[39m dbMock[33m.[39muser[33m.[39mupdate[33m.[39mmock[33m.[39mcalls[[35m0[39m][33m?[39m[33m.[39m[[35m0[39m][33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/email-verification-otp.actions.test.ts:238:22)
+
+  ● email verification OTP actions › verifyEmailOtp › verifies OTP (redirect=false) and applies pending email
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+    -   "error": null,
+    -   "success": true,
+    +   "error": "SERVER_ERROR",
+    +   "success": false,
+      }
+
+    [0m [90m 275 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m verifyEmailOtp({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 276 |[39m
+    [31m[1m>[22m[39m[90m 277 |[39m       expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mtrue[39m[33m,[39m error[33m:[39m [36mnull[39m })[33m;[39m
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 278 |[39m
+     [90m 279 |[39m       [36mconst[39m updateArgs [33m=[39m dbMock[33m.[39muser[33m.[39mupdate[33m.[39mmock[33m.[39mcalls[[35m0[39m][33m?[39m[33m.[39m[[35m0[39m][33m;[39m
+     [90m 280 |[39m       expect(updateArgs[33m.[39mdata[33m.[39memail)[33m.[39mtoBe([32m"new@example.com"[39m)[33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/email-verification-otp.actions.test.ts:277:22)
+
+  ● email verification OTP actions › verifyEmailOtp › returns EMAIL_ALREADY_IN_USE when destination email conflicts
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Object {
+    -   "error": "EMAIL_ALREADY_IN_USE",
+    +   "error": "SERVER_ERROR",
+        "success": false,
+      }
+
+    [0m [90m 313 |[39m       [36mconst[39m result [33m=[39m [36mawait[39m verifyEmailOtp({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [36mnull[39m }[33m,[39m formData)[33m;[39m
+     [90m 314 |[39m
+    [31m[1m>[22m[39m[90m 315 |[39m       expect(result)[33m.[39mtoEqual({ success[33m:[39m [36mfalse[39m[33m,[39m error[33m:[39m [32m"EMAIL_ALREADY_IN_USE"[39m })[33m;[39m
+     [90m     |[39m                      [31m[1m^[22m[39m
+     [90m 316 |[39m       expect(dbMock[33m.[39muser[33m.[39mupdate)[33m.[39mnot[33m.[39mtoHaveBeenCalled()[33m;[39m
+     [90m 317 |[39m     })[33m;[39m
+     [90m 318 |[39m   })[33m;[39m[0m
+
+      at Object.toEqual (src/__tests__/email-verification-otp.actions.test.ts:315:22)
+
+FAIL src/__tests__/admin-feedback.route.test.ts
+  ● admin feedback route › updates feedback status without creating a user notice
+
+    Failed query: select "UserFeedback"."id", "UserFeedback"."userId", "UserFeedback"."subject", "UserFeedback"."status", "User"."username", "User"."email" from "UserFeedback" inner join "User" on "UserFeedback"."userId" = "User"."id" where "UserFeedback"."id" = $1 limit $2
+    params: feedback-1,1
+
+    [0m [90m 52 |[39m   }
+     [90m 53 |[39m
+    [31m[1m>[22m[39m[90m 54 |[39m   [36mconst[39m feedbackRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                        [31m[1m^[22m[39m
+     [90m 55 |[39m     [33m.[39mselect({
+     [90m 56 |[39m       id[33m:[39m userFeedback[33m.[39mid[33m,[39m
+     [90m 57 |[39m       userId[33m:[39m userFeedback[33m.[39muserId[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/feedback/route.ts:54:24)
+      at Object.<anonymous> (src/__tests__/admin-feedback.route.test.ts:110:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 52 |[39m   }
+     [90m 53 |[39m
+    [31m[1m>[22m[39m[90m 54 |[39m   [36mconst[39m feedbackRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                        [31m[1m^[22m[39m
+     [90m 55 |[39m     [33m.[39mselect({
+     [90m 56 |[39m       id[33m:[39m userFeedback[33m.[39mid[33m,[39m
+     [90m 57 |[39m       userId[33m:[39m userFeedback[33m.[39muserId[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/feedback/route.ts:54:24)
+      at Object.<anonymous> (src/__tests__/admin-feedback.route.test.ts:110:22)
+
+  ● admin feedback route › creates a notice and audit entry when replying to feedback
+
+    Failed query: select "UserFeedback"."id", "UserFeedback"."userId", "UserFeedback"."subject", "UserFeedback"."status", "User"."username", "User"."email" from "UserFeedback" inner join "User" on "UserFeedback"."userId" = "User"."id" where "UserFeedback"."id" = $1 limit $2
+    params: feedback-2,1
+
+    [0m [90m 52 |[39m   }
+     [90m 53 |[39m
+    [31m[1m>[22m[39m[90m 54 |[39m   [36mconst[39m feedbackRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                        [31m[1m^[22m[39m
+     [90m 55 |[39m     [33m.[39mselect({
+     [90m 56 |[39m       id[33m:[39m userFeedback[33m.[39mid[33m,[39m
+     [90m 57 |[39m       userId[33m:[39m userFeedback[33m.[39muserId[33m,[39m[0m
+
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:73:11)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/feedback/route.ts:54:24)
+      at Object.<anonymous> (src/__tests__/admin-feedback.route.test.ts:176:22)
+
+    Cause:
+    NeonDbError: Error connecting to database: TypeError: fetch failed
+
+    [0m [90m 52 |[39m   }
+     [90m 53 |[39m
+    [31m[1m>[22m[39m[90m 54 |[39m   [36mconst[39m feedbackRows [33m=[39m [36mawait[39m db
+     [90m    |[39m                        [31m[1m^[22m[39m
+     [90m 55 |[39m     [33m.[39mselect({
+     [90m 56 |[39m       id[33m:[39m userFeedback[33m.[39mid[33m,[39m
+     [90m 57 |[39m       userId[33m:[39m userFeedback[33m.[39muserId[33m,[39m[0m
+
+      at mr.execute (node_modules/@neondatabase/serverless/index.js:1294:95)
+      at node_modules/src/neon-http/session.ts:84:11
+      at NeonHttpPreparedQuery.queryWithCache (node_modules/src/pg-core/session.ts:71:12)
+      at NeonHttpPreparedQuery.execute (node_modules/src/neon-http/session.ts:83:18)
+      at PATCH (src/app/api/admin/feedback/route.ts:54:24)
+      at Object.<anonymous> (src/__tests__/admin-feedback.route.test.ts:176:22)
+
+FAIL src/__tests__/shared-auth-banned.test.ts
+  ● shared auth guards for banned users › resolveExistingUserId returns null for banned users
+
+    expect(received).resolves.toBeNull()
+
+    Received promise rejected instead of resolved
+    Rejected to value: [Error: Failed query:·
+          SELECT "id", "banned"
+          FROM "User"
+          WHERE "id" = $1
+          LIMIT 1·····
+    params: u-banned]
+
+    [0m [90m 60 |[39m     dbMock[33m.[39muser[33m.[39mfindUnique[33m.[39mmockResolvedValue({ id[33m:[39m [32m"u-banned"[39m[33m,[39m banned[33m:[39m [36mtrue[39m })[33m;[39m
+     [90m 61 |[39m
+    [31m[1m>[22m[39m[90m 62 |[39m     [36mawait[39m expect(resolveExistingUserId([32m"u-banned"[39m))[33m.[39mresolves[33m.[39mtoBeNull()[33m;[39m
+     [90m    |[39m           [31m[1m^[22m[39m
+     [90m 63 |[39m   })[33m;[39m
+     [90m 64 |[39m
+     [90m 65 |[39m   it([32m"authorizeRequest rejects a banned user from NextAuth token resolution"[39m[33m,[39m [36masync[39m () [33m=>[39m {[0m
+
+      at expect (node_modules/expect/build/index.js:113:15)
+      at Object.expect (src/__tests__/shared-auth-banned.test.ts:62:11)
+
+  ● shared auth guards for banned users › authorizeRequest allows an existing non-banned user
+
+    expect(received).resolves.toBe(expected) // Object.is equality
+
+    Expected: "u-ok"
+    Received: null
+
+    [0m [90m 79 |[39m     [36mconst[39m req [33m=[39m [36mnew[39m [33mNextRequest[39m([32m"http://localhost:3000/api/profile/progress"[39m)[33m;[39m
+     [90m 80 |[39m
+    [31m[1m>[22m[39m[90m 81 |[39m     [36mawait[39m expect(authorizeRequest(req))[33m.[39mresolves[33m.[39mtoBe([32m"u-ok"[39m)[33m;[39m
+     [90m    |[39m                                                  [31m[1m^[22m[39m
+     [90m 82 |[39m   })[33m;[39m
+     [90m 83 |[39m })[33m;[39m[0m
+
+      at Object.toBe (node_modules/expect/build/index.js:174:22)
+      at Object.toBe (src/__tests__/shared-auth-banned.test.ts:81:50)
+
+FAIL src/__tests__/flagging.test.ts
+  ● anti-cheat flagging › persists flags once the threshold is reached
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+    [0m [90m 28 |[39m     })[33m;[39m
+     [90m 29 |[39m
+    [31m[1m>[22m[39m[90m 30 |[39m     expect(result[33m.[39mpersisted)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+     [90m    |[39m                              [31m[1m^[22m[39m
+     [90m 31 |[39m     expect(upsert)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m 32 |[39m   })[33m;[39m
+     [90m 33 |[39m[0m
+
+      at Object.toBe (src/__tests__/flagging.test.ts:30:30)
+
+  ● anti-cheat flagging › marks high-confidence assessments as sanction candidates without banning
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+    [0m [90m 43 |[39m
+     [90m 44 |[39m     expect(result[33m.[39mwouldSanction)[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 45 |[39m     expect(upsert)[33m.[39mtoHaveBeenCalledTimes([35m1[39m)[33m;[39m
+     [90m    |[39m                    [31m[1m^[22m[39m
+     [90m 46 |[39m   })[33m;[39m
+     [90m 47 |[39m })[33m;[39m[0m
+
+      at Object.toHaveBeenCalledTimes (src/__tests__/flagging.test.ts:45:20)
+
+FAIL services/pvp-gateway/src/__tests__/input-flush-coordinator.test.ts
+  ● Test suite failed to run
+
+    TypeError: crypto.randomUUID is not a function
+
+    [0m [90m 92 |[39m [90m * multiple gateway replicas.[39m
+     [90m 93 |[39m [90m */[39m
+    [31m[1m>[22m[39m[90m 94 |[39m [36mexport[39m [36mconst[39m [33mINSTANCE_ID[39m [33m=[39m process[33m.[39menv[33m.[39m[33mPVP_INSTANCE_ID[39m [33m?[39m[33m?[39m crypto[33m.[39mrandomUUID()[33m;[39m
+     [90m    |[39m                                                                  [31m[1m^[22m[39m
+     [90m 95 |[39m
+     [90m 96 |[39m [90m/**[39m
+     [90m 97 |[39m [90m * Auth-bypass mode for testing — set `PVP_TEST_BYPASS_AUTH=true` and ensure[39m[0m
+
+      at Object.randomUUID (services/pvp-gateway/src/shared/config.ts:94:66)
+      at Object.<anonymous> (services/pvp-gateway/src/shared/logger.ts:51:17)
+      at Object.<anonymous> (services/pvp-gateway/src/infrastructure/input-flush-coordinator.ts:48:17)
+      at Object.<anonymous> (services/pvp-gateway/src/__tests__/input-flush-coordinator.test.ts:19:32)
+
+
+Test Suites: 7 failed, 45 passed, 52 total
+Tests:       19 failed, 245 passed, 264 total
+Snapshots:   0 total
+Time:        64.818 s, estimated 95 s
+Ran all test suites.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

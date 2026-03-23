@@ -77,7 +77,35 @@ export type QueueEntry = {
   connectionId?: string;
 };
 
-export class InMemoryState {
+export interface IState {
+  getMatch(matchId: string): MatchState | undefined;
+  setMatch(match: MatchState): void;
+  deleteMatch(matchId: string): void;
+  getAllMatches(): IterableIterator<MatchState>;
+
+  createLocalMatch(params: {
+    matchId: string;
+    roomCode: string | null;
+    users: Array<ConnectionUser & { slot: number }>;
+    serverStartAtMs: number;
+    initialState?: MatchLifecycleState;
+    textSnapshot?: string;
+    textId?: string | null;
+    inputNonce?: string | null;
+  }): MatchState;
+
+  getQueue(): QueueEntry[];
+  addToQueue(entry: QueueEntry): void;
+  removeFromQueue(userId: string): void;
+  clearQueueTimeout(userId: string): void;
+  setQueueTimeout(userId: string, handle: NodeJS.Timeout): void;
+
+  clearAiInterval(matchId: string): void;
+  setAiInterval(matchId: string, handle: NodeJS.Timeout): void;
+}
+
+export class InMemoryState implements IState {
+  // NOTE: these were made public to support usage patterns in index.ts; this avoids repeated API refactoring.
   queue: QueueEntry[] = [];
   matches = new Map<string, MatchState>();
 
@@ -86,11 +114,35 @@ export class InMemoryState {
   // matchId -> interval handle
   aiIntervals = new Map<string, NodeJS.Timeout>();
 
-  removeFromQueue(userId: string) {
+  getMatch(matchId: string): MatchState | undefined {
+    return this.matches.get(matchId);
+  }
+
+  setMatch(match: MatchState): void {
+    this.matches.set(match.matchId, match);
+  }
+
+  deleteMatch(matchId: string): void {
+    this.matches.delete(matchId);
+  }
+
+  getAllMatches(): IterableIterator<MatchState> {
+    return this.matches.values();
+  }
+
+  getQueue(): QueueEntry[] {
+    return this.queue;
+  }
+
+  addToQueue(entry: QueueEntry): void {
+    this.queue.push(entry);
+  }
+
+  removeFromQueue(userId: string): void {
     this.queue = this.queue.filter((e) => e.user.userId !== userId);
   }
 
-  clearQueueTimeout(userId: string) {
+  clearQueueTimeout(userId: string): void {
     const t = this.queueTimeouts.get(userId);
     if (t) {
       clearTimeout(t);
@@ -98,12 +150,22 @@ export class InMemoryState {
     }
   }
 
-  clearAiInterval(matchId: string) {
+  setQueueTimeout(userId: string, handle: NodeJS.Timeout): void {
+    this.clearQueueTimeout(userId);
+    this.queueTimeouts.set(userId, handle);
+  }
+
+  clearAiInterval(matchId: string): void {
     const t = this.aiIntervals.get(matchId);
     if (t) {
       clearInterval(t);
       this.aiIntervals.delete(matchId);
     }
+  }
+
+  setAiInterval(matchId: string, handle: NodeJS.Timeout): void {
+    this.clearAiInterval(matchId);
+    this.aiIntervals.set(matchId, handle);
   }
 
   createLocalMatch(params: {
@@ -161,6 +223,7 @@ export class InMemoryState {
       cleanupScheduledAtMs: null,
       reconnectUntilByUserId: {},
       recentDeltas: [],
+      tieWindowStartedAt: null,
     };
 
     this.matches.set(match.matchId, match);

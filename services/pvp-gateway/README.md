@@ -40,19 +40,15 @@ Multi-instance (optional):
 - `npm run pvp:gateway:start`
 
 Load testing:
-- `k6 run src/load-tests/pvp-websocket.js`
-- Windows PowerShell quick run (from repo root):
-	- `node logs/prepare_load_window.cjs`
-	- `$env:PVP_WS_URL="ws://127.0.0.1:8787"`
-	- `$env:PVP_WS_TOKENS_FILE="logs/pvp_ws_tokens_load_window.json"`
-	- `$env:PVP_FIXED_CLIENT_SECRET="k6loadwindowclientsecretfixed12345"`
-	- `$env:PVP_WS_USER_AGENT="k6-ai-stress/1.0"`
-	- `$env:PVP_WS_ORIGIN="http://localhost:3000"`
-	- `$env:PVP_TEST_FORCE_BOT_MATCH="true"`
-	- `$env:PVP_SESSION_TIMEOUT_MS="60000"`
-	- `k6 run src/load-tests/pvp-websocket.js`
-- Windows CMD quick run:
-	- `logs\run_verify_current.cmd`
+- Use the consolidated workspace in [load-tests/pvp-websocket/README.md](../../load-tests/pvp-websocket/README.md).
+- Primary entrypoints from the repo root:
+	- `node load-tests/pvp-websocket/prepare-load-window.cjs`
+	- `k6 run load-tests/pvp-websocket/pvp-websocket.js`
+	- `load-tests\pvp-websocket\run-verify-current.cmd`
+	- `load-tests\pvp-websocket\run-default-verify.cmd`
+	- `load-tests\pvp-websocket\run-ai-stress-verify.cmd`
+	- `load-tests\pvp-websocket\run-strict.cmd`
+- Latest websocket test artifacts now live under [load-tests/pvp-websocket/artifacts/latest](../../load-tests/pvp-websocket/artifacts/latest).
 
 ## Transport / edge protection
 - Production deployments should expose the gateway over **WSS only**.
@@ -130,6 +126,7 @@ Server sends:
 - Phase 2 introduces explicit lifecycle helpers, event hooks, and disconnect-forfeit handling groundwork, but it does not yet make live match state horizontally authoritative across gateway instances.
 
 ## Phase 3 load test notes
-- The websocket k6 script expects `PVP_WS_URL` and a pool of pre-issued auth tokens via `PVP_WS_TOKENS_JSON` (preferred) or `PVP_WS_TOKENS`.
+- The websocket k6 script expects `PVP_WS_URL` and a token pool prepared by [load-tests/pvp-websocket/prepare-load-window.cjs](../../load-tests/pvp-websocket/prepare-load-window.cjs).
 - Each virtual user opens a websocket, authenticates with `HELLO`, joins queue, joins the match, streams incremental `INPUT_UPDATE` messages, and finishes the race.
 - This is intended for gateway performance validation, not for minting tokens or browser-auth simulation.
+- The full setup, env matrix, artifact map, and validation commands are documented in [load-tests/pvp-websocket/README.md](../../load-tests/pvp-websocket/README.md).
