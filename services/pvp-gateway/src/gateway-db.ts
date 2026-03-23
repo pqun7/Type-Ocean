@@ -1,8 +1,12 @@
-import { Pool } from "@neondatabase/serverless";
+import { Pool, neonConfig } from "@neondatabase/serverless";
 import { drizzle, type NeonDatabase } from "drizzle-orm/neon-serverless";
+import ws from "ws";
 
 import { db as appDb } from "../../../src/db/index";
 import * as schema from "../../../src/db/schema";
+
+// Required for @neondatabase/serverless Pool in Node.js (non-edge) environments.
+neonConfig.webSocketConstructor = ws;
 
 const gatewayDatabaseUrl = process.env.DATABASE_URL?.trim() ?? "";
 export const isGatewayDbConfigured = /^postgres(?:ql)?:\/\//i.test(gatewayDatabaseUrl);

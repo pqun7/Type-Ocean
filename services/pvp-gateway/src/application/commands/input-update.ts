@@ -129,7 +129,11 @@ export async function handleInputUpdate(
     const isBackspace = prev.startsWith(next);
     if (!isAppend && !isBackspace) {
       incrementGatewayMetric("ws_validation_failed", { reason: "invalid_input_evolution" });
-      send(ws, "ERROR", { message: "Invalid input evolution" }, deps);
+      // Silently drop — typically a reconnect artifact where the server's last
+      // persisted input diverged from the client state after a backspace+retype
+      // within the DB-write buffer window.  The periodic MATCH_STATE snapshot
+      // will resync both sides within seconds; sending an ERROR here only
+      // disrupts the player's active game with a meaningless technical message.
       return;
     }
 

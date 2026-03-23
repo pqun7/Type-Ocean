@@ -1,10 +1,11 @@
 "use client";
 
-import { ChangeEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
+import type { ClientMessage } from "@/features/pvp/client/types";
 import { Button } from "@/components/ui/button";
 
 import TextDisplay from "@/components/TypingTest/TextDisplay";
@@ -14,7 +15,6 @@ import Caret from "@/components/TypingTest/Caret";
 import useCaret, { getCaretPositionForIndex } from "@/features/typing/hooks/useCaret";
 import PvpResultsOverlay from "@/components/pvp/PvpResultsOverlay";
 import { segmentGraphemes } from "@/features/typing/utils/graphemes";
-import { usePvpErrorAlert } from "@/features/pvp/client/pvp-error-utils";
 
 function slotToColor(slot: number) {
   switch (slot % 6) {
@@ -36,8 +36,7 @@ function slotToColor(slot: number) {
 export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const WAITING_TIMEOUT_MS = 40_000;
   const router = useRouter();
-  const { status, error, user, send, addListener, getMatchTransport } = usePvpSocket();
-  usePvpErrorAlert(error);
+  const { status, user, send, addListener, getMatchTransport, connectionPhase } = usePvpSocket();
 
   const [text, setText] = useState<string>("");
   const [textId, setTextId] = useState<string | null>(null);
@@ -80,6 +79,74 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const resultsRef = useRef(results);
   const inputNonce = getMatchTransport(matchId)?.inputNonce ?? null;
 
+  // ---- Mid-match reconnection resilience ----
+  /** Outbound INPUT_UPDATE / FINISH messages buffered while the socket is down. */
+  const pendingInputBufferRef = useRef<ClientMessage[]>([]);
+  /** Epoch ms when the connection dropped during an active match, or null. */
+  const connectionDroppedAtRef = useRef<number | null>(null);
+  /** True after 90 s of unrecoverable connection loss during active play. */
+  const [matchRecoveryFailed, setMatchRecoveryFailed] = useState(false);
+  /** Stable ref for the current user's id — safe to read inside stable callbacks. */
+  const meIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    meIdRef.current = user?.userId ?? null;
+  }, [user?.userId]);
+
+  /**
+   * Send a gameplay message.  If the socket is currently down, buffer it so
+   * it can be flushed when the connection is restored — the game continues
+   * locally without any visible disruption.
+   */
+  const sendOrBuffer = useCallback(
+    (msg: ClientMessage): void => {
+      const sent = send(msg);
+      if (!sent) {
+        pendingInputBufferRef.current.push(msg);
+        if (connectionDroppedAtRef.current === null) {
+          connectionDroppedAtRef.current = Date.now();
+        }
+      } else {
+        connectionDroppedAtRef.current = null;
+      }
+    },
+    [send],
+  );
+
+  // Flush buffered inputs the moment the socket is ready again.
+  useEffect(() => {
+    if (connectionPhase.kind !== "ready") return;
+    connectionDroppedAtRef.current = null;
+    const buffer = pendingInputBufferRef.current.splice(0);
+    for (const msg of buffer) {
+      send(msg);
+    }
+  }, [connectionPhase.kind, send]);
+
+  // After 90 s of irrecoverable mid-match disconnection, show a minimal end screen.
+  useEffect(() => {
+    if (results !== null || matchStatus === "FINISHED" || matchStatus === "ENDING") return;
+    if (
+      connectionPhase.kind === "ready" ||
+      connectionPhase.kind === "idle" ||
+      connectionPhase.kind === "connecting"
+    ) {
+      connectionDroppedAtRef.current = null;
+      return;
+    }
+    if (connectionDroppedAtRef.current === null) {
+      connectionDroppedAtRef.current = Date.now();
+    }
+    const droppedAt = connectionDroppedAtRef.current;
+    const remaining = Math.max(0, 90_000 - (Date.now() - droppedAt));
+    const timer = window.setTimeout(() => {
+      if (connectionDroppedAtRef.current !== null) {
+        setMatchRecoveryFailed(true);
+      }
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [connectionPhase.kind, results, matchStatus]);
+
   // Reset per-match state on navigation.
   useEffect(() => {
     setText("");
@@ -103,6 +170,9 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     setMatchEndingNotice(null);
     setWaitingSinceMs(null);
     setNowMs(Date.now());
+    setMatchRecoveryFailed(false);
+    pendingInputBufferRef.current = [];
+    connectionDroppedAtRef.current = null;
   }, [matchId]);
 
   const isWaitingForOpponent = matchStatus === "PENDING" && players.length < 2 && !results;
@@ -170,6 +240,22 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         const next: Record<string, number> = {};
         for (const p of m.payload.players) next[p.userId] = p.caretIndex;
         setCarets(next);
+
+        // Resync the local player's userInput to the server's authoritative
+        // position after a reconnect.  caretIndex === participant.input.length
+        // on the gateway, so slicing textSnapshot to that length gives the
+        // exact string the server expects to receive as a prefix on the next
+        // INPUT_UPDATE — preventing spurious "Invalid input evolution" errors.
+        const localUserId = meIdRef.current;
+        if (localUserId && m.payload.textSnapshot) {
+          const myPlayer = m.payload.players.find((p) => p.userId === localUserId);
+          if (myPlayer !== undefined) {
+            const serverInput = m.payload.textSnapshot.slice(0, myPlayer.caretIndex);
+            // Only advance the client state — never roll back ahead-of-server
+            // progress that was buffered locally.
+            setUserInput((curr) => (serverInput.length >= curr.length ? serverInput : curr));
+          }
+        }
 
         const hist = { ...wpmHistoryRef.current };
         const last = { ...lastSampleAtRef.current };
@@ -250,10 +336,10 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     lastSentAtRef.current = now;
 
     seqRef.current += 1;
-    send({ type: "INPUT_UPDATE", payload: { matchId, input: next, seq: seqRef.current, clientTs: now, inputNonce: inputNonce ?? undefined } });
+    sendOrBuffer({ type: "INPUT_UPDATE", payload: { matchId, input: next, seq: seqRef.current, clientTs: now, inputNonce: inputNonce ?? undefined } });
 
     if (text && targetGraphemeCount > 0 && typed >= targetGraphemeCount) {
-      send({ type: "FINISH", payload: { matchId, clientTs: now } });
+      sendOrBuffer({ type: "FINISH", payload: { matchId, clientTs: now } });
     }
   };
 
@@ -366,13 +452,27 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     send({ type: "REMATCH_RESPONSE", payload: { matchId, accept: false } });
   };
 
+  if (matchRecoveryFailed && !results) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="rounded-xl border border-[rgba(160,220,255,0.12)] bg-[rgba(7,18,34,0.5)] p-8 text-center space-y-4">
+          <div className="text-[#E0E7FF] text-xl font-semibold">Match ended unexpectedly</div>
+          <div className="text-[#B5CAE2] text-sm">
+            Your results may have been saved. Return to the queue to play again.
+          </div>
+          <Button onClick={() => router.push("/pvp/1v1")}>Back to queue</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-[#E0E7FF] text-xl font-semibold">Match</div>
           <div className="text-sm text-[#8A8FB5]">
-            Status: {status} · {matchStatus}
+            {matchStatus}
             {textId ? ` · Text: ${textId}` : ""}
             {countdown != null ? ` · Starts in: ${countdown}s` : ""}
           </div>
@@ -384,7 +484,6 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         </div>
       </div>
 
-      {error ? <div className="text-sm text-amber-300">{error}</div> : null}
       {matchEndingNotice ? <div className="text-sm text-amber-300">{matchEndingNotice}</div> : null}
 
       {isWaitingForOpponent ? (
