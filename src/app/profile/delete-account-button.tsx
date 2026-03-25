@@ -87,8 +87,8 @@ export function DeleteAccountButton({ className }: { className?: string }) {
               transition={{ duration: 0.2 }}
             >
               <DialogHeader>
-                <DialogTitle>Delete account</DialogTitle>
-                <DialogDescription className="text-[#8A8FB5]">
+                <DialogTitle className="font-grotesk text-[#E0E7FF]">Delete account</DialogTitle>
+                <DialogDescription className="text-sm text-[#8A8FB5]">
                   This will permanently delete your account and related data. This action cannot be undone.
                 </DialogDescription>
               </DialogHeader>

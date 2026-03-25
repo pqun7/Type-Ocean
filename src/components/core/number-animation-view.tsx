@@ -10,6 +10,7 @@ type NumberAnimationViewProps = {
   color?: string;
   delay?: number;
   decimals?: number;
+  className?: string; // add className prop
 };
 
 export function NumberAnimation(props: NumberAnimationViewProps) {

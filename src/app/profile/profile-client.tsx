@@ -2,6 +2,7 @@
 
 import React, {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -185,6 +186,21 @@ function formatLocalDateTime(value: Date): string {
   });
 }
 
+// ------------------- Animation Variants (module-level, no per-render allocation) -------------------
+const FADE_IN_UP = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.4 },
+};
+
+const STAGGER_CONTAINER = {
+  animate: {
+    transition: {
+      staggerChildren: 0.1,
+    },
+  },
+};
+
 // ------------------- Memoized Subcomponents -------------------
 const AvatarView = memo(function AvatarView({ url, username }: { url: string | null; username: string }) {
   if (!url) {
@@ -285,12 +301,13 @@ const AchCard = memo(function AchCard({
           >
             {unlocked ? (meta?.icon ?? <Award className="w-4 h-4" />) : <Lock className="w-3.5 h-3.5" />}
           </div>
-          <span className={["text-[11px] font-bold font-mono", unlocked ? xpColor : "text-white/18"].join(" ")}>
+          {/* XP value – mono font for numbers */}
+          <span className={["text-[11px] font-bold font-jetbrainsLocal", unlocked ? xpColor : "text-white/18"].join(" ")}>
             +{ach.xpReward.toLocaleString()}
           </span>
         </div>
         <p className={[
-          "text-[11px] font-bold leading-tight truncate font-mono",
+          "text-xs font-semibold leading-tight truncate",
           unlocked ? styles.label : "text-white/30",
         ].join(" ")}>
           {ach.name}
@@ -303,7 +320,7 @@ const AchCard = memo(function AchCard({
           {unlocked && (
             <span
               className={[
-                "inline-block text-[8px] font-bold uppercase tracking-widest rounded-full px-1.5 py-0.5 border font-mono",
+                "inline-block text-[10px] font-bold uppercase tracking-widest rounded-full px-1.5 py-0.5 border",
                 styles.badge,
               ].join(" ")}
             >
@@ -311,7 +328,7 @@ const AchCard = memo(function AchCard({
             </span>
           )}
         </div>
-        <p className="text-[9px] text-white/50 leading-snug line-clamp-2 font-mono">
+        <p className="text-[10px] text-white/40 leading-snug line-clamp-2">
           {hint}
         </p>
       </div>
@@ -327,8 +344,10 @@ const AchievementsPanel = memo(function AchievementsPanel({ achievements }: { ac
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2 px-0.5">
         <Trophy className="w-4 h-4 text-amber-300 shrink-0" />
-        <span className="text-sm font-semibold text-[#E0E7FF] uppercase tracking-wider">Achievements</span>
-        <span className="ml-auto text-xs text-[#8A8FB5] font-mono">
+        <span className="text-sm font-semibold text-[#E0E7FF] uppercase tracking-wider font-grotesk">
+          Achievements
+        </span>
+        <span className="ml-auto text-xs text-[#8A8FB5] font-jetbrainsLocal">
           {unlockedCount} / {ACHIEVEMENTS.length}
         </span>
       </div>
@@ -338,6 +357,158 @@ const AchievementsPanel = memo(function AchievementsPanel({ achievements }: { ac
         ))}
       </div>
     </div>
+  );
+});
+
+// ------------------- Heavy Section Components (memoized, receive deferred props) -------------------
+
+type HeatmapSectionProps = {
+  heatmapData: HeatmapDatum[];
+  heatmapRange: { endDate: Date; rangeDays: number };
+  renderTooltip: (cell: HeatmapCell) => React.ReactNode;
+};
+
+const HeatmapSection = memo(function HeatmapSection({
+  heatmapData,
+  heatmapRange,
+  renderTooltip,
+}: HeatmapSectionProps) {
+  return (
+    <motion.div variants={FADE_IN_UP}>
+      <HeatmapCalendar
+        title="Activity"
+        data={heatmapData}
+        rangeDays={heatmapRange.rangeDays}
+        endDate={heatmapRange.endDate}
+        className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all"
+        responsive
+        cellSize={22}
+        cellGap={4}
+        levelStrategy="fixedThresholds"
+        fixedThresholds={[10, 25, 45, 70]}
+        palette={[
+          "rgba(255, 255, 255, 0.06)",
+          "rgba(120, 200, 255, 0.22)",
+          "rgba(120, 200, 255, 0.42)",
+          "rgba(120, 200, 255, 0.68)",
+          "rgba(120, 200, 255, 0.96)",
+        ]}
+        axisLabels={{
+          show: true,
+          showWeekdays: true,
+          showMonths: true,
+          weekdayIndices: [0, 1, 2, 3, 4, 5, 6],
+          monthFormat: "short",
+          minWeekSpacing: 1,
+        }}
+        renderTooltip={renderTooltip}
+        legend={{
+          showText: true,
+          showArrow: true,
+          lessText: "Low strength",
+          moreText: "High strength",
+          placement: "bottom",
+          direction: "row",
+          swatchSize: 10,
+          swatchGap: 3,
+        }}
+      />
+    </motion.div>
+  );
+});
+
+type KeyboardHeatmapSectionProps = {
+  profileLevel: number;
+  keyboardLanguageOptions: Language[];
+  selectedKeyboardLanguage: Language;
+  onSelectLanguage: (lang: Language) => void;
+  currentKeyboardData: PerformanceData | undefined;
+  sessions: number;
+};
+
+const KeyboardHeatmapSection = memo(function KeyboardHeatmapSection({
+  profileLevel,
+  keyboardLanguageOptions,
+  selectedKeyboardLanguage,
+  onSelectLanguage,
+  currentKeyboardData,
+  sessions,
+}: KeyboardHeatmapSectionProps) {
+  // Compute derived display values locally — keeps parent lean
+  const keyboardTotals = useMemo(
+    () => getTotalsFromPerformance(currentKeyboardData),
+    [currentKeyboardData]
+  );
+  const keyboardAccuracy = useMemo(() => {
+    const total = keyboardTotals.correct + keyboardTotals.error;
+    return total <= 0 ? 0 : (keyboardTotals.correct / total) * 100;
+  }, [keyboardTotals]);
+
+  return (
+    <motion.div variants={FADE_IN_UP}>
+      <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold text-[#E0E7FF] font-grotesk">Overall Keyboard Heatmap</CardTitle>
+          <CardDescription className="text-sm text-[#8A8FB5]">
+            Level {profileLevel} · cumulative key performance across your typing sessions
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {keyboardLanguageOptions.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {keyboardLanguageOptions.map((lang) => (
+                <Button
+                  key={lang}
+                  type="button"
+                  size="sm"
+                  variant={selectedKeyboardLanguage === lang ? "default" : "outline"}
+                  onClick={() => onSelectLanguage(lang)}
+                  className={
+                    selectedKeyboardLanguage === lang
+                      ? "border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.7)] text-cyan-200"
+                      : "border-[rgba(160,220,255,0.25)] bg-transparent text-[#8A8FB5]"
+                  }
+                >
+                  {lang.toUpperCase()}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+
+          {currentKeyboardData ? (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <StatTile
+                  label="Tracked sessions"
+                  value={<NumberAnimation value={sessions} delay={0.2} className="font-jetbrainsLocal" />}
+                  icon={<BarChart3 className="h-4 w-4 text-cyan-300" />}
+                />
+                <StatTile
+                  label="Key accuracy"
+                  value={<NumberAnimation value={Math.round(keyboardAccuracy)} unit="%" delay={0.3} className="font-jetbrainsLocal" />}
+                  icon={<Target className="h-4 w-4 text-green-300" />}
+                />
+                <StatTile
+                  label="Total key hits"
+                  value={<NumberAnimation value={keyboardTotals.correct + keyboardTotals.error} delay={0.4} className="font-jetbrainsLocal" />}
+                  icon={<Activity className="h-4 w-4 text-purple-300" />}
+                />
+              </div>
+              <KeyboardHeatmap
+                language={selectedKeyboardLanguage}
+                performanceData={currentKeyboardData}
+                size="small"
+                showLegend
+              />
+            </>
+          ) : (
+            <div className="rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.2)] px-4 py-6 text-sm text-[#8A8FB5]">
+              No cumulative keyboard data yet. Complete a few typing tests to populate your overall heatmap.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
   );
 });
 
@@ -421,7 +592,7 @@ async function compressAvatarForUpload(
 }
 
 // ------------------- Main Component -------------------
-const ProfileClient = memo(function ProfileClient(props: {
+function ProfileClient(props: {
   user: UserData;
   profile: ProfileData;
   stats: LongTermStats;
@@ -452,9 +623,8 @@ const ProfileClient = memo(function ProfileClient(props: {
   const [emailCurrentPassword, setEmailCurrentPassword] = useState("");
 
   const [editingPassword, setEditingPassword] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  // Single grouped state for password field visibility — one update instead of three
+  const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false });
 
   const [busy, setBusy] = useState<null | "username" | "avatar" | "email" | "password">(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -499,6 +669,13 @@ const ProfileClient = memo(function ProfileClient(props: {
     return { endDate: end, rangeDays };
   }, []);
 
+  // Deferred props for below-fold sections — profile card renders immediately after router.refresh(),
+  // heavy sections update lazily in the background once React is idle.
+  const deferredDailyActivity = useDeferredValue(props.dailyActivity);
+  const deferredSessionHistory = useDeferredValue(props.sessionHistory);
+  const deferredStats = useDeferredValue(props.stats);
+  const deferredOverallKeyboard = useDeferredValue(props.overallKeyboardPerformance);
+
   const heatmapData = useMemo(() => {
     const toStrengthDatum = (args: {
       date: string;
@@ -528,7 +705,7 @@ const ProfileClient = memo(function ProfileClient(props: {
       };
     };
 
-    return (props.dailyActivity ?? []).map((row) => {
+    return (deferredDailyActivity ?? []).map((row) => {
       const totalMinutes = row.totalTimeSpentSec > 0 ? row.totalTimeSpentSec / 60 : 0;
       const sessionsCount = Math.max(0, row.sessionsCount);
       const hasTimeWeightedWpm = row.totalTimeSpentSec > 0 && row.sumWpmTime > 0;
@@ -547,7 +724,7 @@ const ProfileClient = memo(function ProfileClient(props: {
         avgAccuracy,
       });
     });
-  }, [props.dailyActivity]);
+  }, [deferredDailyActivity]);
 
   const renderHeatmapTooltip = useCallback((cell: HeatmapCell) => {
     if (cell.disabled) return "Outside range";
@@ -568,30 +745,30 @@ const ProfileClient = memo(function ProfileClient(props: {
     const strengthRounded = Math.round(typeof meta.strength100 === "number" ? meta.strength100 : cell.value);
 
     return (
-      <div className="text-sm font-mono">
-        <div className="font-medium">Strength {strengthRounded}/100</div>
-        <div className="text-muted-foreground">
+      <div className="text-xs">
+        <div className="text-sm font-semibold font-grotesk">Strength {strengthRounded}/100</div>
+        <div className="text-muted-foreground mt-0.5">
           {meta.sessionsCount} {sessionsLabel} · {minutesRounded}m · Avg {Math.round(meta.avgWpm)} WPM · {Math.round(meta.avgAccuracy)}%
         </div>
-        <div className="text-muted-foreground">{cell.label}</div>
+        <div className="text-muted-foreground/70 mt-0.5">{cell.label}</div>
       </div>
     );
   }, []);
 
   const keyboardLanguageOptions = useMemo(() => {
-    if (!props.overallKeyboardPerformance) return [] as Language[];
+    if (!deferredOverallKeyboard) return [] as Language[];
     const candidates: Language[] = ["en", "ar", "fr", "es"];
     return candidates.filter((lang) => {
-      const bucket = props.overallKeyboardPerformance!.byLanguage[lang] ?? {};
+      const bucket = deferredOverallKeyboard.byLanguage[lang] ?? {};
       return Object.values(bucket).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
     });
-  }, [props.overallKeyboardPerformance]);
+  }, [deferredOverallKeyboard]);
 
   const currentKeyboardData = useMemo(() => {
-    if (!props.overallKeyboardPerformance) return undefined;
-    const source = props.overallKeyboardPerformance.byLanguage[selectedKeyboardLanguage] ?? {};
+    if (!deferredOverallKeyboard) return undefined;
+    const source = deferredOverallKeyboard.byLanguage[selectedKeyboardLanguage] ?? {};
     const hasAny = Object.values(source).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
-    const bucket = hasAny ? source : props.overallKeyboardPerformance.total;
+    const bucket = hasAny ? source : deferredOverallKeyboard.total;
     if (!bucket || Object.keys(bucket).length === 0) return undefined;
 
     // Create a new object only when necessary
@@ -600,163 +777,7 @@ const ProfileClient = memo(function ProfileClient(props: {
       out[key] = { correct: value.correct, error: value.error };
     }
     return out;
-  }, [props.overallKeyboardPerformance, selectedKeyboardLanguage]);
-
-  const keyboardTotals = useMemo(
-    () => getTotalsFromPerformance(currentKeyboardData),
-    [currentKeyboardData]
-  );
-
-  const keyboardAccuracy = useMemo(() => {
-    const total = keyboardTotals.correct + keyboardTotals.error;
-    if (total <= 0) return 0;
-    return (keyboardTotals.correct / total) * 100;
-  }, [keyboardTotals]);
-
-  // Animation variants
-  const fadeInUp = useMemo(() => ({
-    initial: { opacity: 0, y: 10 },
-    animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.4 },
-  }), []);
-
-  // Memoized heavy UI sections
-  const accountStatsChartSection = useMemo(
-    () => (
-      <motion.div variants={fadeInUp}>
-        <AccountStatsChart
-          stats={props.stats}
-          dailyActivity={props.dailyActivity}
-          sessionHistory={props.sessionHistory}
-        />
-      </motion.div>
-    ),
-    [props.dailyActivity, props.sessionHistory, props.stats, fadeInUp]
-  );
-
-  const heatmapSection = useMemo(
-    () => (
-      <motion.div variants={fadeInUp}>
-        <HeatmapCalendar
-          title="Activity"
-          data={heatmapData}
-          rangeDays={heatmapRange.rangeDays}
-          endDate={heatmapRange.endDate}
-          className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all"
-          responsive
-          cellSize={22}
-          cellGap={4}
-          levelStrategy="fixedThresholds"
-          fixedThresholds={[10, 25, 45, 70]}
-          palette={[
-            "rgba(255, 255, 255, 0.06)",
-            "rgba(120, 200, 255, 0.22)",
-            "rgba(120, 200, 255, 0.42)",
-            "rgba(120, 200, 255, 0.68)",
-            "rgba(120, 200, 255, 0.96)",
-          ]}
-          axisLabels={{
-            show: true,
-            showWeekdays: true,
-            showMonths: true,
-            weekdayIndices: [0, 1, 2, 3, 4, 5, 6],
-            monthFormat: "short",
-            minWeekSpacing: 1,
-          }}
-          renderTooltip={renderHeatmapTooltip}
-          legend={{
-            showText: true,
-            showArrow: true,
-            lessText: "Low strength",
-            moreText: "High strength",
-            placement: "bottom",
-            direction: "row",
-            swatchSize: 10,
-            swatchGap: 3,
-          }}
-        />
-      </motion.div>
-    ),
-    [heatmapData, heatmapRange, renderHeatmapTooltip, fadeInUp]
-  );
-
-  const overallKeyboardHeatmapSection = useMemo(() => {
-    return (
-      <motion.div variants={fadeInUp}>
-        <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
-          <CardHeader>
-            <CardTitle className="text-[#E0E7FF]">Overall Keyboard Heatmap</CardTitle>
-            <CardDescription className="text-[#8A8FB5]">
-              Level {props.profile.level} · cumulative key performance across your typing sessions
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {keyboardLanguageOptions.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {keyboardLanguageOptions.map((lang) => (
-                  <Button
-                    key={lang}
-                    type="button"
-                    size="sm"
-                    variant={selectedKeyboardLanguage === lang ? "default" : "outline"}
-                    onClick={() => setSelectedKeyboardLanguage(lang)}
-                    className={
-                      selectedKeyboardLanguage === lang
-                        ? "border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.7)] text-cyan-200"
-                        : "border-[rgba(160,220,255,0.25)] bg-transparent text-[#8A8FB5]"
-                    }
-                  >
-                    {lang.toUpperCase()}
-                  </Button>
-                ))}
-              </div>
-            ) : null}
-
-            {currentKeyboardData ? (
-              <>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <StatTile
-                    label="Tracked sessions"
-                    value={<NumberAnimation value={props.overallKeyboardPerformance?.sessions ?? 0} delay={0.2} />}
-                    icon={<BarChart3 className="h-4 w-4 text-cyan-300" />}
-                  />
-                  <StatTile
-                    label="Key accuracy"
-                    value={<NumberAnimation value={Math.round(keyboardAccuracy)} unit="%" delay={0.3} />}
-                    icon={<Target className="h-4 w-4 text-green-300" />}
-                  />
-                  <StatTile
-                    label="Total key hits"
-                    value={<NumberAnimation value={keyboardTotals.correct + keyboardTotals.error} delay={0.4} />}
-                    icon={<Activity className="h-4 w-4 text-purple-300" />}
-                  />
-                </div>
-                <KeyboardHeatmap
-                  language={selectedKeyboardLanguage}
-                  performanceData={currentKeyboardData}
-                  size="small"
-                  showLegend
-                />
-              </>
-            ) : (
-              <div className="rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.2)] px-4 py-6 text-sm text-[#8A8FB5]">
-                No cumulative keyboard data yet. Complete a few typing tests to populate your overall heatmap.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
-    );
-  }, [
-    currentKeyboardData,
-    keyboardAccuracy,
-    keyboardLanguageOptions,
-    keyboardTotals,
-    props.overallKeyboardPerformance?.sessions,
-    props.profile.level,
-    selectedKeyboardLanguage,
-    fadeInUp
-  ]);
+  }, [deferredOverallKeyboard, selectedKeyboardLanguage]);
 
   // API helpers
   const patchUser = useCallback(async (body: unknown) => {
@@ -935,9 +956,7 @@ const ProfileClient = memo(function ProfileClient(props: {
     if (passwordCurrentInputRef.current) passwordCurrentInputRef.current.value = "";
     if (newPasswordInputRef.current) newPasswordInputRef.current.value = "";
     if (confirmNewPasswordInputRef.current) confirmNewPasswordInputRef.current.value = "";
-    setShowCurrentPassword(false);
-    setShowNewPassword(false);
-    setShowConfirmNewPassword(false);
+    setShowPasswords({ current: false, new: false, confirm: false });
   }, []);
 
   const onSavePassword = useCallback(async () => {
@@ -1085,24 +1104,16 @@ const ProfileClient = memo(function ProfileClient(props: {
   const canSaveUsername = busy === null && username.trim().length >= 3 && usernameIsDirty;
   const canStartUsernameEdit = busy === null;
 
-  const staggerContainer = {
-    animate: {
-      transition: {
-        staggerChildren: 0.1,
-      },
-    },
-  };
-
   return (
     <LayoutGroup>
       <motion.div
-        className="space-y-6"
+        className="space-y-6 font-interLocal"
         initial="initial"
         animate="animate"
-        variants={staggerContainer}
+        variants={STAGGER_CONTAINER}
       >
         {/* Profile Card */}
-        <motion.div variants={fadeInUp}>
+        <motion.div variants={FADE_IN_UP}>
           <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl overflow-hidden hover:border-[rgba(160,220,255,0.3)] transition-all">
             <LayoutGroup>
               <div className="grid grid-cols-1 xl:grid-cols-[1fr_480px]">
@@ -1161,10 +1172,10 @@ const ProfileClient = memo(function ProfileClient(props: {
                           transition={{ delay: 0.2 }}
                           className="min-w-0"
                         >
-                          <CardTitle className="text-xl text-[#E0E7FF]">
+                          <CardTitle className="text-xl font-semibold text-[#E0E7FF] font-grotesk">
                             {props.user.username}
                           </CardTitle>
-                          <CardDescription className="text-[#8A8FB5] flex items-center gap-1">
+                          <CardDescription className="text-sm text-[#8A8FB5] flex items-center gap-1">
                             <HiOutlineMail className="w-3 h-3" />
                             <span className="truncate max-w-[200px]">{props.user.email}</span>
                           </CardDescription>
@@ -1180,9 +1191,9 @@ const ProfileClient = memo(function ProfileClient(props: {
                           >
                             <div className="flex items-center justify-center gap-1 mb-1">
                               <TrendingUpIcon className="w-4 h-4 text-cyan-300" />
-                              <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Level</p>
+                              <p className="text-[10px] font-medium text-[rgba(200,240,255,0.7)] uppercase tracking-widest">Level</p>
                             </div>
-                            <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 font-mono">
+                            <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 font-jetbrainsLocal">
                               <NumberAnimation value={props.profile.level} delay={0.4} />
                             </p>
                           </motion.div>
@@ -1195,9 +1206,9 @@ const ProfileClient = memo(function ProfileClient(props: {
                           >
                             <div className="flex items-center justify-center gap-1 mb-1">
                               <Target className="w-4 h-4 text-cyan-300" />
-                              <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Rank</p>
+                              <p className="text-[10px] font-medium text-[rgba(200,240,255,0.7)] uppercase tracking-widest">Rank</p>
                             </div>
-                            <p className="text-sm font-semibold text-[#E0E7FF] leading-tight inline-flex items-center justify-center gap-1.5">
+                            <p className="text-sm font-semibold font-grotesk text-[#E0E7FF] leading-tight inline-flex items-center justify-center gap-1.5">
                               {(() => {
                                 const rankSrc = getRankImageSrc(props.profile.rank.tier as RankTier);
                                 return <NextImage src={rankSrc} alt={props.profile.rank.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_16px_rgba(100,200,255,0.5)]" />;
@@ -1219,7 +1230,7 @@ const ProfileClient = memo(function ProfileClient(props: {
                     <div className="space-y-8">
                       {/* Email Section */}
                       <div className="space-y-3">
-                        <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="email">
+                        <Label className="text-sm font-medium text-[#E0E7FF] flex items-center gap-2" htmlFor="email">
                           <HiOutlineMail className="w-4 h-4 text-cyan-300" />
                           Email
                         </Label>
@@ -1228,13 +1239,13 @@ const ProfileClient = memo(function ProfileClient(props: {
                           <div className="flex flex-col gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-base">
+                                <div className="truncate text-base font-medium text-[#E0E7FF]">
                                   {props.user.email}
                                 </div>
                                 <div className="mt-2 flex flex-wrap items-center gap-2">
                                   <span
                                     className={
-                                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium " +
+                                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium " +
                                       (isEmailVerified
                                         ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
                                         : "border-orange-400/20 bg-orange-500/10 text-orange-100")
@@ -1259,7 +1270,7 @@ const ProfileClient = memo(function ProfileClient(props: {
                                   </span>
 
                                   {isEmailVerified && emailVerifiedAt ? (
-                                    <span className="text-[11px] text-[#8A8FB5]">
+                                    <span className="text-xs text-[#8A8FB5]">
                                       Verified {formatLocalDateTime(emailVerifiedAt)}
                                     </span>
                                   ) : null}
@@ -1332,7 +1343,7 @@ const ProfileClient = memo(function ProfileClient(props: {
 
                             {props.user.hasPassword && (
                               <div className="space-y-3">
-                                <Label className="text-[#E0E7FF]" htmlFor="currentPassword">
+                                <Label className="text-sm font-medium text-[#E0E7FF]" htmlFor="currentPassword">
                                   Current password
                                 </Label>
                                 <Input
@@ -1355,14 +1366,14 @@ const ProfileClient = memo(function ProfileClient(props: {
 
                       {/* Username Section */}
                       <div className="space-y-3">
-                        <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="username">
+                        <Label className="text-sm font-medium text-[#E0E7FF] flex items-center gap-2" htmlFor="username">
                           <HiOutlineUser className="w-4 h-4 text-cyan-300" />
                           Username
                         </Label>
                         {!editingUsername ? (
                           <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
                             <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
+                              <div className="truncate text-base font-semibold text-[#E0E7FF]">
                                 {props.user.username}
                               </div>
                               <div className="text-xs text-[#8A8FB5] mt-1">Click edit to change your username</div>
@@ -1428,7 +1439,7 @@ const ProfileClient = memo(function ProfileClient(props: {
 
                       {/* Password Section */}
                       <div className="space-y-3">
-                        <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="newPassword">
+                        <Label className="text-sm font-medium text-[#E0E7FF] flex items-center gap-2" htmlFor="newPassword">
                           <KeyRound className="w-4 h-4 text-cyan-300" />
                           Password
                         </Label>
@@ -1436,7 +1447,7 @@ const ProfileClient = memo(function ProfileClient(props: {
                         {!editingPassword ? (
                           <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
                             <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
+                              <div className="truncate text-base font-medium text-[#E0E7FF]">
                                 {props.user.hasPassword ? "••••••••" : "No password set"}
                               </div>
                               <div className="text-xs text-[#8A8FB5] mt-1">
@@ -1461,14 +1472,14 @@ const ProfileClient = memo(function ProfileClient(props: {
                           <div className="flex flex-col gap-4 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-5 backdrop-blur-sm">
                             {props.user.hasPassword && (
                               <div className="space-y-3">
-                                <Label className="text-[#E0E7FF]" htmlFor="passwordCurrent">
+                                <Label className="text-sm font-medium text-[#E0E7FF]" htmlFor="passwordCurrent">
                                   Current password
                                 </Label>
                                 <div className="relative">
                                   <Input
                                     ref={passwordCurrentInputRef}
                                     id="passwordCurrent"
-                                    type={showCurrentPassword ? "text" : "password"}
+                                    type={showPasswords.current ? "text" : "password"}
                                     onChange={(e) => {
                                       passwordCurrentValueRef.current = e.target.value;
                                     }}
@@ -1478,25 +1489,25 @@ const ProfileClient = memo(function ProfileClient(props: {
                                   />
                                   <button
                                     type="button"
-                                    onClick={() => setShowCurrentPassword((v) => !v)}
+                                    onClick={() => setShowPasswords(p => ({ ...p, current: !p.current }))}
                                     className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
-                                    aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                                    aria-label={showPasswords.current ? "Hide current password" : "Show current password"}
                                   >
-                                    {showCurrentPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                    {showPasswords.current ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                                   </button>
                                 </div>
                               </div>
                             )}
 
                             <div className="space-y-3">
-                              <Label className="text-[#E0E7FF]" htmlFor="newPassword">
+                              <Label className="text-sm font-medium text-[#E0E7FF]" htmlFor="newPassword">
                                 New password
                               </Label>
                               <div className="relative">
                                 <Input
                                   ref={newPasswordInputRef}
                                   id="newPassword"
-                                  type={showNewPassword ? "text" : "password"}
+                                  type={showPasswords.new ? "text" : "password"}
                                   onChange={(e) => {
                                     newPasswordValueRef.current = e.target.value;
                                   }}
@@ -1506,24 +1517,24 @@ const ProfileClient = memo(function ProfileClient(props: {
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => setShowNewPassword((v) => !v)}
+                                  onClick={() => setShowPasswords(p => ({ ...p, new: !p.new }))}
                                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
-                                  aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                                  aria-label={showPasswords.new ? "Hide new password" : "Show new password"}
                                 >
-                                  {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                  {showPasswords.new ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                                 </button>
                               </div>
                             </div>
 
                             <div className="space-y-3">
-                              <Label className="text-[#E0E7FF]" htmlFor="confirmNewPassword">
+                              <Label className="text-sm font-medium text-[#E0E7FF]" htmlFor="confirmNewPassword">
                                 Confirm new password
                               </Label>
                               <div className="relative">
                                 <Input
                                   ref={confirmNewPasswordInputRef}
                                   id="confirmNewPassword"
-                                  type={showConfirmNewPassword ? "text" : "password"}
+                                  type={showPasswords.confirm ? "text" : "password"}
                                   onChange={(e) => {
                                     confirmNewPasswordValueRef.current = e.target.value;
                                   }}
@@ -1533,11 +1544,11 @@ const ProfileClient = memo(function ProfileClient(props: {
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => setShowConfirmNewPassword((v) => !v)}
+                                  onClick={() => setShowPasswords(p => ({ ...p, confirm: !p.confirm }))}
                                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
-                                  aria-label={showConfirmNewPassword ? "Hide confirm password" : "Show confirm password"}
+                                  aria-label={showPasswords.confirm ? "Hide confirm password" : "Show confirm password"}
                                 >
-                                  {showConfirmNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                  {showPasswords.confirm ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                                 </button>
                               </div>
                             </div>
@@ -1586,61 +1597,79 @@ const ProfileClient = memo(function ProfileClient(props: {
           </Card>
         </motion.div>
 
-        {/* AccountStatsChart */}
-        {accountStatsChartSection}
+        {/* AccountStatsChart — deferred props keep profile card responsive after router.refresh() */}
+        <motion.div variants={FADE_IN_UP}>
+          <AccountStatsChart
+            stats={deferredStats}
+            dailyActivity={deferredDailyActivity}
+            sessionHistory={deferredSessionHistory}
+          />
+        </motion.div>
 
-        {/* Heatmap Calendar */}
-        {heatmapSection}
+        {/* Heatmap Calendar — isolated memo component receives deferred data */}
+        <HeatmapSection
+          heatmapData={heatmapData}
+          heatmapRange={heatmapRange}
+          renderTooltip={renderHeatmapTooltip}
+        />
 
-        {/* Overall Keyboard Heatmap */}
-        {overallKeyboardHeatmapSection}
+        {/* Overall Keyboard Heatmap — isolated memo component */}
+        <KeyboardHeatmapSection
+          profileLevel={props.profile.level}
+          keyboardLanguageOptions={keyboardLanguageOptions}
+          selectedKeyboardLanguage={selectedKeyboardLanguage}
+          onSelectLanguage={setSelectedKeyboardLanguage}
+          currentKeyboardData={currentKeyboardData}
+          sessions={deferredOverallKeyboard?.sessions ?? 0}
+        />
 
         {/* Statistics Card */}
-        <motion.div variants={fadeInUp}>
+        <motion.div variants={FADE_IN_UP}>
           <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
             <CardHeader>
-              <CardTitle className="text-[#E0E7FF]">Statistics</CardTitle>
-              <CardDescription className="text-[#8A8FB5]">
+              <CardTitle className="text-lg font-semibold text-[#E0E7FF] font-grotesk">Statistics</CardTitle>
+              <CardDescription className="text-sm text-[#8A8FB5]">
                 Your typing performance analysis over time
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="mb-6">
-                <h4 className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 mb-3">
+                <h4 className="text-xs font-semibold font-grotesk uppercase tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 mb-3">
                   Performance Highlights
                 </h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                   <StatTile
+                    
                     label="Best WPM"
                     value={
-                      <span className="bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent font-meno">
-                        <NumberAnimation value={Math.round(props.stats.bestWPM)} unit=" WPM" delay={0.3} />
-                      </span>
+                      <NumberAnimation value={Math.round(props.stats.bestWPM)} unit=" WPM" delay={0.3} />
                     }
                     subValue={bestWpmAt ? formatLocalDateTime(bestWpmAt) : "—"}
                     icon={<TrendingUp className="h-4 w-4 text-cyan-300" />}
                   />
                   <StatTile
+                    
                     label="Best accuracy"
                     value={
-                      <span className="bg-gradient-to-r from-green-300 to-teal-400 bg-clip-text text-transparent font-mono">
-                        <NumberAnimation value={Math.round(props.stats.bestAccuracy)} unit="%" delay={0.4} />
-                      </span>
+                      <NumberAnimation value={Math.round(props.stats.bestAccuracy)} unit="%" delay={0.4} />
                     }
                     subValue={bestAccuracyAt ? formatLocalDateTime(bestAccuracyAt) : "—"}
                     icon={<Target className="h-4 w-4 text-green-300" />}
                   />
                   <StatTile
+                    
                     label="Avg WPM"
                     value={<NumberAnimation value={Math.round(props.stats.averageWPM)} unit=" WPM" delay={0.5} />}
                     icon={<TrendingUp className="h-4 w-4 text-cyan-300" />}
                   />
                   <StatTile
+                    
                     label="Avg accuracy"
                     value={<NumberAnimation value={Math.round(props.stats.averageAccuracy)} unit="%" delay={0.6} />}
                     icon={<Target className="h-4 w-4 text-green-300" />}
                   />
                   <StatTile
+                    
                     label="Avg consistency"
                     value={
                       Number.isFinite(props.stats.averageConsistency) ? (
@@ -1655,37 +1684,43 @@ const ProfileClient = memo(function ProfileClient(props: {
               </div>
 
               <div>
-                <h4 className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400 mb-3">
+                <h4 className="text-xs font-semibold font-grotesk uppercase tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400 mb-3">
                   Activity Totals
                 </h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                  <StatTile
+                  <StatTile   
                     label="Time typed"
                     value={formatDurationSeconds(props.stats.totalTimeTyped)}
                     subValue={lastUpdatedAt ? `Updated ${formatLocalDateTime(lastUpdatedAt)}` : undefined}
                     icon={<Clock className="h-4 w-4 text-cyan-300" />}
+                    valueColor="text-[rgba(160,220,255,1)]"
                   />
                   <StatTile
+                    
                     label="Total sessions"
                     value={<NumberAnimation value={props.stats.totalSessions} delay={0.2} />}
                     icon={<BarChart3 className="h-4 w-4 text-green-300" />}
                   />
                   <StatTile
+                    
                     label="Words typed"
                     value={<NumberAnimation value={props.stats.totalWordsTyped} delay={0.8} />}
                     icon={<BarChart3 className="h-4 w-4 text-blue-300" />}
                   />
                   <StatTile
+                    
                     label="Chars typed"
                     value={<NumberAnimation value={props.stats.totalCharactersTyped} delay={0.9} />}
                     icon={<BarChart3 className="h-4 w-4 text-purple-300" />}
                   />
                   <StatTile
+                    
                     label="Total mistakes"
                     value={<NumberAnimation value={props.stats.totalMistakes} delay={1.0} />}
                     icon={<AlertTriangle className="h-4 w-4 text-red-300" />}
                   />
                   <StatTile
+                    
                     label="Total corrections"
                     value={<NumberAnimation value={props.stats.totalCorrections} delay={1.1} />}
                     icon={<CheckCircle2 className="h-4 w-4 text-green-300" />}
@@ -1697,20 +1732,20 @@ const ProfileClient = memo(function ProfileClient(props: {
         </motion.div>
 
         {/* Account Actions Card */}
-        <motion.div variants={fadeInUp}>
+        <motion.div variants={FADE_IN_UP}>
           <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
             <CardHeader>
-              <CardTitle className="text-[#E0E7FF]">Account</CardTitle>
-              <CardDescription className="text-[#8A8FB5]">Manage your account.</CardDescription>
+              <CardTitle className="text-lg font-semibold text-[#E0E7FF] font-grotesk">Account</CardTitle>
+              <CardDescription className="text-sm text-[#8A8FB5]">Manage your account.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col sm:flex-row gap-3">
                 <SignOut
                   label="Sign out"
                   redirectTo="/"
-                  className="flex-1 font-medium rounded-lg py-5 border border-[#69d0ff] bg-transparent text-[#60a5fa] hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] transition-colors duration-300"
+                  className="w-48 font-medium rounded-lg py-5 border border-[#69d0ff] bg-transparent text-[#60a5fa] hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] transition-colors duration-300"
                 />
-                <DeleteAccountButton className="flex-1" />
+                <DeleteAccountButton className="w-48" />
               </div>
             </CardContent>
           </Card>
@@ -1718,6 +1753,6 @@ const ProfileClient = memo(function ProfileClient(props: {
       </motion.div>
     </LayoutGroup>
   );
-});
+}
 
 export default ProfileClient;
