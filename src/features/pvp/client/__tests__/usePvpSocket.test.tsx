@@ -5,6 +5,11 @@ import { PvpSocketProvider, usePvpSocket } from "../usePvpSocket";
 
 type HarnessApi = ReturnType<typeof usePvpSocket>;
 
+function requireApi(api: HarnessApi | null): HarnessApi {
+  expect(api).not.toBeNull();
+  return api as HarnessApi;
+}
+
 class FakeWebSocket {
   static CONNECTING = 0;
   static OPEN = 1;
@@ -115,7 +120,6 @@ describe("usePvpSocket", () => {
 
     const firstSocket = FakeWebSocket.instances[0]!;
     act(() => {
-      firstSocket.open();
       firstSocket.receive({
         type: "HELLO_OK",
         payload: { user: { userId: "u1", username: "me", avatar: null } },
@@ -136,18 +140,18 @@ describe("usePvpSocket", () => {
       });
     });
 
-    expect(api?.getLatestMatchSnapshot("match-1")?.status).toBe("COUNTDOWN");
+    expect(requireApi(api).getLatestMatchSnapshot("match-1")?.status).toBe("COUNTDOWN");
     expect(screen.getByTestId("socket-status")).toHaveTextContent("ready");
 
     act(() => {
       firstSocket.close(1001, "server restart");
     });
 
-    expect(api?.connectionPhase.kind).toBe("reconnecting");
+    expect(requireApi(api).connectionPhase.kind).toBe("reconnecting");
 
     let sendResult = true;
     act(() => {
-      sendResult = api?.send({ type: "QUEUE_JOIN", payload: {} }) ?? true;
+      sendResult = requireApi(api).send({ type: "QUEUE_JOIN", payload: {} });
     });
     expect(sendResult).toBe(false);
 
@@ -201,8 +205,8 @@ describe("usePvpSocket", () => {
       });
     });
 
-    expect(api?.getLatestMatchSnapshot("match-1")?.status).toBe("RUNNING");
-    expect(api?.getLatestMatchSnapshot("match-1")?.revision).toBe(2);
+    expect(requireApi(api).getLatestMatchSnapshot("match-1")?.status).toBe("RUNNING");
+    expect(requireApi(api).getLatestMatchSnapshot("match-1")?.revision).toBe(2);
     expect(screen.getByTestId("socket-status")).toHaveTextContent("ready");
   });
 });

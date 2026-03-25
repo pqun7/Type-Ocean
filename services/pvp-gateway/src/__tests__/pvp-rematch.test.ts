@@ -32,13 +32,13 @@ describe("AI rematch decision (R1 — no cooldown)", () => {
 
   it("flip === 0 means accept (rematch created)", () => {
     const flip = 0;
-    const shouldDecline = flip === 1;
+    const shouldDecline = Boolean(flip);
     expect(shouldDecline).toBe(false);
   });
 
   it("flip === 1 means reject (REMATCH_DECLINED with AI_REFUSED)", () => {
     const flip = 1;
-    const shouldDecline = flip === 1;
+    const shouldDecline = Boolean(flip);
     const reason = "AI_REFUSED";
     expect(shouldDecline).toBe(true);
     expect(reason).toBe("AI_REFUSED");

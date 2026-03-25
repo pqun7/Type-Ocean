@@ -9,7 +9,7 @@ import { consumeFlashCookie } from "@/lib/flash-cookies";
 
 export function HandleAuthErrors() {
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const error = searchParams?.get("error");
   const { showAlert } = useAlert();
   const prevError = useRef<string | null>(null);
 

@@ -61,7 +61,7 @@ export default function Pvp1v1Client() {
   const [searchStartedAtMs, setSearchStartedAtMs] = useState<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [pendingMatch, setPendingMatch] = useState<PendingMatch | null>(null);
-  const cancelledReason = searchParams.get("cancelled");
+  const cancelledReason = searchParams?.get("cancelled");
 
   /** Remaining circuit-breaker cooldown in ms, or null when inactive. */
   const [cooldownRemaining, setCooldownRemaining] = useState<number | null>(null);
@@ -175,7 +175,7 @@ export default function Pvp1v1Client() {
   const autoQueueFiredRef = useRef(false);
   useEffect(() => {
     if (autoQueueFiredRef.current) return;
-    if (searchParams.get("autoQueue") !== "1") return;
+    if (searchParams?.get("autoQueue") !== "1") return;
     if (!canQueue) return;
     autoQueueFiredRef.current = true;
     handleQueueJoin();

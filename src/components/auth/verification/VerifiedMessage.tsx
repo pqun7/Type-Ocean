@@ -9,7 +9,7 @@ export default function VerifiedMessage() {
   const { showAlert } = useAlert();
   const searchParams = useSearchParams();
 
-  const verificationStatus = searchParams.get("verified");
+  const verificationStatus = searchParams?.get("verified");
 
   useEffect(() => {
     const flash = consumeFlashCookie("__flash_verified");

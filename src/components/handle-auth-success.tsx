@@ -22,8 +22,8 @@ function formatProvider(provider: string | null): string {
 
 export function HandleAuthSuccess() {
   const searchParams = useSearchParams();
-  const auth = searchParams.get("auth");
-  const provider = searchParams.get("provider");
+  const auth = searchParams?.get("auth");
+  const provider = searchParams?.get("provider");
   const { showAlert } = useAlert();
   const prevKey = useRef<string | null>(null);
 
@@ -91,7 +91,7 @@ export function HandleAuthSuccess() {
     if (prevKey.current === key) return;
     prevKey.current = key;
 
-    const providerLabel = formatProvider(provider);
+    const providerLabel = formatProvider(provider ?? null);
     const message = providerLabel
       ? `Signed in with ${providerLabel} successfully.`
       : "Logged in successfully.";

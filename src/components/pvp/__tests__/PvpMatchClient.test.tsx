@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import PvpMatchClient from "../PvpMatchClient";
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
+import type { ClientMessage } from "@/features/pvp/client/types";
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -86,7 +87,7 @@ type Snapshot = {
   isTerminal: boolean;
 };
 
-const sendMock = jest.fn(() => true);
+const sendMock = jest.fn<boolean, [ClientMessage]>(() => true);
 const usePvpSocketMock = usePvpSocket as jest.Mock;
 
 let listeners: Listener[] = [];
@@ -199,6 +200,10 @@ async function emitProgress(message: ReturnType<typeof buildProgress>) {
       listener(message as unknown as Record<string, unknown>);
     }
   });
+}
+
+function getInputUpdateCalls() {
+  return sendMock.mock.calls.filter(([message]) => message.type === "INPUT_UPDATE");
 }
 
 describe("PvpMatchClient", () => {
@@ -336,7 +341,7 @@ describe("PvpMatchClient", () => {
 
     fireEvent.click(screen.getByTestId("typing-input"));
 
-    const bufferedInputCalls = sendMock.mock.calls.filter(([message]) => message.type === "INPUT_UPDATE");
+    const bufferedInputCalls = getInputUpdateCalls();
     expect(bufferedInputCalls).toHaveLength(1);
 
     socketStatus = "ready";
@@ -346,7 +351,7 @@ describe("PvpMatchClient", () => {
 
     await act(async () => {});
 
-    const flushedInputCalls = sendMock.mock.calls.filter(([message]) => message.type === "INPUT_UPDATE");
+    const flushedInputCalls = getInputUpdateCalls();
     expect(flushedInputCalls).toHaveLength(2);
     expect(flushedInputCalls[1]?.[0]).toEqual(flushedInputCalls[0]?.[0]);
   });

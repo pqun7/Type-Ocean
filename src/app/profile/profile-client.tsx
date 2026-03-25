@@ -1,7 +1,14 @@
-// src/app/api/profile/page-client.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  memo,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -61,6 +68,7 @@ import {
   type OverallKeyboardPerformanceSnapshot,
 } from "@/components/TypingTest/utils/overallKeyboardPerformance";
 
+// ------------------- Types -------------------
 type AchievementStateSlim = {
   id: string;
   unlocked: boolean;
@@ -137,6 +145,14 @@ type SessionHistoryEntry = {
   localDate?: string;
 };
 
+// ------------------- Constants -------------------
+const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
+const INPUT_MAX_BYTES = 10 * 1024 * 1024;
+const ALLOWED_INPUT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const AVATAR_DIMENSION = 512;
+const AVATAR_QUALITY = 0.82;
+
+// ------------------- Utility Functions -------------------
 function formatDurationSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   const hours = Math.floor(seconds / 3600);
@@ -152,38 +168,6 @@ function getInitials(username: string): string {
   if (!trimmed) return "U";
   return trimmed.slice(0, 2).toUpperCase();
 }
-
-function AvatarView({ url, username }: { url: string | null; username: string }) {
-  if (!url) {
-    return (
-      <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-slate-200">
-        {getInitials(username)}
-      </div>
-    );
-  }
-
-  return (
-    // Use <img> to avoid next/image remote config requirements
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt={`${username} avatar`}
-      className="h-16 w-16 rounded-full border border-white/10 bg-white/5 object-cover"
-      referrerPolicy="no-referrer"
-      onError={(e) => {
-        // If broken URL, fallback to blank (shows alt)
-        (e.currentTarget as HTMLImageElement).src = "";
-      }}
-    />
-  );
-}
-
-
-const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
-const INPUT_MAX_BYTES = 10 * 1024 * 1024;
-const ALLOWED_INPUT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-const AVATAR_DIMENSION = 512;
-const AVATAR_QUALITY = 0.82;
 
 function safeDate(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -201,13 +185,31 @@ function formatLocalDateTime(value: Date): string {
   });
 }
 
-const fadeInUp = {
-  initial: { opacity: 0, y: 10 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.4 },
-};
+// ------------------- Memoized Subcomponents -------------------
+const AvatarView = memo(function AvatarView({ url, username }: { url: string | null; username: string }) {
+  if (!url) {
+    return (
+      <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-slate-200">
+        {getInitials(username)}
+      </div>
+    );
+  }
 
-// ── Achievement icon + colour map ────────────────────────────────────────────
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt={`${username} avatar`}
+      className="h-16 w-16 rounded-full border border-white/10 bg-white/5 object-cover"
+      referrerPolicy="no-referrer"
+      onError={(e) => {
+        (e.currentTarget as HTMLImageElement).src = "";
+      }}
+    />
+  );
+});
+
+// Achievement icon + colour map (unchanged, but memoized)
 type AchTier = "common" | "rare" | "epic" | "legendary" | "mythic";
 
 const ACHIEVEMENT_META: Record<string, { icon: React.ReactNode; tier: AchTier }> = {
@@ -241,8 +243,8 @@ const ACH_HINT: Record<string, string> = {
   iron_fingers:    "100K keys pressed.",
   ghost_protocol:  "5 perfect games. No trace.",
 };
-/** Compact square card for the achievements grid. */
-function AchCard({
+
+const AchCard = memo(function AchCard({
   ach, state,
 }: {
   ach: (typeof ACHIEVEMENTS)[number];
@@ -253,7 +255,6 @@ function AchCard({
   const tier     = (meta?.tier ?? "common") as AchTier;
   const styles   = TIER_STYLES[tier];
 
-  // XP colour by tier
   const xpColor =
     tier === "mythic"    ? "text-fuchsia-300"
     : tier === "legendary" ? "text-rose-300"
@@ -275,7 +276,6 @@ function AchCard({
     >
       {/* Top section */}
       <div className="flex flex-col gap-2">
-        {/* Icon + XP row */}
         <div className="flex items-center justify-between">
           <div
             className={[
@@ -289,8 +289,6 @@ function AchCard({
             +{ach.xpReward.toLocaleString()}
           </span>
         </div>
-
-        {/* Name */}
         <p className={[
           "text-[11px] font-bold leading-tight truncate font-mono",
           unlocked ? styles.label : "text-white/30",
@@ -301,7 +299,6 @@ function AchCard({
 
       {/* Bottom section */}
       <div className="flex flex-col gap-1.5">
-        {/* Tier badge */}
         <div className="h-4">
           {unlocked && (
             <span
@@ -314,23 +311,20 @@ function AchCard({
             </span>
           )}
         </div>
-
-        {/* Hint */}
         <p className="text-[9px] text-white/50 leading-snug line-clamp-2 font-mono">
           {hint}
         </p>
       </div>
     </div>
   );
-}
+});
 
-function AchievementsPanel({ achievements }: { achievements: AchievementStateSlim[] }) {
-  const stateMap     = new Map(achievements.map((a) => [a.id, a]));
+const AchievementsPanel = memo(function AchievementsPanel({ achievements }: { achievements: AchievementStateSlim[] }) {
+  const stateMap = useMemo(() => new Map(achievements.map((a) => [a.id, a])), [achievements]);
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Header */}
       <div className="flex items-center gap-2 px-0.5">
         <Trophy className="w-4 h-4 text-amber-300 shrink-0" />
         <span className="text-sm font-semibold text-[#E0E7FF] uppercase tracking-wider">Achievements</span>
@@ -338,8 +332,6 @@ function AchievementsPanel({ achievements }: { achievements: AchievementStateSli
           {unlockedCount} / {ACHIEVEMENTS.length}
         </span>
       </div>
-
-      {/* Responsive grid: 3 columns - equal square cards */}
       <div className="grid grid-cols-3 gap-3">
         {ACHIEVEMENTS.map((ach) => (
           <AchCard key={ach.id} ach={ach} state={stateMap.get(ach.id)} />
@@ -347,18 +339,89 @@ function AchievementsPanel({ achievements }: { achievements: AchievementStateSli
       </div>
     </div>
   );
+});
+
+// ------------------- Helper Functions -------------------
+async function compressAvatarForUpload(
+  file: File
+): Promise<{ blob: Blob; contentType: "image/webp" | "image/jpeg"; filename: string }> {
+  const bitmap = await (async () => {
+    if (typeof createImageBitmap === "function") {
+      try {
+        return await createImageBitmap(file);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  })();
+
+  if (bitmap) {
+    const side = Math.min(bitmap.width, bitmap.height);
+    const sx = Math.floor((bitmap.width - side) / 2);
+    const sy = Math.floor((bitmap.height - side) / 2);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = AVATAR_DIMENSION;
+    canvas.height = AVATAR_DIMENSION;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Image processing failed");
+
+    ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, AVATAR_DIMENSION, AVATAR_DIMENSION);
+    bitmap.close?.();
+
+    const webp = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/webp", AVATAR_QUALITY)
+    );
+    if (webp) return { blob: webp, contentType: "image/webp", filename: "avatar.webp" };
+
+    const jpeg = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", AVATAR_QUALITY)
+    );
+    if (!jpeg) throw new Error("Image processing failed");
+    return { blob: jpeg, contentType: "image/jpeg", filename: "avatar.jpg" };
+  }
+
+  // Fallback: <img> + canvas
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Invalid image"));
+      el.src = url;
+    });
+
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const sx = Math.floor((img.naturalWidth - side) / 2);
+    const sy = Math.floor((img.naturalHeight - side) / 2);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = AVATAR_DIMENSION;
+    canvas.height = AVATAR_DIMENSION;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Image processing failed");
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_DIMENSION, AVATAR_DIMENSION);
+
+    const webp = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/webp", AVATAR_QUALITY)
+    );
+    if (webp) return { blob: webp, contentType: "image/webp", filename: "avatar.webp" };
+
+    const jpeg = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", AVATAR_QUALITY)
+    );
+    if (!jpeg) throw new Error("Image processing failed");
+    return { blob: jpeg, contentType: "image/jpeg", filename: "avatar.jpg" };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
-
-const staggerContainer = {
-  animate: {
-    transition: {
-      staggerChildren: 0.1,
-    },
-  },
-};
-
-export default function ProfileClient(props: {
+// ------------------- Main Component -------------------
+const ProfileClient = memo(function ProfileClient(props: {
   user: UserData;
   profile: ProfileData;
   stats: LongTermStats;
@@ -368,12 +431,19 @@ export default function ProfileClient(props: {
 }) {
   const router = useRouter();
   const { showAlert } = useAlert();
+  const [, startTransition] = useTransition();
 
+  // Refs for input elements that don't need to trigger re-renders
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
+  const passwordCurrentValueRef = useRef("");
+  const newPasswordValueRef = useRef("");
+  const confirmNewPasswordValueRef = useRef("");
+  const passwordCurrentInputRef = useRef<HTMLInputElement | null>(null);
+  const newPasswordInputRef = useRef<HTMLInputElement | null>(null);
+  const confirmNewPasswordInputRef = useRef<HTMLInputElement | null>(null);
 
-  const avatarUrl = props.profile.avatar ?? props.user.image;
-
+  // State - group related states to reduce re-renders
   const [username, setUsername] = useState(props.user.username);
   const [editingUsername, setEditingUsername] = useState(false);
 
@@ -386,37 +456,21 @@ export default function ProfileClient(props: {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
 
-  const passwordCurrentValueRef = useRef("");
-  const newPasswordValueRef = useRef("");
-  const confirmNewPasswordValueRef = useRef("");
-  const passwordCurrentInputRef = useRef<HTMLInputElement | null>(null);
-  const newPasswordInputRef = useRef<HTMLInputElement | null>(null);
-  const confirmNewPasswordInputRef = useRef<HTMLInputElement | null>(null);
-
   const [busy, setBusy] = useState<null | "username" | "avatar" | "email" | "password">(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
-  const overallKeyboardSnapshot = props.overallKeyboardPerformance;
   const [selectedKeyboardLanguage, setSelectedKeyboardLanguage] =
     useState<Language>((props.overallKeyboardPerformance?.lastLanguage as Language) || "en");
 
-  useEffect(() => {
-    setUsername(props.user.username);
-  }, [props.user.username]);
+  const [otpDialogOpen, setOtpDialogOpen] = useState(false);
+  const [otpDialogDestinationEmail, setOtpDialogDestinationEmail] = useState("");
+  const [otpDialogInitialSentAt, setOtpDialogInitialSentAt] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (editingEmail) return;
-    setEmailDraft(props.user.email);
-  }, [props.user.email, editingEmail]);
+  // Local refs for OTP dialog flags (avoid re-renders)
+  const otpDialogOpenedForChangeRef = useRef(false);
+  const otpDialogJustVerifiedRef = useRef(false);
 
-  useEffect(() => {
-    if (!overallKeyboardSnapshot) return;
-    setSelectedKeyboardLanguage(overallKeyboardSnapshot.lastLanguage as Language);
-  }, [overallKeyboardSnapshot]);
-
-  useEffect(() => {
-    if (!editingUsername) return;
-    usernameInputRef.current?.focus();
-  }, [editingUsername]);
+  // Memoized computed values
+  const avatarUrl = props.profile.avatar ?? props.user.image;
 
   const usernameIsDirty = useMemo(() => {
     return username.trim().toLowerCase() !== props.user.username.trim().toLowerCase();
@@ -428,61 +482,7 @@ export default function ProfileClient(props: {
 
   const isEmailVerified = !!props.user.emailVerified;
   const emailVerifiedAt = useMemo(() => safeDate(props.user.emailVerified), [props.user.emailVerified]);
-
   const hasPendingEmail = !!props.user.pendingEmail;
-  const otpDestinationEmail = (props.user.pendingEmail ?? props.user.email).trim();
-  const otpInitialSentAt = props.user.emailVerifyOtpSentAt;
-
-  const otpDialogOpenedForChangeRef = useRef(false);
-  const otpDialogJustVerifiedRef = useRef(false);
-
-  const handleOtpVerified = useCallback(() => {
-    otpDialogJustVerifiedRef.current = true;
-    router.refresh();
-  }, [router]);
-
-  const [otpDialogOpen, setOtpDialogOpen] = useState(false);
-  const [otpDialogDestinationEmail, setOtpDialogDestinationEmail] = useState(otpDestinationEmail);
-  const [otpDialogInitialSentAt, setOtpDialogInitialSentAt] = useState<string | null>(otpInitialSentAt);
-
-  useEffect(() => {
-    setOtpDialogDestinationEmail(otpDestinationEmail);
-    setOtpDialogInitialSentAt(otpInitialSentAt);
-  }, [otpDestinationEmail, otpInitialSentAt]);
-
-async function cancelEmailChangeRequest() {
-    try {
-      await patchUser({
-        // PATCHing the current email triggers cancelPendingEmail server-side.
-        email: props.user.email.trim().toLowerCase(),
-      });
-      showAlert("Email change canceled.", "warning", { durationMs: 5000 });
-    } catch {
-      // Keep it quiet; worst case the server kept the request.
-    } finally {
-      router.refresh();
-    }
-  }
-
-  const handleOtpDialogOpenChange = useCallback(
-    async (open: boolean) => {
-      setOtpDialogOpen(open);
-
-      if (!open) {
-        const shouldCancel =
-          otpDialogOpenedForChangeRef.current && !otpDialogJustVerifiedRef.current;
-
-        otpDialogOpenedForChangeRef.current = false;
-        otpDialogJustVerifiedRef.current = false;
-
-        if (shouldCancel) {
-          await cancelEmailChangeRequest();
-        }
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [props.user.email, router, showAlert]
-  );
 
   const bestWpmAt = useMemo(() => safeDate(props.stats.bestWPMDate), [props.stats.bestWPMDate]);
   const bestAccuracyAt = useMemo(() => safeDate(props.stats.bestAccuracyDate), [props.stats.bestAccuracyDate]);
@@ -499,7 +499,7 @@ async function cancelEmailChangeRequest() {
     return { endDate: end, rangeDays };
   }, []);
 
-  const heatmapData: HeatmapDatum[] = useMemo(() => {
+  const heatmapData = useMemo(() => {
     const toStrengthDatum = (args: {
       date: string;
       totalMinutes: number;
@@ -516,7 +516,6 @@ async function cancelEmailChangeRequest() {
 
       return {
         date: args.date,
-        // Normalized stable strength (0..100) so small values are still visible.
         value: strength.strength100,
         meta: {
           sessionsCount: args.sessionsCount,
@@ -579,6 +578,49 @@ async function cancelEmailChangeRequest() {
     );
   }, []);
 
+  const keyboardLanguageOptions = useMemo(() => {
+    if (!props.overallKeyboardPerformance) return [] as Language[];
+    const candidates: Language[] = ["en", "ar", "fr", "es"];
+    return candidates.filter((lang) => {
+      const bucket = props.overallKeyboardPerformance!.byLanguage[lang] ?? {};
+      return Object.values(bucket).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
+    });
+  }, [props.overallKeyboardPerformance]);
+
+  const currentKeyboardData = useMemo(() => {
+    if (!props.overallKeyboardPerformance) return undefined;
+    const source = props.overallKeyboardPerformance.byLanguage[selectedKeyboardLanguage] ?? {};
+    const hasAny = Object.values(source).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
+    const bucket = hasAny ? source : props.overallKeyboardPerformance.total;
+    if (!bucket || Object.keys(bucket).length === 0) return undefined;
+
+    // Create a new object only when necessary
+    const out: PerformanceData = {};
+    for (const [key, value] of Object.entries(bucket)) {
+      out[key] = { correct: value.correct, error: value.error };
+    }
+    return out;
+  }, [props.overallKeyboardPerformance, selectedKeyboardLanguage]);
+
+  const keyboardTotals = useMemo(
+    () => getTotalsFromPerformance(currentKeyboardData),
+    [currentKeyboardData]
+  );
+
+  const keyboardAccuracy = useMemo(() => {
+    const total = keyboardTotals.correct + keyboardTotals.error;
+    if (total <= 0) return 0;
+    return (keyboardTotals.correct / total) * 100;
+  }, [keyboardTotals]);
+
+  // Animation variants
+  const fadeInUp = useMemo(() => ({
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.4 },
+  }), []);
+
+  // Memoized heavy UI sections
   const accountStatsChartSection = useMemo(
     () => (
       <motion.div variants={fadeInUp}>
@@ -589,7 +631,7 @@ async function cancelEmailChangeRequest() {
         />
       </motion.div>
     ),
-    [props.dailyActivity, props.sessionHistory, props.stats]
+    [props.dailyActivity, props.sessionHistory, props.stats, fadeInUp]
   );
 
   const heatmapSection = useMemo(
@@ -635,48 +677,8 @@ async function cancelEmailChangeRequest() {
         />
       </motion.div>
     ),
-    [
-      heatmapData,
-      heatmapRange.endDate,
-      heatmapRange.rangeDays,
-      renderHeatmapTooltip,
-    ]
+    [heatmapData, heatmapRange, renderHeatmapTooltip, fadeInUp]
   );
-
-  const keyboardLanguageOptions = useMemo(() => {
-    if (!overallKeyboardSnapshot) return [] as Language[];
-
-    const candidates: Language[] = ["en", "ar", "fr", "es"];
-    return candidates.filter((lang) => {
-      const bucket = overallKeyboardSnapshot.byLanguage[lang] ?? {};
-      return Object.values(bucket).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
-    });
-  }, [overallKeyboardSnapshot]);
-
-  const currentKeyboardData: PerformanceData | undefined = useMemo(() => {
-    if (!overallKeyboardSnapshot) return undefined;
-    const source = overallKeyboardSnapshot.byLanguage[selectedKeyboardLanguage] ?? {};
-    const hasAny = Object.values(source).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
-    const bucket = hasAny ? source : overallKeyboardSnapshot.total;
-    if (!bucket || Object.keys(bucket).length === 0) return undefined;
-
-    const out: PerformanceData = {};
-    for (const [key, value] of Object.entries(bucket)) {
-      out[key] = { correct: value.correct, error: value.error };
-    }
-    return out;
-  }, [overallKeyboardSnapshot, selectedKeyboardLanguage]);
-
-  const keyboardTotals = useMemo(
-    () => getTotalsFromPerformance(currentKeyboardData),
-    [currentKeyboardData]
-  );
-
-  const keyboardAccuracy = useMemo(() => {
-    const total = keyboardTotals.correct + keyboardTotals.error;
-    if (total <= 0) return 0;
-    return (keyboardTotals.correct / total) * 100;
-  }, [keyboardTotals]);
 
   const overallKeyboardHeatmapSection = useMemo(() => {
     return (
@@ -715,7 +717,7 @@ async function cancelEmailChangeRequest() {
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <StatTile
                     label="Tracked sessions"
-                    value={<NumberAnimation value={overallKeyboardSnapshot?.sessions ?? 0} delay={0.2} />}
+                    value={<NumberAnimation value={props.overallKeyboardPerformance?.sessions ?? 0} delay={0.2} />}
                     icon={<BarChart3 className="h-4 w-4 text-cyan-300" />}
                   />
                   <StatTile
@@ -750,12 +752,14 @@ async function cancelEmailChangeRequest() {
     keyboardAccuracy,
     keyboardLanguageOptions,
     keyboardTotals,
-    overallKeyboardSnapshot?.sessions,
+    props.overallKeyboardPerformance?.sessions,
     props.profile.level,
     selectedKeyboardLanguage,
+    fadeInUp
   ]);
 
-  async function patchUser(body: unknown) {
+  // API helpers
+  const patchUser = useCallback(async (body: unknown) => {
     const res = await fetch("/api/user", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -773,9 +777,95 @@ async function cancelEmailChangeRequest() {
     }
 
     return data;
-  }
+  }, []);
 
-  async function onSaveEmail() {
+  const uploadAvatar = useCallback(async (file: File) => {
+    if (!ALLOWED_INPUT_TYPES.has(file.type)) {
+      throw new Error("Unsupported image type");
+    }
+    if (file.size <= 0 || file.size > INPUT_MAX_BYTES) {
+      throw new Error("Image file too large");
+    }
+
+    const optimized = await compressAvatarForUpload(file);
+    if (optimized.blob.size <= 0 || optimized.blob.size > MAX_AVATAR_BYTES) {
+      throw new Error("Avatar is too large after compression");
+    }
+
+    const uploadFile = new File([optimized.blob], optimized.filename, { type: optimized.contentType });
+    const form = new FormData();
+    form.append("file", uploadFile);
+
+    const res = await fetch("/api/user/avatar", {
+      method: "POST",
+      body: form,
+    });
+
+    const data: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      const msg =
+        typeof data === "object" && data !== null && "error" in data
+          ? String((data as { error: unknown }).error)
+          : "Failed to upload avatar";
+      throw new Error(msg);
+    }
+
+    return data;
+  }, []);
+
+  const getFriendlyAvatarError = useCallback((err: unknown): string => {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes("unsupported image type")) {
+      return "Unsupported image type. Please choose a JPG, PNG, WEBP, or GIF image.";
+    }
+    if (msg.toLowerCase().includes("image file too large")) {
+      return "Image is too large. Please choose a smaller file (max 10MB).";
+    }
+    if (msg.toLowerCase().includes("too large after compression") || msg.toLowerCase().includes("avatar file too large")) {
+      return "Avatar is too large. Please choose a smaller image.";
+    }
+    if (msg.toLowerCase().includes("invalid image") || msg.toLowerCase().includes("image processing failed")) {
+      return "That file could not be processed as an image. Please try a different one.";
+    }
+    return msg || "Failed to upload avatar";
+  }, []);
+
+  // Event handlers (memoized)
+  const onPickAvatarFile = useCallback(async (file: File) => {
+    setBusy("avatar");
+    setAvatarError(null);
+
+    try {
+      await uploadAvatar(file);
+      setAvatarError(null);
+      showAlert("Avatar updated", "success");
+      startTransition(() => router.refresh());
+    } catch (e) {
+      const friendly = getFriendlyAvatarError(e);
+      setAvatarError(friendly);
+      showAlert(friendly, "error");
+    } finally {
+      setBusy(null);
+    }
+  }, [uploadAvatar, getFriendlyAvatarError, showAlert, router]);
+
+  const onSaveUsername = useCallback(async () => {
+    setBusy("username");
+
+    try {
+      const next = username.trim();
+      await patchUser({ username: next });
+      showAlert("Username updated", "success");
+      setEditingUsername(false);
+      startTransition(() => router.refresh());
+    } catch (e) {
+      showAlert(e instanceof Error ? e.message : "Failed to update username", "error");
+    } finally {
+      setBusy(null);
+    }
+  }, [username, patchUser, showAlert, router]);
+
+  const onSaveEmail = useCallback(async () => {
     if (busy !== null) return;
 
     const next = emailDraft.trim().toLowerCase();
@@ -829,36 +919,15 @@ async function cancelEmailChangeRequest() {
 
       setEditingEmail(false);
       setEmailCurrentPassword("");
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (e) {
       showAlert(e instanceof Error ? e.message : "Failed to update email", "error");
     } finally {
       setBusy(null);
     }
-  }
+  }, [busy, emailDraft, emailIsDirty, props.user.hasPassword, emailCurrentPassword, patchUser, showAlert, router]);
 
-  function startEmailEdit() {
-    setEmailDraft(props.user.email);
-    setEditingEmail(true);
-  }
-
-  function cancelEmailEdit() {
-    setEmailDraft(props.user.email);
-    setEmailCurrentPassword("");
-    setEditingEmail(false);
-  }
-
-  function startPasswordEdit() {
-    passwordCurrentValueRef.current = "";
-    newPasswordValueRef.current = "";
-    confirmNewPasswordValueRef.current = "";
-    if (passwordCurrentInputRef.current) passwordCurrentInputRef.current.value = "";
-    if (newPasswordInputRef.current) newPasswordInputRef.current.value = "";
-    if (confirmNewPasswordInputRef.current) confirmNewPasswordInputRef.current.value = "";
-    setEditingPassword(true);
-  }
-
-  function cancelPasswordEdit() {
+  const cancelPasswordEdit = useCallback(() => {
     setEditingPassword(false);
     passwordCurrentValueRef.current = "";
     newPasswordValueRef.current = "";
@@ -869,9 +938,9 @@ async function cancelEmailChangeRequest() {
     setShowCurrentPassword(false);
     setShowNewPassword(false);
     setShowConfirmNewPassword(false);
-  }
+  }, []);
 
-  async function onSavePassword() {
+  const onSavePassword = useCallback(async () => {
     if (busy !== null) return;
 
     const { current: next } = newPasswordValueRef;
@@ -925,190 +994,104 @@ async function cancelEmailChangeRequest() {
 
       showAlert(props.user.hasPassword ? "Password updated successfully" : "Password set successfully", "success");
       cancelPasswordEdit();
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (e) {
       showAlert(e instanceof Error ? e.message : "Failed to update password", "error");
     } finally {
       setBusy(null);
     }
-  }
+  }, [busy, props.user.hasPassword, showAlert, cancelPasswordEdit, router]);
 
-  async function uploadAvatar(file: File) {
-    if (!ALLOWED_INPUT_TYPES.has(file.type)) {
-      throw new Error("Unsupported image type");
+  const cancelEmailChangeRequest = useCallback(async () => {
+    try {
+      await patchUser({
+        email: props.user.email.trim().toLowerCase(),
+      });
+      showAlert("Email change canceled.", "warning", { durationMs: 5000 });
+    } catch {
+      // Keep it quiet; worst case the server kept the request.
+    } finally {
+      startTransition(() => router.refresh());
     }
-    if (file.size <= 0 || file.size > INPUT_MAX_BYTES) {
-      throw new Error("Image file too large");
-    }
+  }, [patchUser, props.user.email, showAlert, router]);
 
-    const optimized = await compressAvatarForUpload(file);
-    if (optimized.blob.size <= 0 || optimized.blob.size > MAX_AVATAR_BYTES) {
-      throw new Error("Avatar is too large after compression");
-    }
+  const handleOtpDialogOpenChange = useCallback(
+    async (open: boolean) => {
+      setOtpDialogOpen(open);
 
-    const uploadFile = new File([optimized.blob], optimized.filename, { type: optimized.contentType });
-    const form = new FormData();
-    form.append("file", uploadFile);
+      if (!open) {
+        const shouldCancel =
+          otpDialogOpenedForChangeRef.current && !otpDialogJustVerifiedRef.current;
 
-    const res = await fetch("/api/user/avatar", {
-      method: "POST",
-      body: form,
-    });
+        otpDialogOpenedForChangeRef.current = false;
+        otpDialogJustVerifiedRef.current = false;
 
-    const data: unknown = await res.json().catch(() => null);
-    if (!res.ok) {
-      const msg =
-        typeof data === "object" && data !== null && "error" in data
-          ? String((data as { error: unknown }).error)
-          : "Failed to upload avatar";
-      throw new Error(msg);
-    }
-
-    // Server already updates DB; keep router.refresh for UI consistency.
-    return data;
-  }
-
-  function getFriendlyAvatarError(err: unknown): string {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes("unsupported image type")) {
-      return "Unsupported image type. Please choose a JPG, PNG, WEBP, or GIF image.";
-    }
-    if (msg.toLowerCase().includes("image file too large")) {
-      return "Image is too large. Please choose a smaller file (max 10MB).";
-    }
-    if (msg.toLowerCase().includes("too large after compression") || msg.toLowerCase().includes("avatar file too large")) {
-      return "Avatar is too large. Please choose a smaller image.";
-    }
-    if (msg.toLowerCase().includes("invalid image") || msg.toLowerCase().includes("image processing failed")) {
-      return "That file could not be processed as an image. Please try a different one.";
-    }
-    return msg || "Failed to upload avatar";
-  }
-
-  async function compressAvatarForUpload(
-    file: File
-  ): Promise<{ blob: Blob; contentType: "image/webp" | "image/jpeg"; filename: string }> {
-    const bitmap = await (async () => {
-      if (typeof createImageBitmap === "function") {
-        try {
-          return await createImageBitmap(file);
-        } catch {
-          return null;
+        if (shouldCancel) {
+          await cancelEmailChangeRequest();
         }
       }
-      return null;
-    })();
+    },
+    [cancelEmailChangeRequest]
+  );
 
-    if (bitmap) {
-      const side = Math.min(bitmap.width, bitmap.height);
-      const sx = Math.floor((bitmap.width - side) / 2);
-      const sy = Math.floor((bitmap.height - side) / 2);
+  const handleOtpVerified = useCallback(() => {
+    otpDialogJustVerifiedRef.current = true;
+    startTransition(() => router.refresh());
+  }, [router]);
 
-      const canvas = document.createElement("canvas");
-      canvas.width = AVATAR_DIMENSION;
-      canvas.height = AVATAR_DIMENSION;
+  const startEmailEdit = useCallback(() => {
+    setEmailDraft(props.user.email);
+    setEditingEmail(true);
+  }, [props.user.email]);
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Image processing failed");
+  const cancelEmailEdit = useCallback(() => {
+    setEmailDraft(props.user.email);
+    setEmailCurrentPassword("");
+    setEditingEmail(false);
+  }, [props.user.email]);
 
-      ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, AVATAR_DIMENSION, AVATAR_DIMENSION);
-      bitmap.close?.();
-
-      const webp = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/webp", AVATAR_QUALITY)
-      );
-      if (webp) return { blob: webp, contentType: "image/webp", filename: "avatar.webp" };
-
-      const jpeg = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", AVATAR_QUALITY)
-      );
-      if (!jpeg) throw new Error("Image processing failed");
-      return { blob: jpeg, contentType: "image/jpeg", filename: "avatar.jpg" };
-    }
-
-    // Fallback: <img> + canvas
-    const url = URL.createObjectURL(file);
-    try {
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error("Invalid image"));
-        el.src = url;
-      });
-
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      const sx = Math.floor((img.naturalWidth - side) / 2);
-      const sy = Math.floor((img.naturalHeight - side) / 2);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = AVATAR_DIMENSION;
-      canvas.height = AVATAR_DIMENSION;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Image processing failed");
-      ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_DIMENSION, AVATAR_DIMENSION);
-
-      const webp = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/webp", AVATAR_QUALITY)
-      );
-      if (webp) return { blob: webp, contentType: "image/webp", filename: "avatar.webp" };
-
-      const jpeg = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", AVATAR_QUALITY)
-      );
-      if (!jpeg) throw new Error("Image processing failed");
-      return { blob: jpeg, contentType: "image/jpeg", filename: "avatar.jpg" };
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-
-  async function onSaveUsername() {
-    setBusy("username");
-
-    try {
-      const next = username.trim();
-      await patchUser({ username: next });
-      showAlert("Username updated", "success");
-      setEditingUsername(false);
-      router.refresh();
-    } catch (e) {
-      showAlert(e instanceof Error ? e.message : "Failed to update username", "error");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  function startUsernameEdit() {
+  const startUsernameEdit = useCallback(() => {
     setUsername(props.user.username);
     setEditingUsername(true);
-  }
+  }, [props.user.username]);
 
-  function cancelUsernameEdit() {
+  const cancelUsernameEdit = useCallback(() => {
     setUsername(props.user.username);
     setEditingUsername(false);
-  }
+  }, [props.user.username]);
 
-  async function onPickAvatarFile(file: File) {
-    setBusy("avatar");
-    setAvatarError(null);
+  const startPasswordEdit = useCallback(() => {
+    passwordCurrentValueRef.current = "";
+    newPasswordValueRef.current = "";
+    confirmNewPasswordValueRef.current = "";
+    if (passwordCurrentInputRef.current) passwordCurrentInputRef.current.value = "";
+    if (newPasswordInputRef.current) newPasswordInputRef.current.value = "";
+    if (confirmNewPasswordInputRef.current) confirmNewPasswordInputRef.current.value = "";
+    setEditingPassword(true);
+  }, []);
 
-    try {
-      await uploadAvatar(file);
-      setAvatarError(null);
-      showAlert("Avatar updated", "success");
-      router.refresh();
-    } catch (e) {
-      const friendly = getFriendlyAvatarError(e);
-      setAvatarError(friendly);
-      showAlert(friendly, "error");
-    } finally {
-      setBusy(null);
-    }
-  }
+  // Effect to focus username input when editing starts
+  useEffect(() => {
+    if (!editingUsername) return;
+    usernameInputRef.current?.focus();
+  }, [editingUsername]);
 
+  useEffect(() => {
+    setOtpDialogDestinationEmail((props.user.pendingEmail ?? props.user.email).trim());
+    setOtpDialogInitialSentAt(props.user.emailVerifyOtpSentAt);
+  }, [props.user.pendingEmail, props.user.email, props.user.emailVerifyOtpSentAt]);
+
+  // Derived booleans
   const canSaveUsername = busy === null && username.trim().length >= 3 && usernameIsDirty;
   const canStartUsernameEdit = busy === null;
+
+  const staggerContainer = {
+    animate: {
+      transition: {
+        staggerChildren: 0.1,
+      },
+    },
+  };
 
   return (
     <LayoutGroup>
@@ -1122,483 +1105,480 @@ async function cancelEmailChangeRequest() {
         <motion.div variants={fadeInUp}>
           <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl overflow-hidden hover:border-[rgba(160,220,255,0.3)] transition-all">
             <LayoutGroup>
-              {/* Two-column grid: Left (header + fields) | Right (achievements) on xl */}
               <div className="grid grid-cols-1 xl:grid-cols-[1fr_480px]">
                 {/* Left column */}
                 <div>
-                  <CardHeader className="pb-4"> {/* pb-2 -> pb-4 */}
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6"> {/* sm:flex-row -> lg:flex-row, gap-4 -> gap-6 */}
-                  <div className="flex flex-wrap items-center gap-5"> {/* gap-4 -> gap-5 */}
-                    {/* Avatar */}
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3, delay: 0.1 }}
-                      className="relative"
-                    >
-                      <div
-                        className={
-                          "rounded-full ring-2 ring-offset-2 ring-offset-slate-950 transition-all duration-300 " +
-                          (avatarError
-                            ? "ring-red-500/50"
-                            : "ring-[rgba(160,220,255,0.3)] hover:ring-[rgba(160,220,255,0.6)]")
-                        }
-                      >
-                        <AvatarView url={avatarUrl} username={props.user.username} />
+                  <CardHeader className="pb-4">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                      <div className="flex flex-wrap items-center gap-5">
+                        {/* Avatar */}
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ duration: 0.3, delay: 0.1 }}
+                          className="relative"
+                        >
+                          <div
+                            className={
+                              "rounded-full ring-2 ring-offset-2 ring-offset-slate-950 transition-all duration-300 " +
+                              (avatarError
+                                ? "ring-red-500/50"
+                                : "ring-[rgba(160,220,255,0.3)] hover:ring-[rgba(160,220,255,0.6)]")
+                            }
+                          >
+                            <AvatarView url={avatarUrl} username={props.user.username} />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={busy !== null}
+                            aria-label="Change avatar"
+                            className="absolute bottom-0 left-0 inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.8)] text-cyan-300 shadow-sm backdrop-blur transition-all hover:border-[rgba(160,220,255,0.6)] hover:text-cyan-200 disabled:opacity-60"
+                          >
+                            {busy === "avatar" ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Camera className="h-4 w-4" />
+                            )}
+                          </button>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              e.currentTarget.value = "";
+                              if (!file) return;
+                              await onPickAvatarFile(file);
+                            }}
+                          />
+                        </motion.div>
+
+                        <motion.div
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 0.2 }}
+                          className="min-w-0"
+                        >
+                          <CardTitle className="text-xl text-[#E0E7FF]">
+                            {props.user.username}
+                          </CardTitle>
+                          <CardDescription className="text-[#8A8FB5] flex items-center gap-1">
+                            <HiOutlineMail className="w-3 h-3" />
+                            <span className="truncate max-w-[200px]">{props.user.email}</span>
+                          </CardDescription>
+                        </motion.div>
+
+                        {/* Level & Rank */}
+                        <div className="flex flex-wrap gap-4">
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.3 }}
+                            className="text-center px-4 py-2"
+                          >
+                            <div className="flex items-center justify-center gap-1 mb-1">
+                              <TrendingUpIcon className="w-4 h-4 text-cyan-300" />
+                              <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Level</p>
+                            </div>
+                            <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 font-mono">
+                              <NumberAnimation value={props.profile.level} delay={0.4} />
+                            </p>
+                          </motion.div>
+
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.5 }}
+                            className="text-center px-4 py-2"
+                          >
+                            <div className="flex items-center justify-center gap-1 mb-1">
+                              <Target className="w-4 h-4 text-cyan-300" />
+                              <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Rank</p>
+                            </div>
+                            <p className="text-sm font-semibold text-[#E0E7FF] leading-tight inline-flex items-center justify-center gap-1.5">
+                              {(() => {
+                                const rankSrc = getRankImageSrc(props.profile.rank.tier as RankTier);
+                                return <NextImage src={rankSrc} alt={props.profile.rank.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_16px_rgba(100,200,255,0.5)]" />;
+                              })()}
+                              <span>{props.profile.rank.tier}</span>
+                              {props.profile.isTopOnePercent ? (
+                                <span className="ml-1 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-200">
+                                  Top 1%
+                                </span>
+                              ) : null}
+                            </p>
+                          </motion.div>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={busy !== null}
-                        aria-label="Change avatar"
-                        className="absolute bottom-0 left-0 inline-flex h-7 w-7 items-center justify-center rounded-full border border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.8)] text-cyan-300 shadow-sm backdrop-blur transition-all hover:border-[rgba(160,220,255,0.6)] hover:text-cyan-200 disabled:opacity-60"
-                      >
-                        {busy === "avatar" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Camera className="h-4 w-4" />
-                        )}
-                      </button>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          e.currentTarget.value = "";
-                          if (!file) return;
-                          await onPickAvatarFile(file);
-                        }}
-                      />
-                    </motion.div>
-
-                    <motion.div
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.2 }}
-                      className="min-w-0"
-                    >
-                      <CardTitle className="text-xl text-[#E0E7FF]">
-                        {props.user.username}
-                      </CardTitle>
-                      <CardDescription className="text-[#8A8FB5] flex items-center gap-1">
-                        <HiOutlineMail className="w-3 h-3" />
-                        <span className="truncate max-w-[200px]">{props.user.email}</span>
-                      </CardDescription>
-                    </motion.div>
-
-                    {/* Level & Rank */}
-                    <div className="flex flex-wrap gap-4"> {/* flex gap-3 -> flex-wrap gap-4 */}
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.3 }}
-                        className="text-center px-4 py-2"
-                      >
-                        <div className="flex items-center justify-center gap-1 mb-1">
-                          <TrendingUpIcon className="w-4 h-4 text-cyan-300" />
-                          <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Level</p>
-                        </div>
-                        <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 font-mono">
-                          <NumberAnimation value={props.profile.level} delay={0.4} />
-                        </p>
-                      </motion.div>
-
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5 }}
-                        className="text-center px-4 py-2"
-                      >
-                        <div className="flex items-center justify-center gap-1 mb-1">
-                          <Target className="w-4 h-4 text-cyan-300" />
-                          <p className="text-xs text-[rgba(200,240,255,0.8)] uppercase tracking-wider">Rank</p>
-                        </div>
-                        <p className="text-sm font-semibold text-[#E0E7FF] leading-tight inline-flex items-center justify-center gap-1.5">
-                          {(() => {
-                            const rankSrc = getRankImageSrc(props.profile.rank.tier as RankTier);
-                            return <NextImage src={rankSrc} alt={props.profile.rank.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_16px_rgba(100,200,255,0.5)]" />;
-                          })()}
-                          <span>{props.profile.rank.tier}</span>
-                          {props.profile.isTopOnePercent ? (
-                            <span className="ml-1 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-200">
-                              Top 1%
-                            </span>
-                          ) : null}
-                        </p>
-                      </motion.div>
                     </div>
-                  </div>
-                </div>
-              </CardHeader>
+                  </CardHeader>
 
-              <CardContent className="pt-6"> {/* pt-4 -> pt-6 */}
-                  {/* Account settings */}
-                  <div className="space-y-8"> {/* space-y-6 -> space-y-8 */}
+                  <CardContent className="pt-6">
+                    <div className="space-y-8">
+                      {/* Email Section */}
+                      <div className="space-y-3">
+                        <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="email">
+                          <HiOutlineMail className="w-4 h-4 text-cyan-300" />
+                          Email
+                        </Label>
 
-                    {/* Email Section */}
-                    <div className="space-y-3"> {/* space-y-2 -> space-y-3 */}
-                      <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="email">
-                        <HiOutlineMail className="w-4 h-4 text-cyan-300" />
-                        Email
-                      </Label>
-
-                      {!editingEmail ? (
-                        <div className="flex flex-col gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]"> {/* px-4 py-3 -> px-5 py-4 */}
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-base">
-                                {props.user.email}
-                              </div>
-                              <div className="mt-2 flex flex-wrap items-center gap-2"> {/* mt-1 -> mt-2 */}
-                                <span
-                                  className={
-                                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium " + /* px-2.5 -> px-3 */
-                                    (isEmailVerified
-                                      ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
-                                      : "border-orange-400/20 bg-orange-500/10 text-orange-100")
-                                  }
-                                >
+                        {!editingEmail ? (
+                          <div className="flex flex-col gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-base">
+                                  {props.user.email}
+                                </div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
                                   <span
                                     className={
-                                      "inline-flex h-5 w-5 items-center justify-center rounded-full " +
+                                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium " +
                                       (isEmailVerified
-                                        ? "bg-emerald-500/15 text-emerald-200"
-                                        : "bg-gradient-to-r from-orange-400 to-yellow-300 text-slate-950")
+                                        ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
+                                        : "border-orange-400/20 bg-orange-500/10 text-orange-100")
                                     }
-                                    aria-hidden="true"
                                   >
-                                    {isEmailVerified ? (
-                                      <CheckCircle2 className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <AlertTriangle className="h-3.5 w-3.5" />
-                                    )}
+                                    <span
+                                      className={
+                                        "inline-flex h-5 w-5 items-center justify-center rounded-full " +
+                                        (isEmailVerified
+                                          ? "bg-emerald-500/15 text-emerald-200"
+                                          : "bg-gradient-to-r from-orange-400 to-yellow-300 text-slate-950")
+                                      }
+                                      aria-hidden="true"
+                                    >
+                                      {isEmailVerified ? (
+                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <AlertTriangle className="h-3.5 w-3.5" />
+                                      )}
+                                    </span>
+                                    <span>{isEmailVerified ? "Verified" : "Not verified"}</span>
                                   </span>
-                                  <span>{isEmailVerified ? "Verified" : "Not verified"}</span>
-                                </span>
 
-                                {isEmailVerified && emailVerifiedAt ? (
-                                  <span className="text-[11px] text-[#8A8FB5]">
-                                    Verified {formatLocalDateTime(emailVerifiedAt)}
-                                  </span>
-                                ) : null}
+                                  {isEmailVerified && emailVerifiedAt ? (
+                                    <span className="text-[11px] text-[#8A8FB5]">
+                                      Verified {formatLocalDateTime(emailVerifiedAt)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <Button
+                                type="button"
+                                onClick={startEmailEdit}
+                                disabled={busy !== null}
+                                variant="outline"
+                                size="sm"
+                                className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
+                              >
+                                Change
+                              </Button>
+                            </div>
+
+                            {(!isEmailVerified || hasPendingEmail) && (
+                              <div className="pt-2 space-y-2">
+                                <p className="text-xs text-[#8A8FB5]">
+                                  Verification helps protect your account and enables secure email changes.
+                                </p>
+                              </div>
+                            )}
+
+                            <VerifyEmailOtpDialog
+                              open={otpDialogOpen}
+                              onOpenChange={handleOtpDialogOpenChange}
+                              destinationEmail={otpDialogDestinationEmail}
+                              initialSentAt={otpDialogInitialSentAt}
+                              onVerified={handleOtpVerified}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-4 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-5 backdrop-blur-sm">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                              <Input
+                                id="email"
+                                value={emailDraft}
+                                onChange={(e) => setEmailDraft(e.target.value)}
+                                placeholder="name@example.com"
+                                autoComplete="email"
+                                className="flex-1 border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+                              />
+                              <div className="flex gap-2 sm:flex-none">
+                                <Button
+                                  type="button"
+                                  onClick={onSaveEmail}
+                                  disabled={busy !== null || (!emailIsDirty && !hasPendingEmail)}
+                                  size="sm"
+                                  className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
+                                >
+                                  {busy === "email" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                                  {busy === "email" ? "Saving…" : "Save"}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={cancelEmailEdit}
+                                  disabled={busy !== null}
+                                  size="sm"
+                                  className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
+                                >
+                                  <X className="h-4 w-4 mr-1" />
+                                  Cancel
+                                </Button>
                               </div>
                             </div>
 
+                            {props.user.hasPassword && (
+                              <div className="space-y-3">
+                                <Label className="text-[#E0E7FF]" htmlFor="currentPassword">
+                                  Current password
+                                </Label>
+                                <Input
+                                  id="currentPassword"
+                                  type="password"
+                                  value={emailCurrentPassword}
+                                  onChange={(e) => setEmailCurrentPassword(e.target.value)}
+                                  autoComplete="current-password"
+                                  placeholder="Required for email changes"
+                                  className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+                                />
+                                <p className="text-xs text-[#8A8FB5]">
+                                  For security, we require your password before changing the email on password-based accounts.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Username Section */}
+                      <div className="space-y-3">
+                        <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="username">
+                          <HiOutlineUser className="w-4 h-4 text-cyan-300" />
+                          Username
+                        </Label>
+                        {!editingUsername ? (
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
+                                {props.user.username}
+                              </div>
+                              <div className="text-xs text-[#8A8FB5] mt-1">Click edit to change your username</div>
+                            </div>
                             <Button
                               type="button"
-                              onClick={startEmailEdit}
-                              disabled={busy !== null}
+                              onClick={startUsernameEdit}
+                              disabled={!canStartUsernameEdit}
                               variant="outline"
-                              size="sm"
-                              className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
+                              size="icon"
+                              aria-label="Edit username"
+                              className="rounded-full border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
                             >
-                              Change
+                              <Pencil className="h-4 w-4" />
                             </Button>
                           </div>
-
-                          {(!isEmailVerified || hasPendingEmail) && (
-                            <div className="pt-2 space-y-2"> {/* pt-1 -> pt-2 */}
-                              <p className="text-xs text-[#8A8FB5]">
-                                Verification helps protect your account and enables secure email changes.
-                              </p>
-                            </div>
-                          )}
-
-                          <VerifyEmailOtpDialog
-                            open={otpDialogOpen}
-                            onOpenChange={handleOtpDialogOpenChange}
-                            destinationEmail={otpDialogDestinationEmail}
-                            initialSentAt={otpDialogInitialSentAt}
-                            onVerified={handleOtpVerified}
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-4 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-5 backdrop-blur-sm"> {/* p-4 -> p-5 */}
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center"> {/* gap-2 -> gap-3 */}
-                            <Input
-                              id="email"
-                              value={emailDraft}
-                              onChange={(e) => setEmailDraft(e.target.value)}
-                              placeholder="name@example.com"
-                              autoComplete="email"
-                              className="flex-1 border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
-                            />
-                            <div className="flex gap-2 sm:flex-none">
-                              <Button
-                                type="button"
-                                onClick={onSaveEmail}
-                                disabled={busy !== null || (!emailIsDirty && !hasPendingEmail)}
-                                size="sm"
-                                className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
-                              >
-                                {busy === "email" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-                                {busy === "email" ? "Saving…" : "Save"}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={cancelEmailEdit}
-                                disabled={busy !== null}
-                                size="sm"
-                                className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
-                              >
-                                <X className="h-4 w-4 mr-1" />
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-
-                          {props.user.hasPassword && (
-                            <div className="space-y-3"> {/* space-y-2 -> space-y-3 */}
-                              <Label className="text-[#E0E7FF]" htmlFor="currentPassword">
-                                Current password
-                              </Label>
+                        ) : (
+                          <div className="flex flex-col gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-5 backdrop-blur-sm">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                               <Input
-                                id="currentPassword"
-                                type="password"
-                                value={emailCurrentPassword}
-                                onChange={(e) => setEmailCurrentPassword(e.target.value)}
-                                autoComplete="current-password"
-                                placeholder="Required for email changes"
-                                className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+                                ref={usernameInputRef}
+                                id="username"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                placeholder="your_username"
+                                autoComplete="username"
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && canSaveUsername) void onSaveUsername();
+                                  if (e.key === "Escape") cancelUsernameEdit();
+                                }}
+                                className="flex-1 border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
                               />
-                              <p className="text-xs text-[#8A8FB5]">
-                                For security, we require your password before changing the email on password-based accounts.
-                              </p>
+                              <div className="flex gap-2 sm:flex-none">
+                                <Button
+                                  type="button"
+                                  onClick={onSaveUsername}
+                                  disabled={!canSaveUsername}
+                                  size="sm"
+                                  className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
+                                >
+                                  {busy === "username" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                                  {busy === "username" ? "Saving…" : "Save"}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={cancelUsernameEdit}
+                                  disabled={busy !== null}
+                                  size="sm"
+                                  className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
+                                >
+                                  <X className="h-4 w-4 mr-1" />
+                                  Cancel
+                                </Button>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Username Section */}
-                    <div className="space-y-3">
-                      <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="username">
-                        <HiOutlineUser className="w-4 h-4 text-cyan-300" />
-                        Username
-                      </Label>
-                      {!editingUsername ? (
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
-                              {props.user.username}
-                            </div>
-                            <div className="text-xs text-[#8A8FB5] mt-1">Click edit to change your username</div>
+                            <p className="text-xs text-[#8A8FB5]">
+                              Letters, numbers, underscore. 3–20 chars. Press Enter to save, Esc to cancel.
+                            </p>
                           </div>
-                          <Button
-                            type="button"
-                            onClick={startUsernameEdit}
-                            disabled={!canStartUsernameEdit}
-                            variant="outline"
-                            size="icon"
-                            aria-label="Edit username"
-                            className="rounded-full border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-5 backdrop-blur-sm">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                            <Input
-                              ref={usernameInputRef}
-                              id="username"
-                              value={username}
-                              onChange={(e) => setUsername(e.target.value)}
-                              placeholder="your_username"
-                              autoComplete="username"
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && canSaveUsername) void onSaveUsername();
-                                if (e.key === "Escape") cancelUsernameEdit();
-                              }}
-                              className="flex-1 border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
-                            />
-                            <div className="flex gap-2 sm:flex-none">
-                              <Button
-                                type="button"
-                                onClick={onSaveUsername}
-                                disabled={!canSaveUsername}
-                                size="sm"
-                                className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
-                              >
-                                {busy === "username" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-                                {busy === "username" ? "Saving…" : "Save"}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={cancelUsernameEdit}
-                                disabled={busy !== null}
-                                size="sm"
-                                className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
-                              >
-                                <X className="h-4 w-4 mr-1" />
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                          <p className="text-xs text-[#8A8FB5]">
-                            Letters, numbers, underscore. 3–20 chars. Press Enter to save, Esc to cancel.
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
 
-                    {/* Password Section */}
-                    <div className="space-y-3">
-                      <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="newPassword">
-                        <KeyRound className="w-4 h-4 text-cyan-300" />
-                        Password
-                      </Label>
+                      {/* Password Section */}
+                      <div className="space-y-3">
+                        <Label className="text-[#E0E7FF] flex items-center gap-2" htmlFor="newPassword">
+                          <KeyRound className="w-4 h-4 text-cyan-300" />
+                          Password
+                        </Label>
 
-                      {!editingPassword ? (
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
-                              {props.user.hasPassword ? "••••••••" : "No password set"}
+                        {!editingPassword ? (
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] px-5 py-4 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.3)]">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-[#E0E7FF] sm:text-lg">
+                                {props.user.hasPassword ? "••••••••" : "No password set"}
+                              </div>
+                              <div className="text-xs text-[#8A8FB5] mt-1">
+                                {props.user.hasPassword
+                                  ? "Change your password to keep your account secure"
+                                  : "Set a password to enable password-based sign-in"}
+                              </div>
                             </div>
-                            <div className="text-xs text-[#8A8FB5] mt-1"> {/* added mt-1 */}
-                              {props.user.hasPassword
-                                ? "Change your password to keep your account secure"
-                                : "Set a password to enable password-based sign-in"}
-                            </div>
+                            <Button
+                              type="button"
+                              onClick={startPasswordEdit}
+                              disabled={busy !== null}
+                              variant="outline"
+                              size="icon"
+                              aria-label={props.user.hasPassword ? "Change password" : "Set password"}
+                              className="rounded-full border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
+                            >
+                              <KeyRound className="h-4 w-4" />
+                            </Button>
                           </div>
-                          <Button
-                            type="button"
-                            onClick={startPasswordEdit}
-                            disabled={busy !== null}
-                            variant="outline"
-                            size="icon"
-                            aria-label={props.user.hasPassword ? "Change password" : "Set password"}
-                            className="rounded-full border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.6)] hover:bg-[rgba(20,50,80,0.8)]"
-                          >
-                            <KeyRound className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-4 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-5 backdrop-blur-sm">
-                          {props.user.hasPassword && (
+                        ) : (
+                          <div className="flex flex-col gap-4 rounded-xl border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] p-5 backdrop-blur-sm">
+                            {props.user.hasPassword && (
+                              <div className="space-y-3">
+                                <Label className="text-[#E0E7FF]" htmlFor="passwordCurrent">
+                                  Current password
+                                </Label>
+                                <div className="relative">
+                                  <Input
+                                    ref={passwordCurrentInputRef}
+                                    id="passwordCurrent"
+                                    type={showCurrentPassword ? "text" : "password"}
+                                    onChange={(e) => {
+                                      passwordCurrentValueRef.current = e.target.value;
+                                    }}
+                                    autoComplete="current-password"
+                                    placeholder="Enter current password"
+                                    className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] pr-10 text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCurrentPassword((v) => !v)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
+                                    aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                                  >
+                                    {showCurrentPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
                             <div className="space-y-3">
-                              <Label className="text-[#E0E7FF]" htmlFor="passwordCurrent">
-                                Current password
+                              <Label className="text-[#E0E7FF]" htmlFor="newPassword">
+                                New password
                               </Label>
                               <div className="relative">
                                 <Input
-                                  ref={passwordCurrentInputRef}
-                                  id="passwordCurrent"
-                                  type={showCurrentPassword ? "text" : "password"}
+                                  ref={newPasswordInputRef}
+                                  id="newPassword"
+                                  type={showNewPassword ? "text" : "password"}
                                   onChange={(e) => {
-                                    passwordCurrentValueRef.current = e.target.value;
+                                    newPasswordValueRef.current = e.target.value;
                                   }}
-                                  autoComplete="current-password"
-                                  placeholder="Enter current password"
+                                  autoComplete="new-password"
+                                  placeholder="••••••••"
                                   className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] pr-10 text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => setShowCurrentPassword((v) => !v)}
+                                  onClick={() => setShowNewPassword((v) => !v)}
                                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
-                                  aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                                  aria-label={showNewPassword ? "Hide new password" : "Show new password"}
                                 >
-                                  {showCurrentPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                  {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                                 </button>
                               </div>
                             </div>
-                          )}
 
-                          <div className="space-y-3">
-                            <Label className="text-[#E0E7FF]" htmlFor="newPassword">
-                              New password
-                            </Label>
-                            <div className="relative">
-                              <Input
-                                ref={newPasswordInputRef}
-                                id="newPassword"
-                                type={showNewPassword ? "text" : "password"}
-                                onChange={(e) => {
-                                  newPasswordValueRef.current = e.target.value;
-                                }}
-                                autoComplete="new-password"
-                                placeholder="••••••••"
-                                className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] pr-10 text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
-                              />
-                              <button
+                            <div className="space-y-3">
+                              <Label className="text-[#E0E7FF]" htmlFor="confirmNewPassword">
+                                Confirm new password
+                              </Label>
+                              <div className="relative">
+                                <Input
+                                  ref={confirmNewPasswordInputRef}
+                                  id="confirmNewPassword"
+                                  type={showConfirmNewPassword ? "text" : "password"}
+                                  onChange={(e) => {
+                                    confirmNewPasswordValueRef.current = e.target.value;
+                                  }}
+                                  autoComplete="new-password"
+                                  placeholder="••••••••"
+                                  className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] pr-10 text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowConfirmNewPassword((v) => !v)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
+                                  aria-label={showConfirmNewPassword ? "Hide confirm password" : "Show confirm password"}
+                                >
+                                  {showConfirmNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end pt-3">
+                              <Button
                                 type="button"
-                                onClick={() => setShowNewPassword((v) => !v)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
-                                aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                                onClick={onSavePassword}
+                                disabled={busy !== null}
+                                size="sm"
+                                className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
                               >
-                                {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                              </button>
+                                {busy === "password" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                                {busy === "password" ? "Saving…" : props.user.hasPassword ? "Update password" : "Set password"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={cancelPasswordEdit}
+                                disabled={busy !== null}
+                                size="sm"
+                                className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
+                              >
+                                <X className="h-4 w-4 mr-1" />
+                                Cancel
+                              </Button>
                             </div>
                           </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </div>
 
-                          <div className="space-y-3">
-                            <Label className="text-[#E0E7FF]" htmlFor="confirmNewPassword">
-                              Confirm new password
-                            </Label>
-                            <div className="relative">
-                              <Input
-                                ref={confirmNewPasswordInputRef}
-                                id="confirmNewPassword"
-                                type={showConfirmNewPassword ? "text" : "password"}
-                                onChange={(e) => {
-                                  confirmNewPasswordValueRef.current = e.target.value;
-                                }}
-                                autoComplete="new-password"
-                                placeholder="••••••••"
-                                className="border-[rgba(160,220,255,0.3)] bg-[rgba(20,50,80,0.3)] pr-10 text-[#E0E7FF] placeholder:text-[#8A8FB5] focus:border-[rgba(160,220,255,0.6)] backdrop-blur-sm"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowConfirmNewPassword((v) => !v)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8FB5] transition-colors hover:text-cyan-300"
-                                aria-label={showConfirmNewPassword ? "Hide confirm password" : "Show confirm password"}
-                              >
-                                {showConfirmNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end pt-3"> {/* pt-2 -> pt-3 */}
-                            <Button
-                              type="button"
-                              onClick={onSavePassword}
-                              disabled={busy !== null}
-                              size="sm"
-                              className="border-[rgba(160,220,255,0.5)] bg-[rgba(20,50,80,0.5)] text-cyan-300 backdrop-blur-sm transition-all hover:border-[rgba(160,220,255,0.8)] hover:bg-[rgba(20,50,80,0.8)]"
-                            >
-                              {busy === "password" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-                              {busy === "password" ? "Saving…" : props.user.hasPassword ? "Update password" : "Set password"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={cancelPasswordEdit}
-                              disabled={busy !== null}
-                              size="sm"
-                              className="border-red-400/50 bg-transparent text-red-300 backdrop-blur-sm transition-all hover:border-red-400 hover:bg-red-500/20"
-                            >
-                              <X className="h-4 w-4 mr-1" />
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>{/* end password section */}
-                  </div>{/* end account settings */}
-              </CardContent>
-                </div>{/* end left column */}
-
-                {/* ── Right column: Achievements (at card level on xl) ──────────── */}
+                {/* Right column: Achievements (xl only) */}
                 <div className="hidden xl:block p-6 pt-20">
                   <AchievementsPanel achievements={props.profile.achievements} />
                 </div>
-              </div>{/* end outer grid */}
+              </div>
 
-              {/* Achievements for smaller screens - below fields */}
+              {/* Achievements for smaller screens */}
               <div className="xl:hidden px-6 pb-6">
                 <AchievementsPanel achievements={props.profile.achievements} />
               </div>
@@ -1615,7 +1595,7 @@ async function cancelEmailChangeRequest() {
         {/* Overall Keyboard Heatmap */}
         {overallKeyboardHeatmapSection}
 
-        {/* Statistics Card (Improved Layout) */}
+        {/* Statistics Card */}
         <motion.div variants={fadeInUp}>
           <Card className="border border-[rgba(160,220,255,0.15)] bg-[rgba(20,50,80,0.3)] backdrop-blur-sm shadow-xl hover:border-[rgba(160,220,255,0.3)] transition-all">
             <CardHeader>
@@ -1625,7 +1605,6 @@ async function cancelEmailChangeRequest() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Performance Highlights */}
               <div className="mb-6">
                 <h4 className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-400 mb-3">
                   Performance Highlights
@@ -1675,7 +1654,6 @@ async function cancelEmailChangeRequest() {
                 </div>
               </div>
 
-              {/* Activity Totals */}
               <div>
                 <h4 className="text-sm font-medium bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400 mb-3">
                   Activity Totals
@@ -1726,18 +1704,20 @@ async function cancelEmailChangeRequest() {
               <CardDescription className="text-[#8A8FB5]">Manage your account.</CardDescription>
             </CardHeader>
             <CardContent>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <SignOut
-                label="Sign out"
-                redirectTo="/"
-                className="flex-1 font-medium rounded-lg py-5 border border-[#69d0ff] bg-transparent text-[#60a5fa] hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] transition-colors duration-300"
-              />
-              <DeleteAccountButton className="flex-1" />
-            </div>
-          </CardContent>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <SignOut
+                  label="Sign out"
+                  redirectTo="/"
+                  className="flex-1 font-medium rounded-lg py-5 border border-[#69d0ff] bg-transparent text-[#60a5fa] hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] transition-colors duration-300"
+                />
+                <DeleteAccountButton className="flex-1" />
+              </div>
+            </CardContent>
           </Card>
         </motion.div>
       </motion.div>
     </LayoutGroup>
   );
-}
+});
+
+export default ProfileClient;

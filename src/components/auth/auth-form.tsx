@@ -49,7 +49,7 @@ export function AuthForm() {
   const [mounted, setMounted] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const searchParams = useSearchParams();
-  const formParam = searchParams.get("form");
+  const formParam = searchParams?.get("form");
   const [isLogin, setIsLogin] = useState(true); // Default to prevent hydration mismatch
   const [error, setError] = useState<string>("");
   const formRef = useRef<HTMLFormElement>(null);
