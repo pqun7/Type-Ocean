@@ -72,32 +72,8 @@ export async function handleRematchRequest(
 
   // ── AI rematch ────────────────────────────────────────────────────────────
   if (isAiUserId(other.userId)) {
-    const now = Date.now();
-    const refuseUntil = deps.aiRematchRefuseUntilByHumanId.get(meId) ?? 0;
-    if (refuseUntil > 0 && now >= refuseUntil) {
-      deps.aiRematchRefuseUntilByHumanId.delete(meId);
-    }
-    if (now < refuseUntil) {
-      sendToUser(meId, "REMATCH_DECLINED", {
-        matchId: msg.payload.matchId,
-        byUserId: other.userId,
-        reason: "AI_COOLDOWN",
-      }, deps);
-      return;
-    }
-
-    const flip = Math.floor(Math.random() * 2);
-    if (flip === 1) {
-      deps.aiRematchRefuseUntilByHumanId.set(meId, now + deps.aiRematchCooldownMs);
-      sendToUser(meId, "REMATCH_DECLINED", {
-        matchId: msg.payload.matchId,
-        byUserId: other.userId,
-        reason: "AI_REFUSED",
-      }, deps);
-      return;
-    }
-
-    deps.aiRematchRefuseUntilByHumanId.set(meId, now + deps.aiRematchCooldownMs);
+    // AI always accepts — a random 50 % refusal made the feature feel broken.
+    // REMATCH_DECLINED is still reachable for human vs human via rematch-response.ts.
 
     const createdRows = await deps.db
       .insert(pvpMatches)
@@ -178,6 +154,10 @@ export async function handleRematchRequest(
         slot: p.slot,
       })),
     }, deps);
+
+    // Schedule the countdown activation timer so the match transitions to
+    // RUNNING at serverStartAtMs instead of relying on the 30 s sweep.
+    deps.scheduleCountdownActivation(local);
 
     await startAiSimulationAdaptive({
       db: deps.db,

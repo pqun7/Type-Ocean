@@ -49,6 +49,44 @@ type MatchTransportMetadata = {
   serverStartAt: string;
 };
 
+type MatchSnapshotStatus = "PENDING" | "COUNTDOWN" | "RUNNING" | "ENDING" | "FINISHED" | "ABORTED";
+
+type MatchSnapshotView = MatchTransportMetadata & {
+  matchId: string;
+  status: MatchSnapshotStatus;
+  roomCode: string | null;
+  revision: number;
+  isCountdown: boolean;
+  isActive: boolean;
+  isTerminal: boolean;
+};
+
+function deriveMatchSnapshotFlags(status: MatchSnapshotStatus) {
+  return {
+    isCountdown: status === "COUNTDOWN",
+    isActive: status === "RUNNING",
+    isTerminal: status === "ENDING" || status === "FINISHED" || status === "ABORTED",
+  };
+}
+
+function createMatchSnapshotView(
+  snapshot:
+    | Extract<ServerMessage, { type: "MATCH_FOUND" }>["payload"]
+    | Extract<ServerMessage, { type: "MATCH_STATE" }>["payload"],
+): MatchSnapshotView {
+  const status = ("status" in snapshot ? snapshot.status : "COUNTDOWN") as MatchSnapshotStatus;
+  return {
+    matchId: snapshot.matchId,
+    textId: snapshot.textId ?? null,
+    inputNonce: snapshot.inputNonce ?? null,
+    serverStartAt: snapshot.serverStartAt,
+    roomCode: "roomCode" in snapshot ? snapshot.roomCode : null,
+    revision: "revision" in snapshot ? snapshot.revision : 0,
+    status,
+    ...deriveMatchSnapshotFlags(status),
+  };
+}
+
 type PvpSocketContextValue = {
   /** Coarse status for legacy consumers. Prefer `connectionPhase` for new code. */
   status: Status;
@@ -59,6 +97,7 @@ type PvpSocketContextValue = {
   send: (msg: ClientMessage) => boolean;
   addListener: (fn: (m: ServerMessage) => void) => () => void;
   getMatchTransport: (matchId: string) => MatchTransportMetadata | null;
+  getLatestMatchSnapshot: (matchId: string) => MatchSnapshotView | null;
   /** Call once per consumer component mount; returns a cleanup fn. */
   registerConsumer: () => () => void;
   /**
@@ -164,6 +203,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
   const listenersRef = useRef<Array<(m: ServerMessage) => void>>([]);
   const refreshTimerRef = useRef<number | null>(null);
   const matchTransportRef = useRef(new Map<string, MatchTransportMetadata>());
+  const latestMatchSnapshotRef = useRef(new Map<string, MatchSnapshotView>());
 
   /** Tracks how many consumer components are mounted. */
   const consumerCountRef = useRef(0);
@@ -175,6 +215,9 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
   const connectPromiseRef = useRef<Promise<void> | null>(null);
   /** Retry timer when the socket closes unexpectedly while consumers are mounted. */
   const reconnectTimerRef = useRef<number | null>(null);
+  /** Tracks the current reconnect attempt number independently of connectionPhase,
+   * so onclose can read the right count even when phase has transitioned to "connecting". */
+  const reconnectAttemptRef = useRef(0);
   /** True while the browser is offline; suspends auto-reconnect. */
   const isOfflineRef = useRef(false);
   /** Application-level heartbeat interval handle. */
@@ -358,6 +401,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
     clearRefreshTimer();
     clearIdleCloseTimer();
     clearReconnectTimer();
+    reconnectAttemptRef.current = 0;
     stopHeartbeat();
     connectPromiseRef.current = null;
     updateConnectionPhase(idleState());
@@ -397,6 +441,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
      * machine.  Must only be called when the new state is `reconnecting`.
      */
     const scheduleReconnect = (retryAtMs: number, attempt: number) => {
+      reconnectAttemptRef.current = attempt;
       if (consumerCountRef.current <= 0) return;
       if (reconnectTimerRef.current != null) return;
 
@@ -449,23 +494,20 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
           setLastMessage(msg);
 
           if (msg.type === "MATCH_FOUND") {
-            matchTransportRef.current.set(msg.payload.matchId, {
-              textId: msg.payload.textId ?? null,
-              inputNonce: msg.payload.inputNonce ?? null,
-              serverStartAt: msg.payload.serverStartAt,
-            });
+            const nextSnapshot = createMatchSnapshotView(msg.payload);
+            matchTransportRef.current.set(msg.payload.matchId, nextSnapshot);
+            latestMatchSnapshotRef.current.set(msg.payload.matchId, nextSnapshot);
           }
 
           if (msg.type === "MATCH_STATE") {
-            matchTransportRef.current.set(msg.payload.matchId, {
-              textId: msg.payload.textId ?? null,
-              inputNonce: msg.payload.inputNonce ?? null,
-              serverStartAt: msg.payload.serverStartAt,
-            });
+            const nextSnapshot = createMatchSnapshotView(msg.payload);
+            matchTransportRef.current.set(msg.payload.matchId, nextSnapshot);
+            latestMatchSnapshotRef.current.set(msg.payload.matchId, nextSnapshot);
           }
 
           if (msg.type === "HELLO_OK") {
             // Transition to ready + reset reconnect counters
+            reconnectAttemptRef.current = 0;
             updateConnectionPhase(smOnHelloOk());
             setError(null);
             setUser(msg.payload.user);
@@ -514,11 +556,12 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
         stopHeartbeat();
         connectPromiseRef.current = null;
 
-        // Read the current attempt from the state machine before transitioning
+        // Read the current attempt — prefer the phase if already reconnecting,
+        // otherwise fall back to the ref which persists across phase transitions.
         const currentAttempt =
           connectionPhaseRef.current.kind === "reconnecting"
             ? connectionPhaseRef.current.attempt
-            : 0;
+            : reconnectAttemptRef.current;
 
         // If the device is offline, don't burn a retry attempt — the
         // handleOnline listener will kick off a fresh connection when
@@ -582,7 +625,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
       const currentAttempt =
         connectionPhaseRef.current.kind === "reconnecting"
           ? connectionPhaseRef.current.attempt
-          : 0;
+          : reconnectAttemptRef.current;
 
       const nextPhase = onReconnectAttemptFailed(currentAttempt);
       updateConnectionPhase(nextPhase);
@@ -700,6 +743,10 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
     return matchTransportRef.current.get(matchId) ?? null;
   }, []);
 
+  const getLatestMatchSnapshot = useCallback((matchId: string) => {
+    return latestMatchSnapshotRef.current.get(matchId) ?? null;
+  }, []);
+
   const send = useCallback(
     (msg: ClientMessage) => {
       const ws = wsRef.current;
@@ -752,6 +799,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
       setCircuitBreakerActiveUntil(null);
     }
 
+    reconnectAttemptRef.current = 0;
     clearReconnectTimer();
     updateConnectionPhase(idleState());
     void ensureConnected();
@@ -769,6 +817,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
       send,
       addListener,
       getMatchTransport,
+      getLatestMatchSnapshot,
       registerConsumer,
       reconnect,
       connectionPhase,
@@ -783,6 +832,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
       send,
       addListener,
       getMatchTransport,
+      getLatestMatchSnapshot,
       registerConsumer,
       reconnect,
       connectionPhase,
@@ -819,6 +869,7 @@ export function usePvpSocket() {
       send: ctx.send,
       addListener: ctx.addListener,
       getMatchTransport: ctx.getMatchTransport,
+      getLatestMatchSnapshot: ctx.getLatestMatchSnapshot,
       reconnect: ctx.reconnect,
       connectionPhase: ctx.connectionPhase,
       isOffline: ctx.isOffline,
@@ -832,6 +883,7 @@ export function usePvpSocket() {
       ctx.send,
       ctx.addListener,
       ctx.getMatchTransport,
+      ctx.getLatestMatchSnapshot,
       ctx.reconnect,
       ctx.connectionPhase,
       ctx.isOffline,

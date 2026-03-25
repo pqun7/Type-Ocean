@@ -167,7 +167,7 @@ export const MATCH_RESULT_RETENTION_MS = envMs(
  * If a second participant finishes within this window, the result is treated
  * as a draw (aScore: 0.5) instead of a win/loss.
  */
-export const MATCH_TIE_WINDOW_MS = envMs("PVP_MATCH_TIE_WINDOW_MS", 1_000);
+export const MATCH_TIE_WINDOW_MS = envMs("PVP_MATCH_TIE_WINDOW_MS", 500);
 
 /** Interval (ms) between stale-match sweep cycles. */
 export const MATCH_SWEEP_INTERVAL_MS = envMs("PVP_MATCH_SWEEP_INTERVAL_MS", 30_000);
@@ -191,16 +191,23 @@ export const MATCH_NO_SHOW_TIMEOUT_MS = envMs("PVP_MATCH_NO_SHOW_TIMEOUT_MS", 40
 // MATCH START DELAYS
 // =============================================================================
 
-/** Delay (ms) between match creation and countdown start for ranked 1v1. */
+/**
+ * Delay (ms) between match creation and countdown start for ranked 1v1.
+ * 5000ms gives a comfortable 2s buffer above the visible 3-second countdown
+ * window, absorbing client/server clock skew and network round-trip latency
+ * without any user-visible increase (keyboard is locked during this window).
+ * Applied uniformly regardless of bot vs. human opponent so the local dev
+ * experience (FORCE_BOT_MATCH_LOCAL) matches production behaviour.
+ */
 export const RANKED_MATCH_START_DELAY_MS = envMs(
   "PVP_RANKED_MATCH_START_DELAY_MS",
-  FORCE_BOT_MATCH_LOCAL ? 1_200 : 3_000,
+  5_000,
 );
 
 /** Delay (ms) between room-match creation and countdown start. */
 export const ROOM_MATCH_START_DELAY_MS = envMs(
   "PVP_ROOM_MATCH_START_DELAY_MS",
-  FORCE_BOT_MATCH_LOCAL ? 1_500 : 3_000,
+  5_000,
 );
 
 // =============================================================================

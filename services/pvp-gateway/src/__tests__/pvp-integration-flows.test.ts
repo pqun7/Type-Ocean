@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { buildDisconnectForfeitOutcome, runDisconnectForfeitSequence } from "../disconnect-forfeit";
+import { shouldActivateCountdownMatch } from "../application/match-start";
 import { enqueueOrMatchInMemory } from "../in-memory-queue";
 import {
   matchStateFromDbStatus,
@@ -90,6 +91,7 @@ function createLiveMatchState(matchId: string): MatchState {
     forfeitedUserId: null,
     revision: 1,
     lastSnapshotBroadcastAtMs: 0,
+    tieWindowStartedAt: null,
   };
 }
 
@@ -299,6 +301,91 @@ describe("pvp higher integration flows", () => {
     lifecycle = transitionMatchState(lifecycle, "live", 13_100);
     expect(lifecycle.state).toBe("live");
     expect(matchStateToDbStatus(lifecycle.state)).toBe("RUNNING");
+  });
+
+  it("covers the ranked happy path from queue match to countdown activation and terminal state", () => {
+    const queue: QueueEntry[] = [];
+
+    enqueueOrMatchInMemory({
+      queue,
+      user: createUser("u1", 1500),
+      ratingRange: 100,
+      nowMs: 30_000,
+    });
+
+    const matchResult = enqueueOrMatchInMemory({
+      queue,
+      user: createUser("u2", 1508),
+      ratingRange: 100,
+      nowMs: 30_050,
+    });
+
+    expect(matchResult.kind).toBe("matched");
+
+    let lifecycle = {
+      state: matchStateFromDbStatus("PENDING"),
+      stateChangedAt: 30_050,
+    };
+    const serverStartAtMs = 33_050;
+
+    expect(lifecycle.state).toBe("waiting_for_both");
+    expect(
+      shouldScheduleDisconnectForfeit({
+        policy: getDisconnectForfeitPolicy({ roomCode: null, participantCount: 2 }),
+        participantCount: 2,
+        otherActiveSocketsForUser: 0,
+        matchState: lifecycle.state,
+        matchStatus: "PENDING",
+      }),
+    ).toBe(false);
+
+    lifecycle = transitionMatchState(lifecycle, "countdown", 30_100);
+    expect(matchStateToDbStatus(lifecycle.state)).toBe("COUNTDOWN");
+    expect(
+      shouldActivateCountdownMatch({
+        matchState: lifecycle.state,
+        nowMs: serverStartAtMs - 1,
+        serverStartAtMs,
+      }),
+    ).toBe(false);
+    expect(
+      shouldActivateCountdownMatch({
+        matchState: lifecycle.state,
+        nowMs: serverStartAtMs,
+        serverStartAtMs,
+      }),
+    ).toBe(true);
+    expect(
+      shouldScheduleDisconnectForfeit({
+        policy: getDisconnectForfeitPolicy({ roomCode: null, participantCount: 2 }),
+        participantCount: 2,
+        otherActiveSocketsForUser: 0,
+        matchState: lifecycle.state,
+        matchStatus: "COUNTDOWN",
+      }),
+    ).toBe(false);
+
+    lifecycle = transitionMatchState(lifecycle, "live", serverStartAtMs);
+    expect(matchStateToDbStatus(lifecycle.state)).toBe("RUNNING");
+    expect(
+      shouldScheduleDisconnectForfeit({
+        policy: getDisconnectForfeitPolicy({ roomCode: null, participantCount: 2 }),
+        participantCount: 2,
+        otherActiveSocketsForUser: 0,
+        matchState: lifecycle.state,
+        matchStatus: "RUNNING",
+      }),
+    ).toBe(true);
+
+    const finished = transitionMatchState(lifecycle, "finished", 36_000);
+    expect(matchStateToDbStatus(finished.state)).toBe("FINISHED");
+    expect(
+      canJoinPvpMatchSocket({
+        status: "FINISHED",
+        participantExists: true,
+        userId: "u1",
+      }),
+    ).toEqual({ allowed: false, reason: "match_closed" });
   });
 
   it("does not schedule disconnect forfeit during countdown but enables it in live", () => {

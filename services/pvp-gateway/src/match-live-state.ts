@@ -47,6 +47,13 @@ export type MatchLiveState = {
   reconnectUntilByUserId?: Record<string, number>;
   /** Timestamp (ms) when the first participant finished (tie-detection window). */
   tieWindowStartedAt?: number | null;
+  /**
+   * UTC epoch ms of match start (when typing begins). Stored here as a plain
+   * number inside the JSONB `liveState` column so it is immune to the
+   * TIMESTAMP WITHOUT TIMEZONE timezone mis-parse that affects the
+   * `serverStartAt` Date column on non-UTC database hosts.
+   */
+  serverStartAtEpochMs?: number;
   deltas?: Array<{
     revision: number;
     type: "PROGRESS" | "MATCH_STATE";

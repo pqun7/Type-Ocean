@@ -38,6 +38,7 @@ function createMatchState(participantCount: number): MatchState {
     forfeitedUserId: null,
     revision: 1,
     lastSnapshotBroadcastAtMs: 0,
+    tieWindowStartedAt: null,
   };
 }
 

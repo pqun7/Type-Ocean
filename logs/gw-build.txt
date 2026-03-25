@@ -1,0 +1,78 @@
+﻿
+> type-space@0.1.0 build
+> next build
+
+   Γû▓ Next.js 15.5.12
+   - Environments: .env.local, .env
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully in 35.2s
+   Skipping linting
+   Checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/43) ...
+   Generating static pages (10/43) 
+   Generating static pages (21/43) 
+   Generating static pages (32/43) 
+ Γ£ô Generating static pages (43/43)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                   Size  First Load JS
+Γöî ╞Æ /                                      6.05 kB         443 kB
+Γö£ ╞Æ /_not-found                               1 kB         103 kB
+Γö£ ╞Æ /admin                                 9.23 kB         132 kB
+Γö£ ╞Æ /api/admin/dashboard                     221 B         102 kB
+Γö£ ╞Æ /api/admin/diagnostics                   221 B         102 kB
+Γö£ ╞Æ /api/admin/feedback                      221 B         102 kB
+Γö£ ╞Æ /api/admin/flags                         221 B         102 kB
+Γö£ ╞Æ /api/admin/notices                       221 B         102 kB
+Γö£ ╞Æ /api/admin/rooms                         221 B         102 kB
+Γö£ ╞Æ /api/admin/users                         221 B         102 kB
+Γö£ ╞Æ /api/auth/[...nextauth]                  221 B         102 kB
+Γö£ ╞Æ /api/challenge/v1/daily                  221 B         102 kB
+Γö£ ╞Æ /api/challenge/v1/daily/[challengeId]    221 B         102 kB
+Γö£ ╞Æ /api/feedback                            221 B         102 kB
+Γö£ ╞Æ /api/health-db                           221 B         102 kB
+Γö£ ╞Æ /api/home/auth                           221 B         102 kB
+Γö£ ╞Æ /api/home/bootstrap                      221 B         102 kB
+Γö£ ╞Æ /api/leaderboard                         221 B         102 kB
+Γö£ ╞Æ /api/me/admin-notice                     221 B         102 kB
+Γö£ ╞Æ /api/me/admin-notice/stream              221 B         102 kB
+Γö£ ╞Æ /api/monitoring                          221 B         102 kB
+Γö£ ╞Æ /api/profile/progress                    221 B         102 kB
+Γö£ ╞Æ /api/pvp/gateway-health                  221 B         102 kB
+Γö£ ╞Æ /api/pvp/me                              221 B         102 kB
+Γö£ ╞Æ /api/pvp/preferences                     221 B         102 kB
+Γö£ ╞Æ /api/pvp/rooms/create                    221 B         102 kB
+Γö£ ╞Æ /api/pvp/rooms/public                    221 B         102 kB
+Γö£ ╞Æ /api/pvp/ws-token                        221 B         102 kB
+Γö£ ╞Æ /api/session                             221 B         102 kB
+Γö£ ╞Æ /api/session-stats/v1                    221 B         102 kB
+Γö£ ╞Æ /api/session-stats/v1/keyboard           221 B         102 kB
+Γö£ ╞Æ /api/user                                221 B         102 kB
+Γö£ ╞Æ /api/user/avatar                         221 B         102 kB
+Γö£ ╞Æ /api/user/password                       221 B         102 kB
+Γö£ ╞Æ /auth                                   8.2 kB         175 kB
+Γö£ ╞Æ /auth/verify-email/[token]               221 B         102 kB
+Γö£ ╞Æ /forbidden                               491 B         106 kB
+Γö£ ╞Æ /forgot-password                       5.71 kB         167 kB
+Γö£ ╞Æ /home                                  2.32 kB         439 kB
+Γö£ ╞Æ /leaderboard                             166 B         107 kB
+Γö£ ╞Æ /profile                                 42 kB         345 kB
+Γö£ ╞Æ /pvp/1v1                               4.84 kB         124 kB
+Γö£ ╞Æ /pvp/match/[matchId]                   7.24 kB         312 kB
+Γö£ ╞Æ /pvp/room                              3.66 kB         115 kB
+Γö£ ╞Æ /pvp/room/[code]                       4.16 kB         123 kB
+Γö£ ╞Æ /reset-password/[token]                 6.9 kB         168 kB
+Γö£ ╞Æ /settings                                864 B         180 kB
+Γö£ ╞Æ /verify                                6.44 kB         165 kB
+Γöö ╞Æ /verify-email/[token]                    221 B         102 kB
++ First Load JS shared by all               102 kB
+  Γö£ chunks/1255-1e9a537968501932.js        45.6 kB
+  Γö£ chunks/4bd1b696-182b6b13bdad92e3.js    54.2 kB
+  Γöö other shared chunks (total)            2.12 kB
+
+
+╞Æ  (Dynamic)  server-rendered on demand
+

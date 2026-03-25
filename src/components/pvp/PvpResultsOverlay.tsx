@@ -51,6 +51,7 @@ export default function PvpResultsOverlay(props: {
   rematchOfferFromUserId: string | null;
   rematchAcceptedUserIds: string[];
   rematchDeclinedReason: string | null;
+  isSearchingNewOpponent?: boolean;
   onRequestRematch: () => void;
   onAcceptRematch: () => void;
   onDeclineRematch: () => void;
@@ -71,6 +72,7 @@ export default function PvpResultsOverlay(props: {
     rematchOfferFromUserId,
     rematchAcceptedUserIds,
     rematchDeclinedReason,
+    isSearchingNewOpponent = false,
     onRequestRematch,
     onAcceptRematch,
     onDeclineRematch,
@@ -164,7 +166,7 @@ export default function PvpResultsOverlay(props: {
                     #{p.position} {p.username}
                   </span>
                   <span>
-                    {p.wpm} WPM · {p.accuracy}% · {p.errors} err
+                    {p.wpm} WPM
                   </span>
                 </div>
               ))}
@@ -180,10 +182,8 @@ export default function PvpResultsOverlay(props: {
             {canRematch ? (
               <div className="space-y-2">
                 {rematchDeclinedReason ? (
-                  <div className="text-sm text-red-400">Rematch declined ({rematchDeclinedReason}).</div>
-                ) : null}
-
-                {rematchOfferFromUserId ? (
+                  <div className="text-sm text-red-400">Opponent declined the rematch.</div>
+                ) : rematchOfferFromUserId ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-sm text-[#E0E7FF]/90">Opponent requested a rematch.</div>
                     <Button onClick={onAcceptRematch}>Accept</Button>
@@ -191,21 +191,36 @@ export default function PvpResultsOverlay(props: {
                       Decline
                     </Button>
                   </div>
+                ) : rematchAcceptedUserIds.length > 0 ? (
+                  <div className="flex items-center gap-2 text-sm text-[#8A8FB5]">
+                    <svg className="animate-spin h-4 w-4 text-blue-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    Waiting for opponent&hellip;
+                  </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
                     <Button onClick={onRequestRematch}>Rematch</Button>
-                    {rematchAcceptedUserIds.length ? (
-                      <div className="text-sm text-[#8A8FB5]">Accepted: {rematchAcceptedUserIds.length}/2</div>
-                    ) : null}
                   </div>
                 )}
               </div>
             ) : null}
 
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={onFindNewOpponent}>
-                {primaryActionLabel}
-              </Button>
+              {isSearchingNewOpponent ? (
+                <div className="flex items-center gap-2 text-sm text-[#8A8FB5]">
+                  <svg className="animate-spin h-4 w-4 text-blue-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                  Searching for opponent&hellip;
+                </div>
+              ) : (
+                <Button variant="secondary" onClick={onFindNewOpponent}>
+                  {primaryActionLabel}
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>

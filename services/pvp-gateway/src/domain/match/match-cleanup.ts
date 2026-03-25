@@ -54,6 +54,8 @@ export class MatchCleanupService {
     private readonly finalizationLocks: Set<MatchId>,
     /** Timer handles for deferred cleanup after a match ends. */
     private readonly cleanupTimers: Map<MatchId, ReturnType<typeof setTimeout>>,
+    /** Timer handles for authoritative countdown-to-live transitions. */
+    private readonly countdownActivationTimers: Map<MatchId, ReturnType<typeof setTimeout>>,
     /** Optional match socket cache; may be null if not initialised. */
     private readonly matchCache: MatchCache | null,
     /** Live in-memory match state store. */
@@ -145,6 +147,12 @@ export class MatchCleanupService {
   dispose(matchId: MatchId): void {
     // 1. Cancel the deferred cleanup timer (we are executing the cleanup now).
     this.cancelCleanupTimer(matchId);
+
+    const countdownTimer = this.countdownActivationTimers.get(matchId);
+    if (countdownTimer !== undefined) {
+      clearTimeout(countdownTimer);
+      this.countdownActivationTimers.delete(matchId);
+    }
 
     // 2. Release the finalization lock — the match is being removed so no
     //    competing finalisation can happen after this point.

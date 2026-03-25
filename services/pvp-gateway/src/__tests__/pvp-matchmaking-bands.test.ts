@@ -8,11 +8,11 @@ import {
 } from "../matchmaking/bands";
 
 describe("pvp matchmaking bands", () => {
-  it("expands the queue band every five seconds and caps at 200", () => {
-    expect(getExpandedQueueRatingRange(0)).toBe(50);
-    expect(getExpandedQueueRatingRange(5_000)).toBe(75);
-    expect(getExpandedQueueRatingRange(10_000)).toBe(100);
-    expect(getExpandedQueueRatingRange(60_000)).toBe(200);
+  it("expands the queue band every five seconds and caps at 300", () => {
+    expect(getExpandedQueueRatingRange(0)).toBe(150);
+    expect(getExpandedQueueRatingRange(5_000)).toBe(175);
+    expect(getExpandedQueueRatingRange(10_000)).toBe(200);
+    expect(getExpandedQueueRatingRange(60_000)).toBe(300);
   });
 
   it("matches only compatible preferences", () => {
@@ -45,7 +45,7 @@ describe("pvp matchmaking bands", () => {
     expect(
       canUsersMatchByRating({
         myRating: 1500,
-        otherRating: 1705,
+        otherRating: 1805,
         myJoinedAtMs: 0,
         otherJoinedAtMs: 0,
         nowMs: 20_000,

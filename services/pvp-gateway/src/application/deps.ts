@@ -193,6 +193,8 @@ export interface GatewayDeps {
   scheduleDisconnectForfeit: (matchId: string, userId: string, delayMs?: number) => void;
   /** Attempt to start the ranked countdown, returns `true` if started. */
   maybeStartRankedCountdown: (match: LocalMatch) => Promise<boolean>;
+  /** Restore or reset the authoritative countdown activation timer for a local match. */
+  scheduleCountdownActivation: (match: LocalMatch) => void;
   /** Load (or return cached) user profile for a connected socket. */
   loadConnectionUser: (userId: string) => Promise<ConnectionUser>;
   /** Create a new ranked 1v1 match and broadcast MATCH_FOUND. */

@@ -1,20 +1,19 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
-import type { ClientMessage } from "@/features/pvp/client/types";
+import type { ClientMessage, ServerMessage } from "@/features/pvp/client/types";
 import { Button } from "@/components/ui/button";
 
-import TextDisplay from "@/components/TypingTest/TextDisplay";
-import TypingInput from "@/components/TypingTest/TypingInput";
+import TypingTest from "@/components/TypingTest/TypingTest";
 import Caret from "@/components/TypingTest/Caret";
+import usePvpTyping from "@/features/pvp/client/usePvpTyping";
 
-import useCaret, { getCaretPositionForIndex } from "@/features/typing/hooks/useCaret";
+import { getCaretPositionForIndex } from "@/features/typing/hooks/useCaret";
 import PvpResultsOverlay from "@/components/pvp/PvpResultsOverlay";
-import { segmentGraphemes } from "@/features/typing/utils/graphemes";
 
 function slotToColor(slot: number) {
   switch (slot % 6) {
@@ -33,10 +32,177 @@ function slotToColor(slot: number) {
   }
 }
 
+type MatchStatePayload = Extract<ServerMessage, { type: "MATCH_STATE" }>['payload'];
+type ProgressPayload = Extract<ServerMessage, { type: "PROGRESS" }>['payload'];
+
+type PlayerProgressTracking = {
+  historyByUserId: Record<string, Array<{ tMs: number; wpm: number }>>;
+  lastSampleAtByUserId: Record<string, number>;
+};
+
+type MatchPlaybackApplication = PlayerProgressTracking & {
+  revision: number;
+  status: string;
+  text?: string;
+  textId?: string | null;
+  serverStartAt?: string;
+  roomCode?: string | null;
+  waitingSinceMs?: number | null;
+  players?: Array<{ userId: string; username: string; avatar: string | null; slot: number }>;
+  carets: Record<string, number>;
+  caretsMode: "replace" | "merge";
+  localServerInput: string | null;
+  shouldFocus: boolean;
+};
+
+function ensureProgressTrackingForUsers(params: {
+  userIds: string[];
+  historyByUserId: Record<string, Array<{ tMs: number; wpm: number }>>;
+  lastSampleAtByUserId: Record<string, number>;
+}): PlayerProgressTracking {
+  const historyByUserId = { ...params.historyByUserId };
+  const lastSampleAtByUserId = { ...params.lastSampleAtByUserId };
+
+  for (const userId of params.userIds) {
+    historyByUserId[userId] = historyByUserId[userId] ?? [];
+    lastSampleAtByUserId[userId] = lastSampleAtByUserId[userId] ?? 0;
+  }
+
+  return { historyByUserId, lastSampleAtByUserId };
+}
+
+function applyProgressSample(params: {
+  userId: string;
+  wpm: number;
+  sampleAtMs: number;
+  historyByUserId: Record<string, Array<{ tMs: number; wpm: number }>>;
+  lastSampleAtByUserId: Record<string, number>;
+}): PlayerProgressTracking {
+  const tracked = ensureProgressTrackingForUsers({
+    userIds: [params.userId],
+    historyByUserId: params.historyByUserId,
+    lastSampleAtByUserId: params.lastSampleAtByUserId,
+  });
+
+  const lastAt = tracked.lastSampleAtByUserId[params.userId] ?? 0;
+  if (params.sampleAtMs - lastAt < 250) {
+    return tracked;
+  }
+
+  tracked.lastSampleAtByUserId[params.userId] = params.sampleAtMs;
+  tracked.historyByUserId[params.userId] = [
+    ...(tracked.historyByUserId[params.userId] ?? []),
+    { tMs: params.sampleAtMs, wpm: params.wpm },
+  ];
+
+  return tracked;
+}
+
+function buildMatchStateApplication(params: {
+  payload: MatchStatePayload;
+  currentRevision: number;
+  currentWaitingSinceMs: number | null;
+  localUserId: string | null;
+  historyByUserId: Record<string, Array<{ tMs: number; wpm: number }>>;
+  lastSampleAtByUserId: Record<string, number>;
+}): MatchPlaybackApplication | null {
+  const { payload } = params;
+  if (payload.revision < params.currentRevision) {
+    return null;
+  }
+
+  const players = payload.players.map((player) => ({
+    userId: player.userId,
+    username: player.username,
+    avatar: player.avatar,
+    slot: player.slot,
+  }));
+
+  const carets: Record<string, number> = {};
+  for (const player of payload.players) {
+    carets[player.userId] = player.caretIndex;
+  }
+
+  const tracking = ensureProgressTrackingForUsers({
+    userIds: payload.players.map((player) => player.userId),
+    historyByUserId: params.historyByUserId,
+    lastSampleAtByUserId: params.lastSampleAtByUserId,
+  });
+
+  const localPlayer = params.localUserId
+    ? payload.players.find((player) => player.userId === params.localUserId)
+    : undefined;
+
+  return {
+    revision: payload.revision,
+    text: payload.textSnapshot,
+    textId: payload.textId ?? null,
+    serverStartAt: payload.serverStartAt,
+    roomCode: payload.roomCode ?? null,
+    status: payload.status,
+    carets,
+    caretsMode: "replace",
+    waitingSinceMs:
+      payload.status === "PENDING" && payload.players.length < 2
+        ? params.currentWaitingSinceMs ?? Date.now()
+        : null,
+    players,
+    localServerInput:
+      localPlayer && payload.textSnapshot
+        ? payload.textSnapshot.slice(0, localPlayer.caretIndex)
+        : null,
+    historyByUserId: tracking.historyByUserId,
+    lastSampleAtByUserId: tracking.lastSampleAtByUserId,
+    shouldFocus: params.currentRevision === 0,
+  };
+}
+
+function buildProgressApplication(params: {
+  payload: ProgressPayload;
+  currentRevision: number;
+  currentText: string;
+  localUserId: string | null;
+  historyByUserId: Record<string, Array<{ tMs: number; wpm: number }>>;
+  lastSampleAtByUserId: Record<string, number>;
+}): MatchPlaybackApplication | null {
+  const { payload } = params;
+  if (payload.revision <= params.currentRevision) {
+    return null;
+  }
+
+  const sampleAtMs = typeof payload.serverNowMs === "number" ? payload.serverNowMs : Date.now();
+  const tracking = applyProgressSample({
+    userId: payload.userId,
+    wpm: payload.wpm,
+    sampleAtMs,
+    historyByUserId: params.historyByUserId,
+    lastSampleAtByUserId: params.lastSampleAtByUserId,
+  });
+
+  return {
+    revision: payload.revision,
+    status: payload.status,
+    carets: { [payload.userId]: payload.caretIndex },
+    caretsMode: "merge",
+    localServerInput:
+      params.localUserId === payload.userId && params.currentText
+        ? params.currentText.slice(0, payload.caretIndex)
+        : null,
+    historyByUserId: tracking.historyByUserId,
+    lastSampleAtByUserId: tracking.lastSampleAtByUserId,
+    shouldFocus: false,
+  };
+}
+
 export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const WAITING_TIMEOUT_MS = 40_000;
   const router = useRouter();
-  const { status, user, send, addListener, getMatchTransport, connectionPhase } = usePvpSocket();
+  const { status, user, send, addListener, getLatestMatchSnapshot, connectionPhase } = usePvpSocket();
+
+  // Active match ID for in-place rematch — starts equal to the prop,
+  // but can be swapped without navigation when a rematch starts.
+  const [activeMatchId, setActiveMatchId] = useState(matchId);
+  const activeMatchIdRef = useRef(matchId);
 
   const [text, setText] = useState<string>("");
   const [textId, setTextId] = useState<string | null>(null);
@@ -49,16 +215,9 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const [carets, setCarets] = useState<Record<string, number>>({});
   const [remoteCaretPositions, setRemoteCaretPositions] = useState<Record<string, { x: number; y: number }>>({});
 
-  const [userInput, setUserInput] = useState<string>("");
   const seqRef = useRef(0);
   const revisionRef = useRef(0);
   const lastSentAtRef = useRef(0);
-
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const { caretPosition, textRefs } = useCaret(userInput, text);
-
-  const targetGraphemeCount = useMemo(() => segmentGraphemes(text).length, [text]);
 
   const wpmHistoryRef = useRef<Record<string, Array<{ tMs: number; wpm: number }>>>({});
   const lastSampleAtRef = useRef<Record<string, number>>({});
@@ -66,9 +225,17 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const [rematchOfferFromUserId, setRematchOfferFromUserId] = useState<string | null>(null);
   const [rematchAcceptedUserIds, setRematchAcceptedUserIds] = useState<string[]>([]);
   const [rematchDeclinedReason, setRematchDeclinedReason] = useState<string | null>(null);
+  const [isSearchingNewOpponent, setIsSearchingNewOpponent] = useState(false);
   const [matchEndingNotice, setMatchEndingNotice] = useState<string | null>(null);
-  const [waitingSinceMs, setWaitingSinceMs] = useState<number | null>(null);
+  const [hasReceivedMatchState, setHasReceivedMatchState] = useState(false);
+  const [waitingSinceMs, setWaitingSinceMs] = useState<number | null>(() => Date.now());
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [showGoOverlay, setShowGoOverlay] = useState(false);
+  const previousMatchStatusRef = useRef(matchStatus);
+  /** Local countdown integer: 3 → 2 → 1 → 0. Driven by 1-second interval. */
+  const [localCountdown, setLocalCountdown] = useState<number | null>(null);
+  /** Timestamp when we entered COUNTDOWN state (for timeout detection). */
+  const countdownEnteredAtRef = useRef<number | null>(null);
 
   const [results, setResults] = useState<null | {
     placements: Array<{ position: number; userId: string; username: string; wpm: number; accuracy: number; errors: number; timeMs: number }>;
@@ -77,7 +244,10 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const statusRef = useRef(status);
   const matchStatusRef = useRef(matchStatus);
   const resultsRef = useRef(results);
-  const inputNonce = getMatchTransport(matchId)?.inputNonce ?? null;
+  const textRef = useRef(text);
+  const waitingSinceMsRef = useRef(waitingSinceMs);
+  const latestMatchSnapshot = getLatestMatchSnapshot(activeMatchId);
+  const inputNonce = latestMatchSnapshot?.inputNonce ?? null;
 
   // ---- Mid-match reconnection resilience ----
   /** Outbound INPUT_UPDATE / FINISH messages buffered while the socket is down. */
@@ -113,6 +283,42 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     [send],
   );
 
+  /**
+   * Receives validated keystrokes from TypingTest and forwards them to the
+   * server.  TypingTest / useTypingLogic has already: capped the input to the
+   * text length, tracked grapheme-accurate mismatches, and determined whether
+   * the text is complete — so this callback only needs to throttle INPUT_UPDATE
+   * and send FINISH exactly once.
+   */
+  const handlePvpInput = useCallback(
+    (input: string, _graphemesTyped: number, isComplete: boolean) => {
+      if (matchStatusRef.current !== "RUNNING") return;
+
+      const now = Date.now();
+      const canSend = now - lastSentAtRef.current >= 60;
+
+      if (canSend || isComplete) {
+        if (canSend) {
+          lastSentAtRef.current = now;
+          seqRef.current += 1;
+          sendOrBuffer({
+            type: "INPUT_UPDATE",
+            payload: { matchId: activeMatchIdRef.current, input, seq: seqRef.current, clientTs: now, inputNonce: inputNonce ?? undefined },
+          });
+        }
+        if (isComplete) {
+          sendOrBuffer({ type: "FINISH", payload: { matchId: activeMatchIdRef.current, clientTs: now } });
+        }
+      }
+    },
+    [inputNonce, sendOrBuffer],
+  );
+
+  const { actionsRef: pvpActionsRef, typingTestProps: pvpTypingTestProps } = usePvpTyping({
+    controlledText: text,
+    onInputValidated: handlePvpInput,
+  });
+
   // Flush buffered inputs the moment the socket is ready again.
   useEffect(() => {
     if (connectionPhase.kind !== "ready") return;
@@ -147,8 +353,14 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     return () => window.clearTimeout(timer);
   }, [connectionPhase.kind, results, matchStatus]);
 
-  // Reset per-match state on navigation.
+  // Sync activeMatchId when the prop changes (direct URL navigation).
   useEffect(() => {
+    setActiveMatchId(matchId);
+    activeMatchIdRef.current = matchId;
+  }, [matchId]);
+
+  /** Reset all per-match state to initial values. */
+  const resetMatchState = useCallback(() => {
     setText("");
     setTextId(null);
     setServerStartAt(null);
@@ -157,7 +369,6 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     setPlayers([]);
     setCarets({});
     setRemoteCaretPositions({});
-    setUserInput("");
     seqRef.current = 0;
     revisionRef.current = 0;
     lastSentAtRef.current = 0;
@@ -167,36 +378,46 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     setRematchOfferFromUserId(null);
     setRematchAcceptedUserIds([]);
     setRematchDeclinedReason(null);
+    setIsSearchingNewOpponent(false);
     setMatchEndingNotice(null);
-    setWaitingSinceMs(null);
+    setWaitingSinceMs(Date.now());
     setNowMs(Date.now());
     setMatchRecoveryFailed(false);
+    setHasReceivedMatchState(false);
+    setLocalCountdown(null);
+    setShowGoOverlay(false);
     pendingInputBufferRef.current = [];
     connectionDroppedAtRef.current = null;
-  }, [matchId]);
+  }, []);
 
-  const isWaitingForOpponent = matchStatus === "PENDING" && players.length < 2 && !results;
-
+  // Reset per-match state when active match changes.
   useEffect(() => {
-    if (!isWaitingForOpponent && matchStatus !== "COUNTDOWN") return;
+    resetMatchState();
+  }, [activeMatchId, resetMatchState]);
+
+  const isWaitingForOpponent = hasReceivedMatchState && matchStatus === "PENDING" && players.length < 2 && !results;
+
+  // Refresh nowMs for the waiting-for-opponent timer.
+  useEffect(() => {
+    if (!isWaitingForOpponent) return;
 
     const timer = window.setInterval(() => {
       setNowMs(Date.now());
     }, 250);
 
     return () => window.clearInterval(timer);
-  }, [isWaitingForOpponent, matchStatus]);
+  }, [isWaitingForOpponent]);
 
   useEffect(() => {
     if (status !== "ready") return;
     send({
       type: "MATCH_JOIN",
       payload: {
-        matchId,
+        matchId: activeMatchId,
         lastSeenRevision: Math.max(0, revisionRef.current),
       },
     });
-  }, [status, send, matchId]);
+  }, [status, send, activeMatchId]);
 
   useEffect(() => {
     statusRef.current = status;
@@ -207,85 +428,143 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   }, [matchStatus]);
 
   useEffect(() => {
+    textRef.current = text;
+  }, [text]);
+
+  useEffect(() => {
+    waitingSinceMsRef.current = waitingSinceMs;
+  }, [waitingSinceMs]);
+
+  const effectiveMatchStatus = latestMatchSnapshot?.status ?? matchStatus;
+
+  useEffect(() => {
+    const previousStatus = previousMatchStatusRef.current;
+    if (previousStatus === "COUNTDOWN" && effectiveMatchStatus === "RUNNING") {
+      setShowGoOverlay(true);
+      const overlayTimer = window.setTimeout(() => setShowGoOverlay(false), 700);
+      const focusTimer = window.setTimeout(() => pvpActionsRef.current?.focus(), 50);
+      previousMatchStatusRef.current = effectiveMatchStatus;
+      return () => {
+        window.clearTimeout(overlayTimer);
+        window.clearTimeout(focusTimer);
+      };
+    }
+
+    previousMatchStatusRef.current = effectiveMatchStatus;
+    return undefined;
+  }, [effectiveMatchStatus, pvpActionsRef]);
+
+  useEffect(() => {
     resultsRef.current = results;
   }, [results]);
+
+  const commitPlaybackApplication = useCallback((nextState: MatchPlaybackApplication) => {
+    revisionRef.current = nextState.revision;
+    if (nextState.text !== undefined) {
+      setText(nextState.text);
+    }
+    if (nextState.textId !== undefined) {
+      setTextId(nextState.textId);
+    }
+    if (nextState.serverStartAt !== undefined) {
+      setServerStartAt(nextState.serverStartAt);
+    }
+    if (nextState.roomCode !== undefined) {
+      setRoomCode(nextState.roomCode);
+    }
+
+    setMatchStatus(nextState.status);
+
+    if (nextState.waitingSinceMs !== undefined) {
+      setWaitingSinceMs(nextState.waitingSinceMs);
+    }
+    if (nextState.players !== undefined) {
+      setPlayers(nextState.players);
+    }
+
+    if (nextState.caretsMode === "replace") {
+      setCarets(nextState.carets);
+    } else {
+      setCarets((prev) => ({ ...prev, ...nextState.carets }));
+    }
+
+    if (nextState.localServerInput !== null) {
+      pvpActionsRef.current?.syncInput(nextState.localServerInput);
+    }
+
+    wpmHistoryRef.current = nextState.historyByUserId;
+    lastSampleAtRef.current = nextState.lastSampleAtByUserId;
+
+    if (nextState.shouldFocus) {
+      setTimeout(() => pvpActionsRef.current?.focus(), 50);
+    }
+  }, [pvpActionsRef]);
+
+  const applyMatchStateSnapshot = useCallback((payload: MatchStatePayload) => {
+    setHasReceivedMatchState(true);
+
+    const nextState = buildMatchStateApplication({
+      payload,
+      currentRevision: revisionRef.current,
+      currentWaitingSinceMs: waitingSinceMsRef.current,
+      localUserId: meIdRef.current,
+      historyByUserId: wpmHistoryRef.current,
+      lastSampleAtByUserId: lastSampleAtRef.current,
+    });
+    if (!nextState) return;
+
+    commitPlaybackApplication(nextState);
+  }, [commitPlaybackApplication]);
+
+  const applyProgressSnapshot = useCallback((payload: ProgressPayload) => {
+    const nextState = buildProgressApplication({
+      payload,
+      currentRevision: revisionRef.current,
+      currentText: textRef.current,
+      localUserId: meIdRef.current,
+      historyByUserId: wpmHistoryRef.current,
+      lastSampleAtByUserId: lastSampleAtRef.current,
+    });
+    if (!nextState) return;
+
+    commitPlaybackApplication(nextState);
+  }, [commitPlaybackApplication]);
 
   useEffect(() => {
     return () => {
       if (statusRef.current !== "ready") return;
       if (resultsRef.current) return;
       if (matchStatusRef.current === "FINISHED" || matchStatusRef.current === "ENDING") return;
-      send({ type: "MATCH_LEAVE", payload: { matchId } });
+      send({ type: "MATCH_LEAVE", payload: { matchId: activeMatchIdRef.current } });
     };
-  }, [matchId, send]);
+  }, [activeMatchId, send]);
 
   useEffect(() => {
     return addListener((m) => {
-      if (m.type === "MATCH_FOUND" && m.payload.matchId !== matchId) {
-        router.push(`/pvp/match/${m.payload.matchId}`);
+      const currentMatchId = activeMatchIdRef.current;
+
+      // In-place rematch: swap active match without navigation.
+      if (m.type === "MATCH_FOUND" && m.payload.matchId !== currentMatchId) {
+        activeMatchIdRef.current = m.payload.matchId;
+        resetMatchState();
+        setActiveMatchId(m.payload.matchId);
+        window.history.replaceState(null, "", `/pvp/match/${m.payload.matchId}`);
         return;
       }
-      if (m.type === "MATCH_STATE" && m.payload.matchId === matchId) {
-        if (m.payload.revision < revisionRef.current) return;
-        const shouldFocus = revisionRef.current === 0;
-        revisionRef.current = m.payload.revision;
-        setText(m.payload.textSnapshot);
-        setTextId(m.payload.textId ?? null);
-        setServerStartAt(m.payload.serverStartAt);
-        setRoomCode(m.payload.roomCode ?? null);
-        setMatchStatus(m.payload.status);
-        const isStillWaiting = m.payload.status === "PENDING" && m.payload.players.length < 2;
-        setWaitingSinceMs((current) => (isStillWaiting ? current ?? Date.now() : null));
-        setPlayers(m.payload.players.map((p) => ({ userId: p.userId, username: p.username, avatar: p.avatar, slot: p.slot })));
-        const next: Record<string, number> = {};
-        for (const p of m.payload.players) next[p.userId] = p.caretIndex;
-        setCarets(next);
 
-        // Resync the local player's userInput to the server's authoritative
-        // position after a reconnect.  caretIndex === participant.input.length
-        // on the gateway, so slicing textSnapshot to that length gives the
-        // exact string the server expects to receive as a prefix on the next
-        // INPUT_UPDATE — preventing spurious "Invalid input evolution" errors.
-        const localUserId = meIdRef.current;
-        if (localUserId && m.payload.textSnapshot) {
-          const myPlayer = m.payload.players.find((p) => p.userId === localUserId);
-          if (myPlayer !== undefined) {
-            const serverInput = m.payload.textSnapshot.slice(0, myPlayer.caretIndex);
-            // Only advance the client state — never roll back ahead-of-server
-            // progress that was buffered locally.
-            setUserInput((curr) => (serverInput.length >= curr.length ? serverInput : curr));
-          }
-        }
-
-        const hist = { ...wpmHistoryRef.current };
-        const last = { ...lastSampleAtRef.current };
-        for (const p of m.payload.players) {
-          hist[p.userId] = hist[p.userId] ?? [];
-          last[p.userId] = last[p.userId] ?? 0;
-        }
-        wpmHistoryRef.current = hist;
-        lastSampleAtRef.current = last;
-
-        if (shouldFocus) {
-          setTimeout(() => inputRef.current?.focus(), 50);
-        }
+      // Server-push countdown tick — drives the countdown display directly.
+      if (m.type === "COUNTDOWN_TICK" && m.payload.matchId === currentMatchId) {
+        setLocalCountdown(m.payload.remainingSeconds);
+        return;
       }
-      if (m.type === "PROGRESS" && m.payload.matchId === matchId) {
-        if (m.payload.revision <= revisionRef.current) return;
-        revisionRef.current = m.payload.revision;
-        setMatchStatus(m.payload.status);
-        setCarets((prev) => ({ ...prev, [m.payload.userId]: m.payload.caretIndex }));
 
-        const tMs = typeof m.payload.serverNowMs === "number" ? m.payload.serverNowMs : Date.now();
-        const lastAt = lastSampleAtRef.current[m.payload.userId] ?? 0;
-        if (tMs - lastAt >= 250) {
-          lastSampleAtRef.current[m.payload.userId] = tMs;
-          const bucket = wpmHistoryRef.current[m.payload.userId] ?? [];
-          bucket.push({ tMs, wpm: m.payload.wpm });
-          wpmHistoryRef.current[m.payload.userId] = bucket;
-        }
+      if (m.type === "MATCH_STATE" && m.payload.matchId === currentMatchId) {
+        applyMatchStateSnapshot(m.payload);
       }
-      if (m.type === "MATCH_ENDED" && m.payload.matchId === matchId) {
+      if (m.type === "PROGRESS" && m.payload.matchId === currentMatchId) {
+        applyProgressSnapshot(m.payload);
+      }
+      if (m.type === "MATCH_ENDED" && m.payload.matchId === currentMatchId) {
         setMatchStatus("ENDING");
         setMatchEndingNotice(m.payload.message);
 
@@ -295,59 +574,68 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
           }, 1200);
         }
       }
-      if (m.type === "RESULTS" && m.payload.matchId === matchId) {
+      if (m.type === "RESULTS" && m.payload.matchId === currentMatchId) {
         setMatchEndingNotice(null);
         setResults({ placements: m.payload.placements, ratingChanges: m.payload.ratingChanges });
       }
 
-      if (m.type === "REMATCH_OFFER" && m.payload.matchId === matchId) {
+      if (m.type === "REMATCH_OFFER" && m.payload.matchId === currentMatchId) {
         setRematchDeclinedReason(null);
         setRematchOfferFromUserId(m.payload.fromUserId);
       }
-      if (m.type === "REMATCH_STATUS" && m.payload.matchId === matchId) {
+      if (m.type === "REMATCH_STATUS" && m.payload.matchId === currentMatchId) {
         setRematchAcceptedUserIds(m.payload.acceptedUserIds);
       }
-      if (m.type === "REMATCH_DECLINED" && m.payload.matchId === matchId) {
+      if (m.type === "REMATCH_DECLINED" && m.payload.matchId === currentMatchId) {
         setRematchOfferFromUserId(null);
         setRematchAcceptedUserIds([]);
         setRematchDeclinedReason(m.payload.reason ?? "declined");
       }
     });
-  }, [addListener, matchId, router]);
+  }, [addListener, applyMatchStateSnapshot, applyProgressSnapshot, activeMatchId, resetMatchState, router]);
 
-  const isError = useMemo(() => {
-    if (!text || !userInput) return false;
-    const i = userInput.length - 1;
-    return i >= 0 && userInput[i] !== text[i];
-  }, [text, userInput]);
-
-  const onChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const startAtMs = serverStartAt ? new Date(serverStartAt).getTime() : null;
-    const countdownActive = startAtMs != null && Date.now() < startAtMs;
-    if (matchEndingNotice || results || isWaitingForOpponent || countdownActive) return;
-
-    const next = e.target.value;
-    setUserInput(next);
-
-    const typed = segmentGraphemes(next).length;
-
-    const now = Date.now();
-    if (now - lastSentAtRef.current < 60) return;
-    lastSentAtRef.current = now;
-
-    seqRef.current += 1;
-    sendOrBuffer({ type: "INPUT_UPDATE", payload: { matchId, input: next, seq: seqRef.current, clientTs: now, inputNonce: inputNonce ?? undefined } });
-
-    if (text && targetGraphemeCount > 0 && typed >= targetGraphemeCount) {
-      sendOrBuffer({ type: "FINISH", payload: { matchId, clientTs: now } });
-    }
-  };
-
-  const startAtMs = serverStartAt ? new Date(serverStartAt).getTime() : null;
-  const countdown = startAtMs && matchStatus === "COUNTDOWN" ? Math.max(0, Math.ceil((startAtMs - nowMs) / 1000)) : null;
-  const countdownActive = startAtMs != null && nowMs < startAtMs;
-  const inputLocked = isWaitingForOpponent || countdownActive || !!matchEndingNotice || !!results;
+  const effectiveServerStartAt = latestMatchSnapshot?.serverStartAt ?? serverStartAt;
+  const startAtMs = effectiveServerStartAt ? new Date(effectiveServerStartAt).getTime() : null;
+  // C1 fix: Use the local countdown integer instead of raw clock-skew-vulnerable computation.
+  const countdownSeconds = effectiveMatchStatus === "COUNTDOWN" ? localCountdown : null;
+  const showCountdownOverlay = latestMatchSnapshot?.isCountdown ?? (effectiveMatchStatus === "COUNTDOWN");
+  const isMatchActive = latestMatchSnapshot?.isActive ?? (effectiveMatchStatus === "RUNNING");
+  const inputLocked = !isMatchActive || !!matchEndingNotice || !!results;
   const waitingRemainingSec = waitingSinceMs ? Math.max(0, Math.ceil((waitingSinceMs + WAITING_TIMEOUT_MS - nowMs) / 1000)) : 40;
+
+  // Server-push countdown: localCountdown is now driven exclusively by
+  // COUNTDOWN_TICK messages from the server. Clear it when leaving COUNTDOWN.
+  useEffect(() => {
+    if (effectiveMatchStatus === "COUNTDOWN") {
+      countdownEnteredAtRef.current = Date.now();
+    } else {
+      setLocalCountdown(null);
+      countdownEnteredAtRef.current = null;
+    }
+  }, [effectiveMatchStatus]);
+
+  // C3 fix: If COUNTDOWN persists > 15 seconds without transitioning to
+  // RUNNING, abort and redirect back to queue.
+  // NC5 fix: Read the snapshot-driven status (via getLatestMatchSnapshot, which
+  // reads a live ref) rather than the React-state-backed matchStatusRef, so we
+  // never abort when the snapshot already shows RUNNING but local state lags.
+  useEffect(() => {
+    if (effectiveMatchStatus !== "COUNTDOWN") return;
+    const timer = window.setTimeout(() => {
+      const snapshotStatus = getLatestMatchSnapshot(activeMatchId)?.status ?? matchStatusRef.current;
+      if (snapshotStatus !== "RUNNING" && snapshotStatus !== "FINISHED") {
+        router.push("/pvp/1v1");
+      }
+    }, 15_000);
+    return () => window.clearTimeout(timer);
+  }, [effectiveMatchStatus, getLatestMatchSnapshot, activeMatchId, matchStatusRef, router]);
+
+  // Redirect back to queue when the opponent-connecting countdown expires
+  useEffect(() => {
+    if (!isWaitingForOpponent) return;
+    if (waitingRemainingSec > 0) return;
+    router.push("/pvp/1v1");
+  }, [isWaitingForOpponent, waitingRemainingSec, router]);
 
   const byId = useMemo(() => {
     const map = new Map<string, { userId: string; username: string; slot: number }>();
@@ -380,7 +668,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
       for (const [uid, caretIndex] of Object.entries(carets)) {
         if (uid === meId) continue;
         next[uid] = getCaretPositionForIndex({
-          textRefs: textRefs.current,
+          textRefs: pvpActionsRef.current?.getTextRefs().current ?? [],
           caretIndex,
           fallback: { x: 16, y: 18 },
         });
@@ -389,7 +677,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     });
 
     return () => window.cancelAnimationFrame(raf);
-  }, [carets, text, user?.userId, textRefs]);
+  }, [carets, pvpActionsRef, text, user?.userId]);
 
   const meId = user?.userId ?? null;
   const canRematch = players.length === 2 && roomCode == null;
@@ -438,18 +726,18 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const onRequestRematch = () => {
     setRematchDeclinedReason(null);
     setRematchOfferFromUserId(null);
-    send({ type: "REMATCH_REQUEST", payload: { matchId } });
+    send({ type: "REMATCH_REQUEST", payload: { matchId: activeMatchId } });
   };
 
   const onAcceptRematch = () => {
     setRematchDeclinedReason(null);
     setRematchOfferFromUserId(null);
-    send({ type: "REMATCH_RESPONSE", payload: { matchId, accept: true } });
+    send({ type: "REMATCH_RESPONSE", payload: { matchId: activeMatchId, accept: true } });
   };
 
   const onDeclineRematch = () => {
     setRematchOfferFromUserId(null);
-    send({ type: "REMATCH_RESPONSE", payload: { matchId, accept: false } });
+    send({ type: "REMATCH_RESPONSE", payload: { matchId: activeMatchId, accept: false } });
   };
 
   if (matchRecoveryFailed && !results) {
@@ -472,13 +760,12 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         <div>
           <div className="text-[#E0E7FF] text-xl font-semibold">Match</div>
           <div className="text-sm text-[#8A8FB5]">
-            {matchStatus}
+            {effectiveMatchStatus}
             {textId ? ` · Text: ${textId}` : ""}
-            {countdown != null ? ` · Starts in: ${countdown}s` : ""}
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => inputRef.current?.focus()}>
+          <Button variant="secondary" onClick={() => pvpActionsRef.current?.focus()}>
             Focus
           </Button>
         </div>
@@ -498,36 +785,48 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
           <div className="rounded-md border border-[rgba(125,211,252,0.2)] px-2 py-1 text-xs text-sky-200">{waitingRemainingSec}s</div>
         </div>
       ) : (
-        <div className="relative w-full p-4">
-          {countdownActive ? (
-            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-xl border border-[rgba(125,211,252,0.22)] bg-[rgba(3,8,22,0.82)]">
-              <div className="text-center">
-                <div className="text-xs uppercase tracking-[0.24em] text-sky-200">Match starts in</div>
-                <div className="mt-2 text-7xl font-semibold leading-none text-white">{countdown ?? 0}</div>
-                <div className="mt-2 text-sm text-sky-100">Input unlocks when countdown reaches zero.</div>
-              </div>
+        <TypingTest
+          key={textId ?? activeMatchId}
+          {...pvpTypingTestProps}
+          inputDisabled={inputLocked}
+          fontSize="text-2xl"
+          lineHeight="leading-10"
+          font="font-mono"
+          optimizePerformance
+          caretHeight="h-7"
+          caretColorClassName={slotToColor(byId.get(user?.userId ?? "")?.slot ?? 0)}
+        >
+          {/* Countdown / GO overlay */}
+          {showCountdownOverlay || showGoOverlay ? (
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl border border-[rgba(125,211,252,0.22)] bg-black/40 backdrop-blur-sm">
+              {showGoOverlay ? (
+                <div key="go" className="text-center select-none animate-countdown-pop">
+                  <div className="text-9xl font-bold leading-none text-emerald-400 drop-shadow-[0_0_48px_rgba(52,211,153,0.7)]">
+                    GO!
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center select-none">
+                  {/* NC2 fix: hide label at 0 to avoid jarring "Match starts in 0" */}
+                  {countdownSeconds !== null && countdownSeconds > 0 ? (
+                    <div className="text-xs uppercase tracking-[0.24em] text-sky-300 font-medium">Match starts in</div>
+                  ) : null}
+                  <div
+                    key={countdownSeconds ?? "syncing"}
+                    className="mt-2 text-9xl font-bold leading-none text-white drop-shadow-[0_0_32px_rgba(125,211,252,0.5)] animate-countdown-pop"
+                  >
+                    {/* NC3 fix: don't show "GO!" at 0 in the white overlay — the
+                        green showGoOverlay already handles the transition, so showing
+                        "GO!" here would cause a double-flash. */}
+                    {countdownSeconds !== null && countdownSeconds > 0 ? countdownSeconds : null}
+                  </div>
+                  <div className="mt-3 text-xs uppercase tracking-wider text-sky-400">Keyboard locked</div>
+                </div>
+              )}
             </div>
           ) : null}
 
-          <TextDisplay
-            text={text}
-            userInput={userInput}
-            isError={isError}
-            textRefs={textRefs}
-            fontSize="text-2xl"
-            lineHeight="leading-10"
-            font="font-mono"
-            optimizePerformance
-          />
-
-          {/* Local caret */}
-          <Caret
-            caretPosition={caretPosition}
-            caretHeight="h-7"
-            colorClassName={slotToColor(byId.get(user?.userId ?? "")?.slot ?? 0)}
-          />
-
-          {/* Remote carets */}
+          {/* Remote player carets */}
           {remoteCarets.map((c) => (
             <Caret
               key={c.userId}
@@ -537,9 +836,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
               className="opacity-90"
             />
           ))}
-
-          <TypingInput inputRef={inputRef} userInput={userInput} handleInputChange={onChange} disabled={inputLocked} />
-        </div>
+        </TypingTest>
       )}
 
       {results ? (
@@ -555,10 +852,14 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
           rematchOfferFromUserId={rematchOfferFromUserId}
           rematchAcceptedUserIds={rematchAcceptedUserIds}
           rematchDeclinedReason={rematchDeclinedReason}
+          isSearchingNewOpponent={isSearchingNewOpponent}
           onRequestRematch={onRequestRematch}
           onAcceptRematch={onAcceptRematch}
           onDeclineRematch={onDeclineRematch}
-          onFindNewOpponent={() => router.push(roomCode ? `/pvp/room/${roomCode}` : "/pvp/1v1")}
+          onFindNewOpponent={() => {
+            setIsSearchingNewOpponent(true);
+            send({ type: "QUEUE_JOIN", payload: {} });
+          }}
         />
       ) : null}
     </div>

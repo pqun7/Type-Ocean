@@ -26,7 +26,7 @@ import {
   shouldScheduleDisconnectForfeit,
   getDisconnectForfeitPolicy,
 } from "../match-session-guards";
-import { toClientErrorPayload } from "../shared/errors";
+import { toClientErrorPayload, isAiUserId } from "../shared/errors";
 import { gatewayLogDebug, gatewayLogWarn, gatewayLogError } from "../shared/logger";
 import { incrementGatewayMetric } from "../metrics";
 import { DEV_BYPASS_RATE_LIMIT } from "../shared/config";
@@ -352,8 +352,14 @@ export function setupWssConnectionHandler(
         const otherSockets = getAuthedSocketsForUserId(wss, ws.user.userId).filter((s) => s !== ws);
         if (otherSockets.length === 0) {
           const activeMatch = findActiveMatchByUserId(deps, ws.user.userId);
+          const matchHasAi = activeMatch
+            ? [...activeMatch.participants.keys()].some(isAiUserId)
+            : false;
+
           if (
+            !matchHasAi &&
             activeMatch &&
+            ws.matchId === activeMatch.matchId &&
             shouldScheduleDisconnectForfeit({
               policy: getDisconnectForfeitPolicy({
                 roomCode: activeMatch.roomCode,

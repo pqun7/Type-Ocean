@@ -15,6 +15,7 @@ import { createGatewayEventBus } from "./events";
 import { createGatewayHealthController, type GatewayHealthController } from "./health";
 import { InMemoryIdempotencyStore } from "./idempotency";
 import { buildDisconnectForfeitOutcome, runDisconnectForfeitSequence } from "./disconnect-forfeit";
+import { activateMatchLiveState, shouldActivateCountdownMatch } from "./application/match-start";
 import {
   buildQueueBucketKey,
   DEFAULT_QUEUE_BAND_CONFIG,
@@ -109,6 +110,7 @@ const PUBLIC_ROOM_AUTO_START_MS = envMs("PVP_PUBLIC_ROOM_AUTO_START_MS", 50_000)
 const DEV_MODE = process.env.NODE_ENV !== "production";
 const TEST_BYPASS = process.env.PVP_TEST_BYPASS_AUTH === "true" && process.env.NODE_ENV !== "production";
 const FORCE_BOT_MATCH_LOCAL = DEV_MODE && envBool("PVP_TEST_FORCE_BOT_MATCH", false);
+const MATCH_START_LATENCY_BUCKETS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2000];
 const RANKED_MATCH_START_DELAY_MS = envMs(
   "PVP_RANKED_MATCH_START_DELAY_MS",
   FORCE_BOT_MATCH_LOCAL ? 1_200 : 3_000,
@@ -121,6 +123,8 @@ const ROOM_SWEEP_LOCK_KEY = "pvp:room:sweep:lock";
 
 const matchFinalizationLocks = new Set<MatchId>();
 const matchCleanupTimers = new Map<MatchId, NodeJS.Timeout>();
+const countdownActivationTimers = new Map<MatchId, NodeJS.Timeout>();
+const countdownTickIntervals = new Map<MatchId, NodeJS.Timeout>();
 const firstPlaceFinalizationTimers = new Map<string, NodeJS.Timeout>();
 // participantMetricAccumulators removed: stats now recomputed from scratch on every
 // INPUT_UPDATE via recomputeParticipantStats() — fixes P5 (backspace bug) + P3 (leak).
@@ -713,6 +717,19 @@ function clearScheduledMatchCleanup(matchId: MatchId): void {
   matchCleanupTimers.delete(matchId);
 }
 
+function clearCountdownActivationTimer(matchId: MatchId): void {
+  const existing = countdownActivationTimers.get(matchId);
+  if (existing) {
+    clearTimeout(existing);
+    countdownActivationTimers.delete(matchId);
+  }
+  const tickInterval = countdownTickIntervals.get(matchId);
+  if (tickInterval) {
+    clearInterval(tickInterval);
+    countdownTickIntervals.delete(matchId);
+  }
+}
+
 function scheduleMatchCleanup(state: InMemoryState, matchId: MatchId, delayMs = MATCH_RESULT_RETENTION_MS): void {
   clearScheduledMatchCleanup(matchId);
   const match = state.matches.get(matchId) as LocalMatch | undefined;
@@ -1232,6 +1249,7 @@ async function abortMatchLifecycle(params: {
     });
     if (!transitioned) return;
 
+    clearCountdownActivationTimer(toMatchId(match.matchId));
     params.state.clearAiInterval(match.matchId);
 
     await params.db
@@ -1473,6 +1491,7 @@ async function main(): Promise<void> {
   matchCleanupService = new MatchCleanupService(
     matchFinalizationLocks,
     matchCleanupTimers,
+    countdownActivationTimers,
     matchCache,
     state,
     noShowTimers,
@@ -1715,10 +1734,165 @@ async function main(): Promise<void> {
     return "human";
   };
 
+  const broadcastMatchState = (match: LocalMatch): void => {
+    const payload = buildMatchStatePayload(match as unknown as Parameters<typeof buildMatchStatePayload>[0]);
+    for (const participant of match.participants.values()) {
+      if (isAiUserId(participant.userId)) continue;
+      sendToUser(wss, participant.userId, "MATCH_STATE", payload);
+    }
+  };
+
+  const activateCountdownMatch = async (matchId: string, reason: "timer" | "sweep"): Promise<boolean> => {
+    const localMatch = state.matches.get(matchId) as LocalMatch | undefined;
+    if (!localMatch) return false;
+
+    const nowMs = Date.now();
+    if (!shouldActivateCountdownMatch({
+      matchState: localMatch.state,
+      nowMs,
+      serverStartAtMs: localMatch.serverStartAtMs,
+    })) {
+      return false;
+    }
+
+    const activated = await matchRepository.withTransaction(async (tx) => {
+      const locked = await matchRepository.loadForUpdate(tx, matchId);
+      if (!locked) return null;
+
+      const lockedState = matchStateFromDbStatus(locked.status);
+      // NTZ fix: prefer the in-memory serverStartAtMs (set as Date.now() + delayMs
+      // using UTC epoch at creation) over toEpochMs(locked.serverStartAt) which can
+      // return a value 2 h off on UTC+X hosts because the pg/neon driver constructs
+      // a Date from the TIMESTAMP WITHOUT TIMEZONE column using local-time params.
+      const effectiveStartAtMs = locked.liveState?.serverStartAtEpochMs ?? localMatch.serverStartAtMs;
+      if (!shouldActivateCountdownMatch({
+        matchState: lockedState,
+        nowMs,
+        serverStartAtMs: effectiveStartAtMs,
+      })) {
+        return null;
+      }
+
+      const lockedLiveState = activateMatchLiveState(
+        locked.liveState ?? createInitialLiveState({
+          state: "countdown",
+          participants: Array.from(localMatch.participants.values()).map((participant) => ({
+            userId: participant.userId,
+            username: participant.username,
+            avatar: participant.avatar,
+            slot: participant.slot,
+          })),
+        }),
+        nowMs,
+      );
+      // Persist the epoch ms in the JSONB so future activations / restarts
+      // can recover it without touching the timezone-sensitive Date column.
+      lockedLiveState.serverStartAtEpochMs = effectiveStartAtMs;
+
+      const updateResult = await matchRepository.updateWithRevision(tx, matchId, {
+        expectedRevision: locked.revision,
+        nextState: "live",
+        liveState: lockedLiveState,
+        instanceId: INSTANCE_ID,
+        serverStartAt: locked.serverStartAt ?? new Date(localMatch.serverStartAtMs),
+        startedAt: new Date(nowMs),
+        endedAt: locked.endedAt,
+      });
+
+      if (!updateResult.applied) return null;
+
+      return {
+        nextRevision: updateResult.nextRevision,
+        effectiveStartAtMs,
+      };
+    });
+
+    if (!activated) return false;
+
+    clearCountdownActivationTimer(toMatchId(matchId));
+
+    const transitioned = applyMatchTransition({
+      match: localMatch,
+      nextState: "live",
+      eventBus,
+      reason: "completed",
+    });
+    if (!transitioned) return false;
+
+    localMatch.revision = activated.nextRevision;
+    localMatch.serverStartAtMs = activated.effectiveStartAtMs;
+    broadcastMatchState(localMatch);
+
+    observeGatewayHistogram(
+      "pvp_match_start_latency_ms",
+      Math.max(0, nowMs - activated.effectiveStartAtMs),
+      MATCH_START_LATENCY_BUCKETS_MS,
+    );
+    incrementGatewayMetric("pvp_match_start_transition_total", { reason });
+    gatewayLogInfo("Activated countdown match", {
+      matchId,
+      reason,
+      revision: activated.nextRevision,
+      latencyMs: Math.max(0, nowMs - activated.effectiveStartAtMs),
+    });
+
+    return true;
+  };
+
+  const scheduleCountdownActivation = (match: LocalMatch): void => {
+    clearCountdownActivationTimer(toMatchId(match.matchId));
+
+    if (match.state !== "countdown") return;
+
+    const delayMs = Math.max(0, match.serverStartAtMs - Date.now());
+
+    // Broadcast an initial COUNTDOWN_TICK immediately, then every 1 s.
+    const broadcastTick = () => {
+      const remaining = Math.max(0, Math.ceil((match.serverStartAtMs - Date.now()) / 1000));
+      // Cap at 3 — don't send ticks above 3 so the UI never shows "4".
+      if (remaining > 3) return;
+      for (const participant of match.participants.values()) {
+        if (isAiUserId(participant.userId)) continue;
+        sendToUser(wss, participant.userId, "COUNTDOWN_TICK", {
+          matchId: match.matchId,
+          remainingSeconds: remaining,
+        });
+      }
+      if (remaining <= 0) {
+        const iv = countdownTickIntervals.get(toMatchId(match.matchId));
+        if (iv) {
+          clearInterval(iv);
+          countdownTickIntervals.delete(toMatchId(match.matchId));
+        }
+      }
+    };
+
+    broadcastTick();
+    const tickInterval = setInterval(broadcastTick, 1000);
+    if (typeof (tickInterval as unknown as { unref?: () => void }).unref === "function") {
+      (tickInterval as unknown as { unref: () => void }).unref();
+    }
+    countdownTickIntervals.set(toMatchId(match.matchId), tickInterval);
+
+    const timer = setTimeout(() => {
+      countdownActivationTimers.delete(toMatchId(match.matchId));
+      void activateCountdownMatch(match.matchId, "timer");
+    }, delayMs);
+
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+
+    countdownActivationTimers.set(toMatchId(match.matchId), timer);
+  };
+
   const maybeStartRankedCountdown = async (match: LocalMatch): Promise<boolean> => {
     if (match.roomCode !== null) return false;
     if (match.state !== "waiting_for_both") return false;
 
+    // C5 fix: readyCount is checked inside the DB transaction so a player
+    // disconnecting between the check and the persist cannot cause a
+    // countdown with only one participant present.
     const readyCount = getReadyParticipantCount(match.matchId, match);
     if (readyCount < match.participants.size) {
       incrementGatewayMetric("pvp_match_countdown_blocked_total", {
@@ -1735,6 +1909,12 @@ async function main(): Promise<void> {
     }
 
     const lockResult = await matchRepository.withTransaction(async (tx) => {
+      // Re-check readyCount inside the transaction to avoid racing with a
+      // disconnect that occurs between the outer check and the DB write.
+      const txReadyCount = getReadyParticipantCount(match.matchId, match);
+      if (txReadyCount < match.participants.size) {
+        return { started: false as const };
+      }
       const locked = await matchRepository.loadForUpdate(tx, match.matchId);
       if (!locked) return { started: false as const };
 
@@ -1804,10 +1984,8 @@ async function main(): Promise<void> {
 
     match.revision = lockResult.nextRevision;
 
-    for (const participant of match.participants.values()) {
-      if (isAiUserId(participant.userId)) continue;
-      sendToUser(wss, participant.userId, "MATCH_STATE", buildMatchStatePayload(match as unknown as Parameters<typeof buildMatchStatePayload>[0]));
-    }
+    scheduleCountdownActivation(match);
+    broadcastMatchState(match);
 
     gatewayLogInfo("Ranked countdown started", {
       matchId: match.matchId,
@@ -1917,6 +2095,7 @@ async function main(): Promise<void> {
 
       const activeMatch = state.matches.get(matchId) as LocalMatch | undefined;
       if (!activeMatch) return;
+      if ([...activeMatch.participants.keys()].some(isAiUserId)) return;
       if (
         !shouldScheduleDisconnectForfeit({
           policy: getDisconnectForfeitPolicy({
@@ -2156,6 +2335,15 @@ async function main(): Promise<void> {
         maxLiveAgeMs: MATCH_MAX_LIVE_AGE_MS,
       });
 
+      if (shouldActivateCountdownMatch({
+        matchState: m.state,
+        nowMs: now,
+        serverStartAtMs: m.serverStartAtMs,
+      })) {
+        await activateCountdownMatch(matchId, "sweep");
+        continue;
+      }
+
       if (staleReason) {
         gatewayLogWarn("Sweeping stale active match", { matchId, staleReason, state: m.state });
         clearNoShowTimer(matchId);
@@ -2190,10 +2378,7 @@ async function main(): Promise<void> {
       clearRematchAccepted(matchId);
     }
 
-    for (const [userId, refuseUntilMs] of aiRematchRefuseUntilByHumanId.entries()) {
-      if (now < refuseUntilMs) continue;
-      aiRematchRefuseUntilByHumanId.delete(userId);
-    }
+    // R1: aiRematchRefuseUntilByHumanId cleanup removed — cooldown system eliminated.
   };
 
   const staleMatchSweepInterval = setInterval(() => {
@@ -2535,6 +2720,7 @@ return nil
       roomCode: params.roomCode,
       atMs: local.stateChangedAt,
     });
+    scheduleCountdownActivation(local);
 
     await db
       .update(pvpMatches)
@@ -2914,6 +3100,7 @@ return nil
         roomCode: null,
         atMs: local.stateChangedAt,
       });
+      scheduleCountdownActivation(local);
     }
 
     await registerReplayNonce(redis, matchId, local.inputNonce);
@@ -3023,6 +3210,7 @@ return nil
     clearDisconnectForfeitTimer,
     scheduleDisconnectForfeit,
     maybeStartRankedCountdown,
+    scheduleCountdownActivation,
     loadConnectionUser,
     createRanked1v1Match,
     startRoomMatch,
@@ -3164,6 +3352,10 @@ return nil
         clearTimeout(timer);
       }
       matchCleanupTimers.clear();
+      for (const timer of countdownActivationTimers.values()) {
+        clearTimeout(timer);
+      }
+      countdownActivationTimers.clear();
       for (const timer of firstPlaceFinalizationTimers.values()) {
         clearTimeout(timer);
       }

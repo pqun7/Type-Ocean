@@ -10,7 +10,6 @@ import { recomputeParticipantStats } from "../../domain/match/participant-stats"
 import { validateReplayProtectedInput, registerAcceptedReplaySeq } from "../../anti-cheat/replay";
 import { shouldAcceptInputUpdate } from "../../input-update";
 import { observeGatewayHistogram, incrementGatewayMetric } from "../../metrics";
-import { applyMatchTransition } from "../match-state";
 import { appendMatchDelta } from "../match-state";
 import { withMatchLock, storeIdempotencyHit, maybeBroadcastMatchSnapshot } from "../match-helpers";
 import { finalizeMatchIfComplete } from "../finalize-match";
@@ -48,15 +47,17 @@ export async function handleInputUpdate(
     return;
   }
 
-  const nowMs = Date.now();
-  if (nowMs < match.serverStartAtMs) {
-    send(ws, "ERROR", { message: "Match not started" }, deps);
+  if (match.state !== "live") {
+    // Silently drop for finished/aborted — the client may still have
+    // in-flight keystrokes after the match ends. Only send ERROR for
+    // countdown (genuinely premature input).
+    if (match.state === "countdown") {
+      send(ws, "ERROR", { message: "Match not started" }, deps);
+    }
     return;
   }
 
-  if (match.state === "countdown") {
-    applyMatchTransition({ match, nextState: "live", eventBus: deps.eventBus, reason: "completed" });
-  }
+  const nowMs = Date.now();
 
   const inputDecision = shouldAcceptInputUpdate({
     lastProcessedSeq: participant.seq,

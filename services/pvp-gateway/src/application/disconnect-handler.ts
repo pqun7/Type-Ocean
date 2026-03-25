@@ -13,6 +13,7 @@
 import { buildDisconnectForfeitOutcome, runDisconnectForfeitSequence } from "../disconnect-forfeit";
 import { gatewayLogWarn } from "../shared/logger";
 import { toMatchId } from "../shared/branded-ids";
+import { isAiUserId } from "../shared/errors";
 import { runWithMatchFinalizationLock } from "./match-helpers";
 import { finalizeMatchResults } from "./finalize-match";
 import { sendToUser } from "../presentation/ws-sender";
@@ -38,6 +39,7 @@ export async function finalizeMatchByDisconnectForfeit(params: {
   const match = deps.state.matches.get(params.matchId) as LocalMatch | undefined;
   if (!match) return;
   if (match.state === "finished" || match.state === "aborted") return;
+  if ([...match.participants.keys()].some(isAiUserId)) return;
 
   await runWithMatchFinalizationLock(toMatchId(params.matchId), async () => {
     const outcome = buildDisconnectForfeitOutcome({

@@ -7,17 +7,27 @@ import { useLevel } from "@/features/level/hooks/useLevel";
 import { MythicClaimMeta, SessionData } from "@/features/level/types/level";
 import { logger } from "@/log/clientLogger";
 import { computeConsistency } from "@/features/typing/utils/consistency";
-import { segmentGraphemes } from "@/features/typing/utils/graphemes";
 import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
+import {
+  createEngineConfig,
+  createInitialState,
+  processInput,
+  processResync,
+} from "@/features/typing/core/typingEngine";
+import type { EngineState, TypingMode } from "@/features/typing/core/typingTypes";
 
 
 /**
  * Core typing test logic hook managing:
- * - User input handling and validation
+ * - User input handling and validation (delegated to the pure typingEngine)
  * - Real-time metrics calculation (WPM, accuracy, time)
  * - Session lifecycle management
  * - Idle state detection and pause handling
  * - Historical performance tracking
+ *
+ * All grapheme segmentation, mismatch tracking, and strict-mode cursor locking
+ * live in `src/features/typing/core/typingEngine.ts`.  This hook owns only the
+ * React state wrappers and side-effectful session logic (XP, stats, daily challenge).
  *
  * @param text - Target text for typing test
  * @param selectNewText - Function to generate new test text
@@ -27,16 +37,37 @@ export default function useTypingLogic(
   text: string,
   selectNewText: (level?: TextType) => void,
   selectedLevel: TextType,
-  typingLanguage: TypingLanguage = "en"
+  typingLanguage: TypingLanguage = "en",
+  options?: {
+    /** Called on every validated keystroke with the clean (capped) input string,
+     *  the number of graphemes typed, and whether the text is now complete.
+     *  Use this in PvP to send INPUT_UPDATE / FINISH without a separate onChange. */
+    onInputValidated?: (input: string, graphemesTyped: number, isComplete: boolean) => void;
+    /** When true, skip XP / stats / daily-challenge recording at session end.
+     *  Set this for PvP where the server owns all match results. */
+    skipSessionTracking?: boolean;
+    /**
+     * Typing mode for this session.
+     * - `"normal"` (default) — cursor advances freely, errors are tracked.
+     * - `"strict"` — cursor locks at the first wrong grapheme; backspace required.
+     */
+    mode?: TypingMode;
+  }
 ) {
-  // State management
+  // ── React state ────────────────────────────────────────────────────────────
   const [state, setState] = useState<State>("start");
+  /**
+   * Mirror of `engineStateRef.current.input` — kept in React state so that
+   * components re-render when the input value changes.
+   */
   const [userInput, setUserInput] = useState("");
+  /** Mirror of `engineStateRef.current.mismatches > 0` for React renders. */
   const [isError, setIsError] = useState(false);
-  // Session errors = current, uncorrected mismatches (decreases when user fixes mistakes)
+  /** Mirror of `engineStateRef.current.mismatches` for stat display. */
   const [totalErrors, setTotalErrors] = useState(0);
-  // Mistakes = cumulative wrong keypresses (kept for stats even if corrected)
+  /** Mirror of `engineStateRef.current.totalMistakes` for stat display. */
   const [totalMistakes, setTotalMistakes] = useState(0);
+  /** Mirror of `engineStateRef.current.totalCorrections` for stat display. */
   const [totalCorrections, setTotalCorrections] = useState(0);
   const [metrics, setMetrics] = useState({
     wpm: 0,
@@ -47,14 +78,44 @@ export default function useTypingLogic(
   const levelContext = useLevel();
   const userId = levelContext.userId ?? undefined;
   const isLoading = !!levelContext.isLoadingSession;
- 
+
   const userIdRef = useRef(userId);
   useEffect(() => {
     if (!isLoading) userIdRef.current = userId;
   }, [userId, isLoading]);
 
+  // ── Engine ────────────────────────────────────────────────────────────────
+  /**
+   * The pure engine state ref — always in sync with the last `processInput` /
+   * `processResync` call.  Reading it is safe from any stable callback without
+   * stale-closure risk.
+   */
+  const engineStateRef = useRef<EngineState>(createInitialState());
 
-  // Persistent references
+  /**
+   * Stable engine config rebuilt whenever the target text or locale changes.
+   * Rebuilding is O(n) on the text length (grapheme segmentation) so we keep
+   * it in a ref and only recreate it when the inputs actually change.
+   */
+  const engineConfigRef = useRef(
+    createEngineConfig(text, typingLanguage, options?.mode ?? "normal")
+  );
+
+  // Keep config ref in sync with text / locale / mode.
+  const modeRef = useRef<TypingMode>(options?.mode ?? "normal");
+  useEffect(() => {
+    modeRef.current = options?.mode ?? "normal";
+    engineConfigRef.current = createEngineConfig(text, typingLanguage, modeRef.current);
+  }, [text, typingLanguage, options?.mode]);
+
+  // ── Legacy refs (kept for WPM / session lifecycle helpers below) ──────────
+  /**
+   * Up-to-date copy of the current input string — safe to read in stable
+   * callbacks without creating stale closures.  Mirrors `engineStateRef.current.input`.
+   */
+  const userInputRef = useRef(userInput);
+
+  // ── Persistent references ─────────────────────────────────────────────────
   const startTime = useRef<number | null>(null);
   const idleTimer = useRef<NodeJS.Timeout | null>(null);
   const idleState = useRef({
@@ -63,8 +124,9 @@ export default function useTypingLogic(
     pausedDuration: 0,
     idleStart: null as number | null,
   });
+  const sessionActive = state === "running" && !idleState.current.isIdle;
 
-  // Historical data management
+  // ── Historical data ───────────────────────────────────────────────────────
   const {
     wpmHistory,
     startNewSession,
@@ -72,20 +134,6 @@ export default function useTypingLogic(
     commitSession,
     rollback,
   } = useWpmHistory();
-
-  // consistency helper is provided by utils/consistency.ts
-
-  // Derived values
-  const textRef = useRef(text);
-  const userInputRef = useRef(userInput);
-  const sessionActive = state === "running" && !idleState.current.isIdle;
-
-  const textSegmentsRef = useRef<ReturnType<typeof segmentGraphemes>>([]);
-  const inputSegmentsRef = useRef<ReturnType<typeof segmentGraphemes>>([]);
-  const mismatchCountRef = useRef(0);
-
-  const mistakesRef = useRef(0);
-  const correctionsRef = useRef(0);
 
   const {
     addXP,
@@ -96,35 +144,23 @@ export default function useTypingLogic(
     getBestWpm,
   } = levelContext;
 
-  // Sync refs with current values
-  useEffect(() => {
-    textRef.current = text;
-    // Cache grapheme segments for the current target text.
-    textSegmentsRef.current = segmentGraphemes(text, typingLanguage);
-  }, [text, typingLanguage]);
-
+  // Keep userInputRef in sync with state (stable read in callbacks).
   useEffect(() => {
     userInputRef.current = userInput;
   }, [userInput]);
 
+  /**
+   * Derive grapheme stats from the engine state ref directly — no segmentation
+   * needed here because the engine already tracks typed/correct/mismatches.
+   */
   const computeGraphemeStats = useCallback(() => {
-    const inputNow = userInputRef.current;
-    const segments = textSegmentsRef.current;
-
-    // Segment user input too so comparisons are robust even when the same grapheme
-    // can be represented with different UTF-16 code unit sequences (IME/combining marks).
-    const inputSegments = segmentGraphemes(inputNow, typingLanguage);
-
-    const typed = Math.min(inputSegments.length, segments.length);
-    let correct = 0;
-    let mismatches = 0;
-    for (let i = 0; i < typed; i += 1) {
-      if (inputSegments[i]!.segment === segments[i]!.segment) correct += 1;
-      else mismatches += 1;
-    }
-
+    const eng = engineStateRef.current;
+    const targetLen = engineConfigRef.current.targetSegments.length;
+    const typed = Math.min(eng.inputSegments.length, targetLen);
+    const mismatches = eng.mismatches;
+    const correct = typed - mismatches;
     return { typed, correct, mismatches };
-  }, [typingLanguage]);
+  }, []);
 
   /** Calculate active time accounting for pauses */
   const getActiveTime = useCallback(() => {
@@ -240,15 +276,16 @@ export default function useTypingLogic(
 
       commitSession(); // UI-related commit for all users
 
-      // Only for authenticated users
-      if (userId) {
+      // Only for authenticated users — skip entirely when session tracking is
+      // disabled (e.g. PvP where the server owns all results / XP).
+      if (userId && !options?.skipSessionTracking) {
         const timeSpentSeconds = Math.floor(activeTime / 1000);
 
         const { mismatches: computedErrors } = computeGraphemeStats();
 
         const finalErrors = Math.max(0, counts?.finalErrors ?? computedErrors);
-        const sessionMistakes = Math.max(0, counts?.mistakes ?? mistakesRef.current);
-        const sessionCorrections = Math.max(0, counts?.corrections ?? correctionsRef.current);
+        const sessionMistakes = Math.max(0, counts?.mistakes ?? engineStateRef.current.totalMistakes);
+        const sessionCorrections = Math.max(0, counts?.corrections ?? engineStateRef.current.totalCorrections);
 
         // Compute consistency before sessionData so it can feed into XP calculation
         const currentSession = wpmHistory[wpmHistory.length - 1] ?? [];
@@ -372,6 +409,7 @@ export default function useTypingLogic(
     addXPMessage,
     wpmHistory,
     userId, // Added for conditional execution
+    options?.skipSessionTracking,
     state,
     metrics,
     rollback,
@@ -423,126 +461,42 @@ export default function useTypingLogic(
   // Input handling
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawInput = e.target.value;
-    const prevInput = userInputRef.current;
-    const prevSegments = inputSegmentsRef.current;
-
-    // Cap input to the target text length in *graphemes* (not UTF-16 code units).
-    // This prevents overshooting the target (common with IME / combining sequences),
-    // which previously blocked the exact `input.length === text.length` completion.
-    const targetSegments = textSegmentsRef.current;
-    const maxGraphemes = targetSegments.length;
-    const rawSegments = segmentGraphemes(rawInput, typingLanguage);
-    const nextInputSegments =
-      maxGraphemes > 0 && rawSegments.length > maxGraphemes
-        ? rawSegments.slice(0, maxGraphemes)
-        : rawSegments;
-    const typedGraphemes = Math.min(nextInputSegments.length, maxGraphemes);
-    const input =
-      maxGraphemes > 0 && rawSegments.length > maxGraphemes
-        ? rawInput.slice(0, rawSegments[maxGraphemes - 1]!.end)
-        : rawInput;
 
     if (state === "start") handleSessionStart();
 
+    // Delegate ALL segment/cap/mismatch/strict logic to the pure engine.
+    const nextEngineState = processInput(
+      engineConfigRef.current,
+      engineStateRef.current,
+      rawInput
+    );
+
+    // Persist new engine state into the ref first so that computeGraphemeStats
+    // (which reads from this ref) is immediately consistent.
+    engineStateRef.current = nextEngineState;
+
+    // Mirror relevent engine values into React state for re-renders.
+    const { input, mismatches, totalMistakes: nextMistakes, totalCorrections: nextCorrections, isComplete } = nextEngineState;
+
     setUserInput(input);
-    // Keep refs in sync immediately to avoid stale values on fast typing.
     userInputRef.current = input;
-
-    // Uncorrected errors: keep a fast incremental path for common typing/backspace,
-    // with a safe full recompute fallback for arbitrary mid-string edits/pastes.
-    let mismatches = mismatchCountRef.current;
-    if (input !== prevInput) {
-      const prevTyped = Math.min(prevSegments.length, maxGraphemes);
-
-      if (typedGraphemes >= prevTyped && input.startsWith(prevInput)) {
-        for (let i = prevTyped; i < typedGraphemes; i += 1) {
-          if (nextInputSegments[i]!.segment !== targetSegments[i]!.segment) mismatches += 1;
-        }
-      } else if (typedGraphemes < prevTyped && prevInput.startsWith(input)) {
-        for (let i = typedGraphemes; i < prevTyped; i += 1) {
-          if (prevSegments[i]!.segment !== targetSegments[i]!.segment) mismatches -= 1;
-        }
-      } else {
-        mismatches = 0;
-        for (let i = 0; i < typedGraphemes; i += 1) {
-          if (nextInputSegments[i]!.segment !== targetSegments[i]!.segment) mismatches += 1;
-        }
-      }
-    }
-
-    mismatches = Math.max(0, mismatches);
-    mismatchCountRef.current = mismatches;
-    inputSegmentsRef.current = nextInputSegments;
-
-    const target = textRef.current;
     setTotalErrors(mismatches);
     setIsError(mismatches > 0);
+    setTotalMistakes(nextMistakes);
+    setTotalCorrections(nextCorrections);
 
-    // Cumulative mistakes/corrections: robust to paste and mid-string edits.
-    // We approximate the edit region by finding common prefix/suffix.
-    if (input !== prevInput) {
-      const prevLen = prevInput.length;
-      const nextLen = input.length;
+    const typedGraphemes = nextEngineState.inputSegments.length;
 
-      let prefix = 0;
-      let suffix = 0;
+    // Notify any external listener (e.g. PvP socket bridge) about each
+    // validated keystroke AND the completion event.
+    options?.onInputValidated?.(input, typedGraphemes, isComplete);
 
-      if (nextLen >= prevLen && input.startsWith(prevInput)) {
-        // Fast path for common typing case: append at the end.
-        prefix = prevLen;
-      } else if (nextLen < prevLen && prevInput.startsWith(input)) {
-        // Fast path for common correction case: backspace from the end.
-        prefix = nextLen;
-      } else {
-        while (
-          prefix < prevLen &&
-          prefix < nextLen &&
-          prevInput[prefix] === input[prefix]
-        ) {
-          prefix += 1;
-        }
-
-        while (
-          suffix < prevLen - prefix &&
-          suffix < nextLen - prefix &&
-          prevInput[prevLen - 1 - suffix] === input[nextLen - 1 - suffix]
-        ) {
-          suffix += 1;
-        }
-      }
-
-      const removed = Math.max(0, prevLen - (prefix + suffix));
-      const added = Math.max(0, nextLen - (prefix + suffix));
-
-      if (removed > 0 && nextLen < prevLen) {
-        correctionsRef.current += removed;
-        setTotalCorrections(correctionsRef.current);
-      }
-
-      if (added > 0) {
-        const addedStart = prefix;
-        const addedEnd = nextLen - suffix;
-        let addedMistakes = 0;
-        for (let i = addedStart; i < addedEnd; i += 1) {
-          if (target[i] !== input[i]) addedMistakes += 1;
-        }
-        if (addedMistakes > 0) {
-          mistakesRef.current += addedMistakes;
-          setTotalMistakes(mistakesRef.current);
-        }
-      }
-    }
-
-    // Complete when the user has typed all target graphemes.
-    // (Input is capped above, so this is stable and language-agnostic.)
-    if (state !== "end" && maxGraphemes > 0 && typedGraphemes === maxGraphemes) {
-      // Handle async session end properly
-      const finalErrors = mismatches;
-      const finalMistakes = mistakesRef.current;
-      const finalCorrections = correctionsRef.current;
-      handleSessionEnd({ finalErrors, mistakes: finalMistakes, corrections: finalCorrections }).catch((error) =>
-        console.error("Failed to complete session:", error)
-      );
+    if (isComplete && state !== "end") {
+      handleSessionEnd({
+        finalErrors: mismatches,
+        mistakes: nextMistakes,
+        corrections: nextCorrections,
+      }).catch((error) => console.error("Failed to complete session:", error));
     }
 
     // Reset idle timer on input
@@ -555,19 +509,17 @@ export default function useTypingLogic(
   // Game reset
   const resetGame = useCallback(() => {
     selectNewText();
+    engineStateRef.current = createInitialState();
     setUserInput("");
     setIsError(false);
     setTotalErrors(0);
     setTotalMistakes(0);
     setTotalCorrections(0);
-    mistakesRef.current = 0;
-    correctionsRef.current = 0;
-    mismatchCountRef.current = 0;
-    inputSegmentsRef.current = [];
+    userInputRef.current = "";
     setState("start");
     setMetrics({ wpm: 0, accuracy: 100, elapsedTime: 0 });
 
-    // Reset references
+    // Reset timing / idle references
     startTime.current = null;
     idleState.current = {
       isIdle: false,
@@ -579,6 +531,34 @@ export default function useTypingLogic(
     if (idleTimer.current) clearTimeout(idleTimer.current);
   }, [selectNewText]);
 
+  /**
+   * Advance the in-progress input to a server-authoritative value.
+   * Safe to call from a MATCH_STATE resync — never rewinds local state.
+   * Delegates to the pure `processResync` engine function (invariant I6 upheld there).
+   */
+  const resyncInput = useCallback((serverInput: string) => {
+    const nextEngineState = processResync(
+      engineConfigRef.current,
+      engineStateRef.current,
+      serverInput
+    );
+
+    // processResync returns prevState unchanged when serverInput is not longer.
+    if (nextEngineState === engineStateRef.current) return;
+
+    engineStateRef.current = nextEngineState;
+    const { input, mismatches } = nextEngineState;
+
+    userInputRef.current = input;
+    setUserInput(input);
+    setTotalErrors(mismatches);
+    setIsError(mismatches > 0);
+
+    if (state === "start" && input.length > 0) {
+      handleSessionStart();
+    }
+  }, [state, handleSessionStart]);
+
   return {
     userInput,
     isError,
@@ -589,6 +569,7 @@ export default function useTypingLogic(
     state,
     handleInputChange,
     resetGame,
+    resyncInput,
     isIdle: idleState.current.isIdle,
     wpmHistory,
   };

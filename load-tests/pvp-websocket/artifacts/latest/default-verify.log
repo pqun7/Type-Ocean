@@ -1,0 +1,298 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+     execution: local
+        script: load-tests/pvp-websocket/pvp-websocket.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 1 max VUs, 1m33s max duration (incl. graceful stop):
+              * pvp_ws: Up to 1 looping VUs for 1m23s over 3 stages (gracefulRampDown: 10s, gracefulStop: 30s)
+
+
+running (0m01.0s), 0/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   1% ] 0/1 VUs  0m01.0s/1m23.0s
+
+running (0m02.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   2% ] 1/1 VUs  0m02.0s/1m23.0s
+
+running (0m03.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   4% ] 1/1 VUs  0m03.0s/1m23.0s
+
+running (0m04.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   5% ] 1/1 VUs  0m04.0s/1m23.0s
+
+running (0m05.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   6% ] 1/1 VUs  0m05.0s/1m23.0s
+
+running (0m06.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   7% ] 1/1 VUs  0m06.0s/1m23.0s
+
+running (0m07.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [   8% ] 1/1 VUs  0m07.0s/1m23.0s
+
+running (0m08.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  10% ] 1/1 VUs  0m08.0s/1m23.0s
+
+running (0m09.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  11% ] 1/1 VUs  0m09.0s/1m23.0s
+
+running (0m10.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  12% ] 1/1 VUs  0m10.0s/1m23.0s
+
+running (0m11.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  13% ] 1/1 VUs  0m11.0s/1m23.0s
+
+running (0m12.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  14% ] 1/1 VUs  0m12.0s/1m23.0s
+
+running (0m13.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  16% ] 1/1 VUs  0m13.0s/1m23.0s
+
+running (0m14.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  17% ] 1/1 VUs  0m14.0s/1m23.0s
+
+running (0m15.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  18% ] 1/1 VUs  0m15.0s/1m23.0s
+
+running (0m16.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  19% ] 1/1 VUs  0m16.0s/1m23.0s
+
+running (0m17.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  20% ] 1/1 VUs  0m17.0s/1m23.0s
+
+running (0m18.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  22% ] 1/1 VUs  0m18.0s/1m23.0s
+
+running (0m19.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  23% ] 1/1 VUs  0m19.0s/1m23.0s
+
+running (0m20.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  24% ] 1/1 VUs  0m20.0s/1m23.0s
+
+running (0m21.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  25% ] 1/1 VUs  0m21.0s/1m23.0s
+
+running (0m22.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  26% ] 1/1 VUs  0m22.0s/1m23.0s
+
+running (0m23.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  28% ] 1/1 VUs  0m23.0s/1m23.0s
+
+running (0m24.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  29% ] 1/1 VUs  0m24.0s/1m23.0s
+
+running (0m25.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  30% ] 1/1 VUs  0m25.0s/1m23.0s
+
+running (0m26.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  31% ] 1/1 VUs  0m26.0s/1m23.0s
+
+running (0m27.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  33% ] 1/1 VUs  0m27.0s/1m23.0s
+
+running (0m28.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  34% ] 1/1 VUs  0m28.0s/1m23.0s
+
+running (0m29.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  35% ] 1/1 VUs  0m29.0s/1m23.0s
+
+running (0m30.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  36% ] 1/1 VUs  0m30.0s/1m23.0s
+
+running (0m31.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  37% ] 1/1 VUs  0m31.0s/1m23.0s
+
+running (0m32.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  39% ] 1/1 VUs  0m32.0s/1m23.0s
+
+running (0m33.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  40% ] 1/1 VUs  0m33.0s/1m23.0s
+
+running (0m34.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  41% ] 1/1 VUs  0m34.0s/1m23.0s
+
+running (0m35.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  42% ] 1/1 VUs  0m35.0s/1m23.0s
+
+running (0m36.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  43% ] 1/1 VUs  0m36.0s/1m23.0s
+
+running (0m37.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  45% ] 1/1 VUs  0m37.0s/1m23.0s
+
+running (0m38.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  46% ] 1/1 VUs  0m38.0s/1m23.0s
+
+running (0m39.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  47% ] 1/1 VUs  0m39.0s/1m23.0s
+
+running (0m40.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  48% ] 1/1 VUs  0m40.0s/1m23.0s
+
+running (0m41.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  49% ] 1/1 VUs  0m41.0s/1m23.0s
+
+running (0m42.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  51% ] 1/1 VUs  0m42.0s/1m23.0s
+
+running (0m43.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  52% ] 1/1 VUs  0m43.0s/1m23.0s
+
+running (0m44.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  53% ] 1/1 VUs  0m44.0s/1m23.0s
+
+running (0m45.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  54% ] 1/1 VUs  0m45.0s/1m23.0s
+
+running (0m46.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  55% ] 1/1 VUs  0m46.0s/1m23.0s
+
+running (0m47.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  57% ] 1/1 VUs  0m47.0s/1m23.0s
+
+running (0m48.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  58% ] 1/1 VUs  0m48.0s/1m23.0s
+
+running (0m49.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  59% ] 1/1 VUs  0m49.0s/1m23.0s
+
+running (0m50.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  60% ] 1/1 VUs  0m50.0s/1m23.0s
+
+running (0m51.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  61% ] 1/1 VUs  0m51.0s/1m23.0s
+
+running (0m52.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  63% ] 1/1 VUs  0m52.0s/1m23.0s
+
+running (0m53.1s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  64% ] 1/1 VUs  0m53.1s/1m23.0s
+
+running (0m54.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  65% ] 1/1 VUs  0m54.0s/1m23.0s
+
+running (0m55.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  66% ] 1/1 VUs  0m55.0s/1m23.0s
+
+running (0m56.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  67% ] 1/1 VUs  0m56.0s/1m23.0s
+
+running (0m57.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  69% ] 1/1 VUs  0m57.0s/1m23.0s
+
+running (0m58.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  70% ] 1/1 VUs  0m58.0s/1m23.0s
+
+running (0m59.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  71% ] 1/1 VUs  0m59.0s/1m23.0s
+
+running (1m00.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  72% ] 1/1 VUs  1m00.0s/1m23.0s
+
+running (1m01.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  73% ] 1/1 VUs  1m01.0s/1m23.0s
+
+running (1m02.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  75% ] 1/1 VUs  1m02.0s/1m23.0s
+
+running (1m03.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  76% ] 1/1 VUs  1m03.0s/1m23.0s
+
+running (1m04.0s), 1/1 VUs, 0 complete and 0 interrupted iterations
+pvp_ws   [  77% ] 1/1 VUs  1m04.0s/1m23.0s
+
+running (1m05.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  78% ] 1/1 VUs  1m05.0s/1m23.0s
+
+running (1m06.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  80% ] 1/1 VUs  1m06.0s/1m23.0s
+
+running (1m07.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  81% ] 1/1 VUs  1m07.0s/1m23.0s
+
+running (1m08.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  82% ] 1/1 VUs  1m08.0s/1m23.0s
+
+running (1m09.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  83% ] 1/1 VUs  1m09.0s/1m23.0s
+
+running (1m10.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  84% ] 1/1 VUs  1m10.0s/1m23.0s
+
+running (1m11.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  86% ] 1/1 VUs  1m11.0s/1m23.0s
+
+running (1m12.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  87% ] 1/1 VUs  1m12.0s/1m23.0s
+
+running (1m13.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  88% ] 1/1 VUs  1m13.0s/1m23.0s
+
+running (1m14.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  89% ] 1/1 VUs  1m14.0s/1m23.0s
+
+running (1m15.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  90% ] 1/1 VUs  1m15.0s/1m23.0s
+
+running (1m16.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  92% ] 1/1 VUs  1m16.0s/1m23.0s
+
+running (1m17.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  93% ] 1/1 VUs  1m17.0s/1m23.0s
+
+running (1m18.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  94% ] 1/1 VUs  1m18.0s/1m23.0s
+
+running (1m19.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  95% ] 1/1 VUs  1m19.0s/1m23.0s
+
+running (1m20.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  96% ] 1/1 VUs  1m20.0s/1m23.0s
+
+running (1m21.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  98% ] 1/1 VUs  1m21.0s/1m23.0s
+
+running (1m22.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [  99% ] 1/1 VUs  1m22.0s/1m23.0s
+
+running (1m23.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws   [ 100% ] 1/1 VUs  1m23.0s/1m23.0s
+
+running (1m24.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m25.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m26.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m27.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m28.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m29.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m30.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m31.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m32.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+running (1m33.0s), 1/1 VUs, 1 complete and 0 interrupted iterations
+pvp_ws ↓ [ 100% ] 1/1 VUs  1m23s
+
+[PVP-K6] Summary written -> load-tests/pvp-websocket/artifacts/latest/ai-stress-summary.json
+
+running (1m33.0s), 0/1 VUs, 1 complete and 1 interrupted iterations
+pvp_ws ✓ [ 100% ] 1/1 VUs  1m23s

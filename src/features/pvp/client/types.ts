@@ -104,6 +104,7 @@ export type ServerMessage =
         ratingChanges: Array<{ userId: string; before: number; after: number; delta: number }>;
       };
     }
+  | { type: "COUNTDOWN_TICK"; payload: { matchId: string; remainingSeconds: number } }
   | { type: "REMATCH_OFFER"; payload: { matchId: string; fromUserId: string } }
   | {
       type: "REMATCH_DECLINED";

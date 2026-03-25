@@ -33,7 +33,7 @@ export async function selectRankedText(params: {
 }) {
   const texts = loadRankedTexts();
   if (!texts.length) {
-    return { textId: "0", textSnapshot: "The quick brown fox jumps over the lazy dog. ".repeat(60) };
+    return { textId: "0", textSnapshot: "The quick brown fox jumps over the lazy dog.".repeat(60) };
   }
 
   const recentGroups = await Promise.all(params.userIds.map((userId) => readRecentTextIds(params.redis ?? null, userId)));
@@ -54,7 +54,7 @@ export async function selectRankedText(params: {
 
   return {
     textId,
-    textSnapshot: texts[selectedIndex]!,
+    textSnapshot: texts[selectedIndex]!.trim(),
   };
 }
 

@@ -8,6 +8,7 @@ import type { InMemoryState } from "./state";
 import { incrementGatewayMetric, setGatewayGauge } from "./metrics";
 import type { GatewayDb } from "./gateway-db";
 import { gatewayLogger } from "../../../src/log/gatewayLogger";
+import { shouldActivateCountdownMatch } from "./application/match-start";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -222,15 +223,18 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
     const eventLoopLagMs = Math.max(0, tickDeltaMs - currentTickMs);
     lastTickStartNs = tickStartNs;
 
-    if (nowMs < current.serverStartAtMs) {
+    if (shouldActivateCountdownMatch({
+      matchState: current.state,
+      nowMs,
+      serverStartAtMs: current.serverStartAtMs,
+    })) {
       scheduleNextTick();
       return;
     }
 
-    if (current.state === "countdown") {
-      current.state = "live";
-      current.status = "RUNNING";
-      current.stateChangedAt = nowMs;
+    if (current.state === "countdown" || current.state === "waiting_for_both") {
+      scheduleNextTick();
+      return;
     }
 
     if (current.state !== "live") {

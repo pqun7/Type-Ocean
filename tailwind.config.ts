@@ -25,6 +25,7 @@ export default {
         fifth: "moveInCircle 20s ease infinite",
         shimmer: "shimmer 2s linear infinite",
         softPulse: "softPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        "countdown-pop": "countdown-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards",
         float: "float 8s ease-in-out infinite",
         "float-delayed": "float-delayed 10s ease-in-out infinite",
         "pulse-slow": "pulse-slow 6s ease-in-out infinite",
@@ -102,6 +103,10 @@ export default {
         shimmer: {
           "0%": { transform: "translateX(-100%)" },
           "100%": { transform: "translateX(100%)" },
+        },
+        "countdown-pop": {
+          "0%": { transform: "scale(0.45)", opacity: "0" },
+          "100%": { transform: "scale(1)", opacity: "1" },
         },
         softPulse: {
           "0%, 100%": {

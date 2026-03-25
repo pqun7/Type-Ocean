@@ -33,10 +33,10 @@ export function loadLongTexts(): string[] {
       .filter((t) => typeof t === "string")
       .map((t) => t.replace(/\s+/g, " ").trim())
       .filter((t) => t.length >= 120);
-    if (!cache.length) cache = ["The quick brown fox jumps over the lazy dog. ".repeat(60)];
+    if (!cache.length) cache = ["The quick brown fox jumps over the lazy dog.".repeat(60)];
     return cache;
   } catch {
-    cache = ["The quick brown fox jumps over the lazy dog. ".repeat(60)];
+    cache = ["The quick brown fox jumps over the lazy dog.".repeat(60)];
     return cache;
   }
 }
@@ -48,7 +48,7 @@ export function loadRankedTexts(): string[] {
 
 export function pickFullPageText(): string {
   const texts = loadLongTexts();
-  if (!texts.length) return "The quick brown fox jumps over the lazy dog. ".repeat(60);
+  if (!texts.length) return "The quick brown fox jumps over the lazy dog.".repeat(60);
 
   const pick = () => texts[Math.floor(Math.random() * texts.length)]!;
 

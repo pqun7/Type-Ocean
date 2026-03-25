@@ -146,10 +146,6 @@ export async function finalizeMatchResults(params: {
   });
   deps.state.clearAiInterval(match.matchId);
 
-  // Notify all participants immediately so the frontend stops accepting input.
-  // RESULTS (with full stats + rating changes) follows after DB work completes.
-  broadcastMatch(match.matchId, "MATCH_ENDED", { matchId: match.matchId }, deps);
-
   await deps.db
     .update(pvpMatches)
     .set({
@@ -376,11 +372,15 @@ export async function finalizeMatchResults(params: {
     });
   }
 
+  // S3 fix: Send RESULTS before MATCH_ENDED so the client has stats ready
+  // before the status transition — prevents a brief empty-results flash.
   broadcastMatch(match.matchId, "RESULTS", {
     matchId: match.matchId,
     placements: params.placements,
     ratingChanges,
   }, deps);
+
+  broadcastMatch(match.matchId, "MATCH_ENDED", { matchId: match.matchId }, deps);
 
   for (const change of ratingChanges) {
     deps.connectionUserCache?.invalidate(change.userId);
@@ -447,6 +447,11 @@ export async function finalizeMatchIfComplete(params: {
   if (!match) return;
   if (match.state === "finished" || match.state === "aborted") return;
 
+  // Bail out early if another caller is already finalizing this match —
+  // prevents duplicate "Tie-detection window expired" logs from concurrent
+  // callers (AI tick, INPUT_UPDATE, setTimeout callback).
+  if (deps.matchFinalizationLocks.has(toMatchId(params.matchId))) return;
+
   const all = Array.from(match.participants.values());
   const finished = all.filter((p) => p.finishedAt != null);
   const unfinished = all.filter((p) => p.finishedAt == null);
@@ -455,7 +460,7 @@ export async function finalizeMatchIfComplete(params: {
 
   const nowMs = Date.now();
 
-  if (unfinished.length > 0) {
+  if (unfinished.length > 0 && !unfinished.every((p) => isAiUserId(p.userId))) {
     // Not everyone has finished yet.
     if (match.tieWindowStartedAt == null) {
       // First player just finished — start the tie-detection window.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Swords, WifiOff } from "lucide-react";
 
@@ -35,6 +35,11 @@ type PendingMatch = {
     averageWpm?: number | null;
   } | null;
 };
+
+function getQueueStatusLabel(params: { queueStatus: string; pendingMatch: PendingMatch | null }): string {
+  if (params.pendingMatch) return "MATCH FOUND";
+  return params.queueStatus;
+}
 
 export default function Pvp1v1Client() {
   const router = useRouter();
@@ -141,13 +146,41 @@ export default function Pvp1v1Client() {
   }, [pendingMatch, router]);
 
   const bannerMsg = getConnectionBannerMessage(connectionPhase);
+
+  // Keep the reconnecting banner visible while a retry attempt is in progress
+  // (phase transitions to "connecting" between attempts, making bannerMsg null).
+  // We clear the sticky message only when the connection is healthy or has
+  // permanently failed.
+  const lastReconnectMsgRef = useRef<string | null>(null);
+  if (connectionPhase.kind === "reconnecting") {
+    lastReconnectMsgRef.current = bannerMsg;
+  } else if (connectionPhase.kind === "ready" || connectionPhase.kind === "idle" || connectionPhase.kind === "permanent_failure") {
+    lastReconnectMsgRef.current = null;
+  }
+  // When connecting and there's a sticky message, show it until success/failure.
+  const effectiveBannerMsg =
+    bannerMsg ?? (connectionPhase.kind === "connecting" ? lastReconnectMsgRef.current : null);
+  const effectiveBannerIsReconnecting =
+    connectionPhase.kind === "reconnecting" ||
+    (connectionPhase.kind === "connecting" && lastReconnectMsgRef.current !== null);
+
   const canQueue = connectionPhase.kind === "ready" && (queueStatus === "IDLE" || queueStatus === "CONNECTED") && !pendingMatch;
   const isSearching = queueStatus === "SEARCHING" && !pendingMatch;
 
-  const handleQueueJoin = () => {
+  const handleQueueJoin = useCallback(() => {
     if (!canQueue) return;
     send({ type: "QUEUE_JOIN", payload: {} });
-  };
+  }, [canQueue, send]);
+
+  const autoQueueFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoQueueFiredRef.current) return;
+    if (searchParams.get("autoQueue") !== "1") return;
+    if (!canQueue) return;
+    autoQueueFiredRef.current = true;
+    handleQueueJoin();
+    router.replace("/pvp/1v1");
+  }, [canQueue, searchParams, handleQueueJoin, router]);
 
   const opponentRank = useMemo(() => {
     if (!pendingMatch?.opponent) return "Unranked";
@@ -156,6 +189,8 @@ export default function Pvp1v1Client() {
     }
     return pendingMatch.opponent.rankTier ?? (pendingMatch.opponent.rating != null ? `Rating ${pendingMatch.opponent.rating}` : "Rank pending");
   }, [pendingMatch]);
+
+  const queueStatusLabel = getQueueStatusLabel({ queueStatus, pendingMatch });
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
@@ -178,7 +213,7 @@ export default function Pvp1v1Client() {
         <CardContent className="space-y-6 p-6 text-[#E0E7FF]/90">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgba(160,220,255,0.12)] bg-[rgba(7,18,34,0.42)] px-4 py-3 text-sm text-[#AFC5DA]">
             <div>
-              Connection: {status} · Queue: {queueStatus}
+              Connection: {status} · Queue: {queueStatusLabel}
               {isSearching ? ` · ${elapsedSec}s` : ""}
             </div>
             {isSearching ? <Loader2 className="h-4 w-4 animate-spin text-[#B8E6FF]" /> : null}
@@ -189,16 +224,16 @@ export default function Pvp1v1Client() {
               <WifiOff className="h-4 w-4 shrink-0 text-amber-400" />
               No internet connection detected. Reconnecting when back online&hellip;
             </div>
-          ) : bannerMsg ? (
-            connectionPhase.kind === "reconnecting" ? (
+          ) : effectiveBannerMsg ? (
+            effectiveBannerIsReconnecting ? (
               <div className="flex items-center gap-2 rounded-xl border border-[rgba(125,211,252,0.22)] bg-[rgba(56,189,248,0.08)] px-3 py-2 text-sm text-sky-200">
                 <Loader2 className="h-4 w-4 animate-spin text-sky-300" />
-                {bannerMsg}
+                {effectiveBannerMsg}
               </div>
             ) : (
               <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(239,68,68,0.28)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-sm text-red-300">
                 <div className="min-w-0 space-y-0.5">
-                  <div>{bannerMsg}</div>
+                  <div>{effectiveBannerMsg}</div>
                   {connectionPhase.kind === "permanent_failure" && (
                     <div className="text-xs text-red-400/70">
                       Last attempt failed {formatTimeAgo(connectionPhase.failedAt)}
@@ -229,7 +264,7 @@ export default function Pvp1v1Client() {
           {pendingMatch ? (
             <div className="grid gap-4 rounded-[28px] border border-[rgba(130,214,255,0.18)] bg-[linear-gradient(135deg,rgba(17,45,72,0.95),rgba(10,22,38,0.95))] p-5 md:grid-cols-[1.3fr_0.7fr]">
               <div className="space-y-4">
-                <div className="text-xs uppercase tracking-[0.24em] text-[#91D7F6]">Opponent Found</div>
+                <div className="text-xs uppercase tracking-[0.24em] text-[#91D7F6]">Match found</div>
                 <div>
                   <div className="text-3xl font-semibold text-white">{pendingMatch.opponent?.username ?? "Opponent"}</div>
                   <div className="mt-2 text-sm text-[#A9C0D6]">{opponentRank}</div>
@@ -248,9 +283,9 @@ export default function Pvp1v1Client() {
               </div>
 
               <div className="flex flex-col items-center justify-center rounded-[24px] border border-[rgba(160,220,255,0.12)] bg-[rgba(255,255,255,0.03)] p-5 text-center">
-                <div className="text-xs uppercase tracking-[0.24em] text-[#91D7F6]">Loading match</div>
+                <div className="text-xs uppercase tracking-[0.24em] text-[#91D7F6]">Loading arena</div>
                 <Loader2 className="mt-3 h-10 w-10 animate-spin text-[#B8E6FF]" />
-                <div className="mt-3 text-sm text-[#A9C0D6]">Redirecting you to the arena...</div>
+                <div className="mt-3 text-sm text-[#A9C0D6]">Redirecting to the match page. Countdown begins there only.</div>
               </div>
             </div>
           ) : isSearching ? (
@@ -258,7 +293,7 @@ export default function Pvp1v1Client() {
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-2">
                   <div className="text-xs uppercase tracking-[0.24em] text-[#91D7F6]">Searching</div>
-                  <div className="text-3xl font-semibold text-white">Searching for opponent...</div>
+                  <div className="text-3xl font-semibold text-white">Finding opponent...</div>
                   <div className="text-sm text-[#A9C0D6]">Queue time: {elapsedSec}s</div>
                 </div>
                 <Button variant="secondary" onClick={() => send({ type: "QUEUE_LEAVE", payload: {} })}>

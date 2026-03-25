@@ -199,7 +199,10 @@ export async function handleMatchJoin(
           textSnapshot: dbMatch.textSnapshot,
           textId: dbMatch.textId ?? null,
           inputNonce: dbMatch.inputNonce ?? null,
-          serverStartAtMs: dbMatch.serverStartAt ? dbMatch.serverStartAt.getTime() : Date.now() + 3000,
+          // NTZ fix: read ms from JSONB (timezone-safe) if available; fall back to
+          // the Date column only as a last resort (may be 2 h off on UTC+X hosts).
+          serverStartAtMs: joinSnapshot.liveState.serverStartAtEpochMs
+            ?? (dbMatch.serverStartAt ? dbMatch.serverStartAt.getTime() : Date.now() + 3000),
           participants: new Map(),
           endedReason: joinSnapshot.liveState.endedReason,
           forfeitedUserId: joinSnapshot.liveState.forfeitedUserId,
@@ -248,11 +251,15 @@ export async function handleMatchJoin(
         endedReason: effective.endedReason,
       });
       if (!effectiveAccess.allowed) {
-        send(ws, "ERROR", {
-          message:
-            effectiveAccess.reason === "disconnect_forfeit"
-              ? "Reconnect is not allowed after disconnect forfeit"
-              : "Match can no longer be joined",
+        gatewayLogWarn("Blocked match join — match already ended", {
+          userId: ws.user!.userId,
+          matchId: msg.payload.matchId,
+          reason: effectiveAccess.reason,
+        });
+        send(ws, "MATCH_ENDED", {
+          matchId: msg.payload.matchId,
+          reason: "no_show",
+          message: "The match ended before you could join.",
         }, deps);
         return;
       }
@@ -281,6 +288,14 @@ export async function handleMatchJoin(
       ws.matchId = toMatchId(msg.payload.matchId);
       deps.claimMatchSession(msg.payload.matchId, ws.user!.userId, ws);
       deps.clearDisconnectForfeitTimer(msg.payload.matchId, ws.user!.userId);
+
+      if (effective.state === "countdown") {
+        // C6 fix: Re-schedule the activation timer so a reconnecting player
+        // always has a running timer aligned with the DB-authoritative startAt.
+        // The authoritative MATCH_STATE (with serverStartAt) is delivered by the
+        // unconditional send below — no extra send needed here.
+        deps.scheduleCountdownActivation(effective);
+      }
 
       if (effective.roomCode === null && effective.state === "waiting_for_both") {
         await deps.maybeStartRankedCountdown(effective);

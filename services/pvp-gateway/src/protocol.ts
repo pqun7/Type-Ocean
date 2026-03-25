@@ -33,6 +33,7 @@ export type ServerMessage = {
     | "RESULTS"
     | "REMATCH_OFFER"
     | "REMATCH_DECLINED"
+    | "COUNTDOWN_TICK"
     | "REMATCH_STATUS"
     | "ERROR"
     | "PONG";
