@@ -1,9 +1,9 @@
 /**
  * @module application/commands/room-join
- * Handles ROOM_JOIN — join or reconnect to a private/public room.
+ * Handles ROOM_JOIN — join or reconnect to a private room.
  */
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { pvpRooms, pvpRoomMembers, users, playerProfiles } from "../../../../../src/db/schema";
 import { sanitizeRoomCode } from "../../../../../src/lib/sanitize";
@@ -47,10 +47,8 @@ export async function handleRoomJoin(
       id: pvpRooms.id,
       code: pvpRooms.code,
       status: pvpRooms.status,
-      visibility: pvpRooms.visibility,
       minPlayers: pvpRooms.minPlayers,
       maxPlayers: pvpRooms.maxPlayers,
-      autoStartAt: pvpRooms.autoStartAt,
       expiresAt: pvpRooms.expiresAt,
       hostUserId: pvpRooms.hostUserId,
     })
@@ -102,13 +100,26 @@ export async function handleRoomJoin(
   const reconnectKey = buildRoomReconnectKey(room.id, ws.user!.userId);
   const restoringMembership = deps.redisBus ? (await deps.redisBus.redis.exists(reconnectKey)) === 1 : false;
 
-  await deps.db
-    .insert(pvpRoomMembers)
-    .values({ roomId: room.id, userId: ws.user!.userId, colorSlot: slot, leftAt: null, readyAt: null })
-    .onConflictDoUpdate({
-      target: [pvpRoomMembers.roomId, pvpRoomMembers.userId],
-      set: restoringMembership ? { leftAt: null } : { leftAt: null, readyAt: null },
-    });
+  if (existingMember) {
+    // Already an active member (leftAt IS NULL) — just de-ready them, no upsert needed.
+    await deps.db
+      .update(pvpRoomMembers)
+      .set({ readyAt: sql`null` })
+      .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user!.userId)));
+  } else {
+    // New member or reconnecting (leftAt was set). Use SQL NULL literals in the SET
+    // clause to avoid driver-level null-parameter type-inference issues with
+    // the neon-serverless pool on timestamp columns.
+    await deps.db
+      .insert(pvpRoomMembers)
+      .values({ roomId: room.id, userId: ws.user!.userId, colorSlot: slot, leftAt: null, readyAt: null })
+      .onConflictDoUpdate({
+        target: [pvpRoomMembers.roomId, pvpRoomMembers.userId],
+        set: restoringMembership
+          ? { leftAt: sql`null` }
+          : { leftAt: sql`null`, readyAt: sql`null` },
+      });
+  }
 
   if (deps.redisBus && restoringMembership) {
     await deps.redisBus.redis.del(reconnectKey);
@@ -129,9 +140,6 @@ export async function handleRoomJoin(
   }
 
   await broadcastRoomState(deps.db, code, deps);
-  if (room.visibility === "PUBLIC") {
-    await deps.maybeAutoStartPublicRoom(code);
-  }
 
   await storeIdempotencyHit({
     redis: deps.redisBus?.redis ?? null,

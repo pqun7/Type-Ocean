@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, count, eq, gt, or } from "drizzle-orm";
 
 import { db } from "@/db";
-import { pvpRatings } from "@/db/schema";
+import { playerProfiles, pvpRatings } from "@/db/schema";
 import { authorizeRequest } from "@/app/api/shared.server";
 import { getPvpRankInfo } from "@/features/pvp/rank";
 import { rateLimiter } from "@/lib/rate-limiter";
@@ -33,9 +33,12 @@ export async function GET(req: NextRequest) {
       rating: pvpRatings.rating,
       deviation: pvpRatings.deviation,
       gamesPlayed: pvpRatings.gamesPlayed,
+      currentStreak: pvpRatings.currentStreak,
       updatedAt: pvpRatings.updatedAt,
+      level: playerProfiles.level,
     })
     .from(pvpRatings)
+    .leftJoin(playerProfiles, eq(pvpRatings.userId, playerProfiles.userId))
     .where(eq(pvpRatings.userId, userId))
     .limit(1);
 
@@ -43,6 +46,8 @@ export async function GET(req: NextRequest) {
     rating: 1500,
     deviation: 350,
     gamesPlayed: 0,
+    currentStreak: 0,
+    level: 1,
     updatedAt: new Date(),
   };
 
@@ -85,6 +90,8 @@ export async function GET(req: NextRequest) {
     rating: rating.rating,
     deviation: rating.deviation,
     gamesPlayed: rating.gamesPlayed,
+    currentStreak: rating.currentStreak,
+    level: rating.level ?? 1,
     updatedAt: rating.updatedAt.toISOString(),
     rank,
     classified,

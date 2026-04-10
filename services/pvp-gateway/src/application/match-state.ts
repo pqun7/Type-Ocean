@@ -72,6 +72,7 @@ export function buildLiveStateFromLocalMatch(match: LocalMatch): MatchLiveState 
     reconnectUntilByUserId: match.reconnectUntilByUserId ?? {},
     tieWindowStartedAt: match.tieWindowStartedAt ?? null,
     deltas: match.recentDeltas ?? [],
+    isLowConfidence: match.isLowConfidence ?? false,
   };
 }
 

@@ -175,6 +175,13 @@ const PREVIEW_NOTIFICATIONS: PreviewItem[] = [
   { label: "Base XP",   text: "Base XP",        value: 280, type: "base"     },
   { label: "Level Up!", text: "Level Up!",       value: 0,   type: "level-up" },
   { label: "Error",     text: "Invalid session", value: 0,   type: "error"    },
+
+  // ── PvP ranked ──
+  { label: "PvP Win",           text: "Ranked Win",       value: 100, type: "pvp-win",    note: "Win a ranked match — base 100 XP" },
+  { label: "PvP Loss",          text: "Ranked Match",     value: 25,  type: "pvp-win",    note: "Lose a ranked match — participation 25 XP" },
+  { label: "Streak Bonus ×3",   text: "Win Streak ×3",    value: 25,  type: "pvp-streak", note: "3-win streak bonus XP — reddish notification" },
+  { label: "Streak Bonus ×5",   text: "Win Streak ×5",    value: 50,  type: "pvp-streak", note: "5-win streak bonus XP" },
+  { label: "Streak Bonus ×12",  text: "Win Streak ×12",   value: 100, type: "pvp-streak", note: "12-win streak bonus XP" },
 ];
 
 // ── Per-type button colours ──────────────────────────────────────────────────
@@ -188,6 +195,8 @@ const BUTTON_CLASS: Record<XPMessageType, string> = {
   base:              "border-white/15       bg-white/5        hover:bg-white/10        text-slate-300",
   participation:     "border-white/15       bg-white/5        hover:bg-white/10        text-slate-300",
   error:             "border-red-500/50    bg-red-950/30    hover:bg-red-900/50    text-red-300",
+  "pvp-win":         "border-blue-500/40   bg-blue-900/25   hover:bg-blue-800/40   text-blue-200",
+  "pvp-streak":      "border-red-500/50    bg-red-900/25    hover:bg-red-800/40    text-red-200",
 };
 
 // ── Component ────────────────────────────────────────────────────────────────

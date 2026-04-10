@@ -90,6 +90,12 @@ export class MatchCleanupService {
      * `dispose` drains any queued waiters and removes the entry.
      */
     private readonly lockRegistry: MatchLockRegistry,
+    /**
+     * Pending tie-window finalization timers keyed by matchId string.
+     * Added in Step 8 to fix a permanent leak where the timer was never
+     * cancelled on abort or cleanup.
+     */
+    private readonly firstPlaceFinalizationTimers: Map<string, NodeJS.Timeout>,
   ) {}
 
   /**
@@ -197,8 +203,15 @@ export class MatchCleanupService {
     // 10. Release WebSocket socket-cache references tied to this match.
     this.matchCache?.clearMatch(matchId);
 
-    // 11. Remove the live match entry from in-memory state — MUST be last so
-    //     downstream guards (`state.matches.get(matchId)`) work through step 10.
+    // 11. Cancel the tie-window finalization timer, if any (Step 8 — fixes leak).
+    const tieTimer = this.firstPlaceFinalizationTimers.get(matchId);
+    if (tieTimer !== undefined) {
+      clearTimeout(tieTimer);
+      this.firstPlaceFinalizationTimers.delete(matchId);
+    }
+
+    // 12. Remove the live match entry from in-memory state — MUST be last so
+    //     downstream guards (`state.matches.get(matchId)`) work through step 11.
     this.state.matches.delete(matchId);
   }
 }

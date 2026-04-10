@@ -14,6 +14,7 @@ import {
 import { getOverallKeyboardPerformance } from "@/helper/overall-keyboard-performance";
 import { getRankInfo } from "@/features/ranking/rating";
 import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
+import Header from "@/components/layout/Header/Header";
 import {
   getDatabaseErrorCode,
   isDatabaseAccountHoldError,
@@ -106,33 +107,36 @@ export default async function ProfilePage() {
     const isAccountHold = isDatabaseAccountHoldError(err);
 
     return (
-      <div className="min-h-svh bg-[#0a0a1f] p-6 md:p-10">
-        <div className="mx-auto max-w-6xl">
-          <h1 className="mb-8 text-4xl font-bold text-[#E0E7FF]">Profile</h1>
+      <>
+        <Header />
+        <div className="min-h-svh bg-[#0a0a1f] p-6 pt-[4.75rem] md:p-10 lg:pt-[5.25rem]">
+          <div className="mx-auto max-w-6xl">
+            <h1 className="mb-8 text-4xl font-bold text-[#E0E7FF]">Profile</h1>
 
-          <div className="space-y-6">
-            <div className="border-b border-white/10 pb-4">
-              <h2 className="text-2xl font-semibold text-[#E0E7FF]">
-                Temporarily unavailable
-              </h2>
-              <p className="mt-2 text-[#8A8FB5]">
-                {isAccountHold
-                  ? "Database access is temporarily blocked by the hosting plan limit. Please resolve the database provider account hold and try again."
-                  : isNetworkLike
-                  ? "We couldn’t reach the database service. Please try again in a moment."
-                  : "We couldn’t load your profile right now. Please try again later."}
-              </p>
-            </div>
+            <div className="space-y-6">
+              <div className="border-b border-white/10 pb-4">
+                <h2 className="text-2xl font-semibold text-[#E0E7FF]">
+                  Temporarily unavailable
+                </h2>
+                <p className="mt-2 text-[#8A8FB5]">
+                  {isAccountHold
+                    ? "Database access is temporarily blocked by the hosting plan limit. Please resolve the database provider account hold and try again."
+                    : isNetworkLike
+                    ? "We couldn’t reach the database service. Please try again in a moment."
+                    : "We couldn’t load your profile right now. Please try again later."}
+                </p>
+              </div>
 
-            <div>
-              <h2 className="mb-4 text-2xl font-semibold text-[#E0E7FF]">
-                Account
-              </h2>
-              <SignOut className="w-full rounded-lg border border-[#69d0ff] py-5 font-medium text-[#60a5fa] transition-colors duration-300 hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] md:w-auto" />
+              <div>
+                <h2 className="mb-4 text-2xl font-semibold text-[#E0E7FF]">
+                  Account
+                </h2>
+                <SignOut className="w-full rounded-lg border border-[#69d0ff] py-5 font-medium text-[#60a5fa] transition-colors duration-300 hover:bg-[#69d0ff]/20 hover:text-[#93c5fd] md:w-auto" />
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -276,11 +280,13 @@ export default async function ProfilePage() {
   const overallKeyboardPerformance = await getOverallKeyboardPerformance(user.id);
 
   return (
-    <div className="min-h-svh p-6 md:p-10">
-      <div className="mx-auto max-w-6xl">
-        {/* <h1 className="mb-8 text-4xl font-bold text-[#E0E7FF]">Profile</h1> */}
+    <>
+      <Header />
+      <div className="min-h-svh p-6 pt-[4.75rem] md:p-10 lg:pt-[5.25rem]">
+        <div className="mx-auto max-w-6xl">
+          {/* <h1 className="mb-8 text-4xl font-bold text-[#E0E7FF]">Profile</h1> */}
 
-        <ProfileClient
+          <ProfileClient
           user={{
             id: user.id,
             username: user.username,
@@ -326,5 +332,6 @@ export default async function ProfilePage() {
         </div> */}
       </div>
     </div>
-  );
+  </>
+);
 }

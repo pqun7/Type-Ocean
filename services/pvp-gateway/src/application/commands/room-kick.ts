@@ -29,17 +29,13 @@ export async function handleRoomKick(
   }
 
   const roomRows = await deps.db
-    .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, hostUserId: pvpRooms.hostUserId })
+    .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, hostUserId: pvpRooms.hostUserId })
     .from(pvpRooms)
     .where(eq(pvpRooms.code, code))
     .limit(1);
   const room = roomRows[0] ?? null;
   if (!room) {
     send(ws, "ERROR", { message: "Room not found" }, deps);
-    return;
-  }
-  if (room.visibility !== "PRIVATE") {
-    send(ws, "ERROR", { message: "Public rooms do not support host kicks" }, deps);
     return;
   }
   if (room.hostUserId !== ws.user!.userId) {

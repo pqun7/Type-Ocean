@@ -143,7 +143,7 @@ type DiagnosticsResponse = {
 
 type UserFilter = "all" | "banned" | "admins" | "unverified";
 type FlagFilter = "all" | "pending" | "reviewed" | "sanction";
-type RoomFilter = "all" | "open" | "closed" | "public" | "private";
+type RoomFilter = "all" | "open" | "closed" | "private";
 type FeedbackStatus = "OPEN" | "IN_REVIEW" | "REPLIED" | "RESOLVED";
 type FeedbackSeverity = "info" | "warning" | "critical";
 type FeedbackFilter = "all" | "open" | "in_review" | "replied" | "resolved" | "needs_reply";
@@ -168,7 +168,7 @@ type ConfirmationAction =
   | {
       kind: "room";
       roomId: string;
-      action: "close" | "reopen" | "make_public" | "make_private";
+      action: "close" | "reopen";
       title: string;
       description: string;
       confirmLabel: string;
@@ -327,7 +327,6 @@ export function AdminDashboardClient({ isProduction }: { isProduction: boolean }
         roomFilter === "all" ||
         (roomFilter === "open" && room.status === "OPEN") ||
         (roomFilter === "closed" && room.status !== "OPEN") ||
-        (roomFilter === "public" && room.visibility === "PUBLIC") ||
         (roomFilter === "private" && room.visibility === "PRIVATE");
 
       return filterMatch && matchesSearch([room.code, room.id, room.hostUserId, room.status, room.visibility], roomSearchQuery);
@@ -554,7 +553,7 @@ export function AdminDashboardClient({ isProduction }: { isProduction: boolean }
     }
   };
 
-  const updateRoom = async (roomId: string, action: "close" | "reopen" | "make_public" | "make_private") => {
+  const updateRoom = async (roomId: string, action: "close" | "reopen") => {
     setRoomStatusMessage(null);
     setPendingActionId(`room:${roomId}:${action}`);
     try {
@@ -1146,7 +1145,6 @@ export function AdminDashboardClient({ isProduction }: { isProduction: boolean }
                     <FilterPill value="all" current={roomFilter} onClick={setRoomFilter}>All</FilterPill>
                     <FilterPill value="open" current={roomFilter} onClick={setRoomFilter}>Open</FilterPill>
                     <FilterPill value="closed" current={roomFilter} onClick={setRoomFilter}>Closed</FilterPill>
-                    <FilterPill value="public" current={roomFilter} onClick={setRoomFilter}>Public</FilterPill>
                     <FilterPill value="private" current={roomFilter} onClick={setRoomFilter}>Private</FilterPill>
                   </div>
                 </div>
@@ -1185,24 +1183,6 @@ export function AdminDashboardClient({ isProduction }: { isProduction: boolean }
                           }
                         >
                           {room.status === "OPEN" ? "Close room" : "Reopen room"}
-                        </Button>
-                        <Button
-                          className="bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/25"
-                          disabled={pendingActionId === `room:${room.id}:${room.visibility === "PUBLIC" ? "make_private" : "make_public"}`}
-                          onClick={() =>
-                            setConfirmationAction({
-                              kind: "room",
-                              roomId: room.id,
-                              action: room.visibility === "PUBLIC" ? "make_private" : "make_public",
-                              title: room.visibility === "PUBLIC" ? "Make room private" : "Make room public",
-                              description: room.visibility === "PUBLIC"
-                                ? `This will hide room ${room.code} from the public pool.`
-                                : `This will expose room ${room.code} to the public pool.`,
-                              confirmLabel: room.visibility === "PUBLIC" ? "Make private" : "Make public",
-                            })
-                          }
-                        >
-                          {room.visibility === "PUBLIC" ? "Make private" : "Make public"}
                         </Button>
                       </div>
                     </div>

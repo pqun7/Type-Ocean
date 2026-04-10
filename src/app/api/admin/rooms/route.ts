@@ -9,11 +9,9 @@ import { pvpMatches, pvpRoomMembers, pvpRooms } from "@/db/schema";
 import { authorizeAdminRequest } from "@/app/api/shared.server";
 import { createAdminAuditLog } from "@/features/admin/server/audit-log";
 
-const PUBLIC_ROOM_AUTO_START_MS = 50_000;
-
 const AdminRoomActionSchema = z.object({
   roomId: z.string().min(1),
-  action: z.enum(["close", "reopen", "make_public", "make_private"]),
+  action: z.enum(["close", "reopen"]),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -55,14 +53,6 @@ export async function PATCH(req: NextRequest) {
     reopen: {
       status: "OPEN",
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      autoStartAt: existingRoom.visibility === "PUBLIC" ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS) : null,
-    },
-    make_public: {
-      visibility: "PUBLIC",
-      autoStartAt: existingRoom.status === "OPEN" ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS) : null,
-    },
-    make_private: {
-      visibility: "PRIVATE",
       autoStartAt: null,
     },
   };
@@ -107,9 +97,7 @@ export async function PATCH(req: NextRequest) {
     metadata: {
       roomCode: existingRoom.code,
       previousStatus: existingRoom.status,
-      previousVisibility: existingRoom.visibility,
       nextStatus: updatedRoom.status,
-      nextVisibility: updatedRoom.visibility,
     },
   });
 

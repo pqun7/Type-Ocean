@@ -27,6 +27,7 @@ import {
   handleRoomStart,
   handleRoomKick,
   handleRoomLeave,
+  handleMatchSyncRequest,
 } from "../application/commands/index";
 
 import type { WsConn } from "./ws-conn";
@@ -156,6 +157,9 @@ export async function routeMessage(
       break;
     case "ROOM_LEAVE":
       await handleRoomLeave(ws, msg, deps, idempotency);
+      break;
+    case "MATCH_SYNC_REQUEST":
+      await handleMatchSyncRequest(ws, msg, deps);
       break;
     default: {
       const _exhaustiveCheck: never = msg;

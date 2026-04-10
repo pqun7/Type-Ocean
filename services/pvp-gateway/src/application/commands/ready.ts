@@ -1,6 +1,6 @@
 /**
  * @module application/commands/ready
- * Handles READY — player signals readiness in a private/public room.
+ * Handles READY — player signals readiness in a private room.
  */
 
 import { and, eq } from "drizzle-orm";
@@ -39,7 +39,7 @@ export async function handleReady(
   }
 
   const roomRows = await deps.db
-    .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, maxPlayers: pvpRooms.maxPlayers })
+    .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, maxPlayers: pvpRooms.maxPlayers })
     .from(pvpRooms)
     .where(eq(pvpRooms.code, code))
     .limit(1);
@@ -60,9 +60,6 @@ export async function handleReady(
 
   await touchRoomExpiry(deps.db, room.id);
   await broadcastRoomState(deps.db, code, deps);
-  if (room.visibility === "PUBLIC") {
-    await deps.maybeAutoStartPublicRoom(code);
-  }
 
   await storeIdempotencyHit({
     redis: deps.redisBus?.redis ?? null,

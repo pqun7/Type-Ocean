@@ -22,6 +22,13 @@
       "when": 1773702042857,
       "tag": "0002_charming_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1748390400000,
+      "tag": "0003_pvp_failed_stats",
+      "breakpoints": true
     }
   ]
 }

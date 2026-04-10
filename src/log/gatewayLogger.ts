@@ -33,6 +33,14 @@ function write(level: GatewayLogLevel, message: string, meta?: Record<string, un
             name: error.name,
             message: error.message,
             stack: error.stack,
+            ...(error.cause != null
+              ? {
+                  cause:
+                    error.cause instanceof Error
+                      ? { name: (error.cause as Error).name, message: (error.cause as Error).message, stack: (error.cause as Error).stack }
+                      : String(error.cause),
+                }
+              : {}),
           }
         : error
           ? String(error)

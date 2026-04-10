@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
 import type { ClientMessage, ServerMessage } from "@/features/pvp/client/types";
 import { Button } from "@/components/ui/button";
+import { useLevel } from "@/features/level/hooks/useLevel";
 
 import TypingTest from "@/components/TypingTest/TypingTest";
 import Caret from "@/components/TypingTest/Caret";
@@ -198,6 +199,9 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const WAITING_TIMEOUT_MS = 40_000;
   const router = useRouter();
   const { status, user, send, addListener, getLatestMatchSnapshot, connectionPhase } = usePvpSocket();
+  const { addXPMessage } = useLevel();
+  const addXPMessageRef = useRef(addXPMessage);
+  useEffect(() => { addXPMessageRef.current = addXPMessage; }, [addXPMessage]);
 
   // Active match ID for in-place rematch — starts equal to the prop,
   // but can be swapped without navigation when a rematch starts.
@@ -232,10 +236,26 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [showGoOverlay, setShowGoOverlay] = useState(false);
   const previousMatchStatusRef = useRef(matchStatus);
-  /** Local countdown integer: 3 → 2 → 1 → 0. Driven by 1-second interval. */
+  /** Local countdown integer: 3 → 2 → 1 → 0. Driven by local timer from serverStartAt. */
   const [localCountdown, setLocalCountdown] = useState<number | null>(null);
   /** Timestamp when we entered COUNTDOWN state (for timeout detection). */
   const countdownEnteredAtRef = useRef<number | null>(null);
+  /**
+   * Batching-immune ref: set synchronously in the message listener when a
+   * MATCH_STATE with status=COUNTDOWN is received.  React 18 automatic batching
+   * can merge COUNTDOWN + RUNNING state updates into a single commit, which
+   * causes the previousMatchStatusRef to never see "COUNTDOWN".  This ref
+   * guarantees the GO overlay triggers even when React skips the intermediate
+   * COUNTDOWN render.
+   */
+  const hasSeenCountdownRef = useRef(false);
+  const countdownPhaseRef = useRef<"idle" | "active" | "go_shown">("idle");
+  /**
+   * Tracks how many MATCH_SYNC_REQUEST messages have been sent during the
+   * current COUNTDOWN phase.  Reset to 0 whenever we leave COUNTDOWN.
+   * Capped at 3 so we never spam the gateway.
+   */
+  const syncRequestCountRef = useRef(0);
 
   const [results, setResults] = useState<null | {
     placements: Array<{ position: number; userId: string; username: string; wpm: number; accuracy: number; errors: number; timeMs: number }>;
@@ -386,6 +406,8 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     setHasReceivedMatchState(false);
     setLocalCountdown(null);
     setShowGoOverlay(false);
+    hasSeenCountdownRef.current = false;
+    countdownPhaseRef.current = "idle";
     pendingInputBufferRef.current = [];
     connectionDroppedAtRef.current = null;
   }, []);
@@ -439,7 +461,13 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
 
   useEffect(() => {
     const previousStatus = previousMatchStatusRef.current;
-    if (previousStatus === "COUNTDOWN" && effectiveMatchStatus === "RUNNING") {
+    // Use hasSeenCountdownRef to detect the COUNTDOWN→RUNNING transition even
+    // when React 18 batching merges both status updates into a single commit
+    // (previousStatus would still be "PENDING" in that case).
+    const sawCountdown = previousStatus === "COUNTDOWN" || hasSeenCountdownRef.current;
+    if (sawCountdown && effectiveMatchStatus === "RUNNING" && countdownPhaseRef.current !== "go_shown") {
+      countdownPhaseRef.current = "go_shown";
+      hasSeenCountdownRef.current = false;
       setShowGoOverlay(true);
       const overlayTimer = window.setTimeout(() => setShowGoOverlay(false), 700);
       const focusTimer = window.setTimeout(() => pvpActionsRef.current?.focus(), 50);
@@ -552,13 +580,39 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         return;
       }
 
-      // Server-push countdown tick — drives the countdown display directly.
+      // Server-push countdown tick — used as calibration alongside the local
+      // timer that derives countdown from serverStartAt.
       if (m.type === "COUNTDOWN_TICK" && m.payload.matchId === currentMatchId) {
         setLocalCountdown(m.payload.remainingSeconds);
         return;
       }
 
       if (m.type === "MATCH_STATE" && m.payload.matchId === currentMatchId) {
+        // Set hasSeenCountdownRef synchronously BEFORE any setState calls so it
+        // survives React 18 automatic batching that may merge COUNTDOWN +
+        // RUNNING into a single commit.
+        if (m.payload.status === "COUNTDOWN") {
+          hasSeenCountdownRef.current = true;
+        } else if (
+          m.payload.status === "RUNNING" &&
+          !hasSeenCountdownRef.current &&
+          revisionRef.current === 0
+        ) {
+          // Late-join: the client arrived at a match that is already RUNNING
+          // without passing through COUNTDOWN on this connection. This happens
+          // when navigation takes longer than serverStartAtMs (first match from
+          // /pvp/1v1 with a short start delay) or when serverStartAtMs was
+          // already expired when arm() fired ("find new opponent" with an
+          // exhausted queue timeout).  Arm the ref so the effectiveMatchStatus
+          // useEffect fires the GO overlay + input focus, giving the player a
+          // clear signal that the match has started.
+          const startAt = m.payload.serverStartAt
+            ? new Date(m.payload.serverStartAt).getTime()
+            : null;
+          if (!startAt || Date.now() - startAt < 12_000) {
+            hasSeenCountdownRef.current = true;
+          }
+        }
         applyMatchStateSnapshot(m.payload);
       }
       if (m.type === "PROGRESS" && m.payload.matchId === currentMatchId) {
@@ -577,6 +631,51 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
       if (m.type === "RESULTS" && m.payload.matchId === currentMatchId) {
         setMatchEndingNotice(null);
         setResults({ placements: m.payload.placements, ratingChanges: m.payload.ratingChanges });
+
+        const localUserId = meIdRef.current;
+        const myChange = localUserId
+          ? m.payload.ratingChanges.find((c) => c.userId === localUserId)
+          : undefined;
+
+        // Show XP notification for ranked matches
+        if (myChange !== undefined) {
+          const isWin = myChange.delta > 0;
+          if (isWin) {
+            addXPMessageRef.current("Ranked Win", 100, "pvp-win");
+          } else {
+            addXPMessageRef.current("Ranked Match", 25, "pvp-win");
+          }
+        }
+
+        // Fire-and-forget streak update (ranked 1v1 only — server validates internally).
+        // Write optimistic localStorage cache so Pvp1v1Client shows the new streak immediately.
+        if (m.payload.ratingChanges.length > 0) {
+          void fetch("/api/pvp/streak/record", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ matchId: currentMatchId }),
+          })
+            .then(async (res) => {
+              if (!res.ok || !localUserId) return;
+              const data = await res.json() as { currentStreak?: number; streakBonus?: number };
+              if (typeof data.currentStreak === "number") {
+                try {
+                  localStorage.setItem(
+                    `pvp:streak:${localUserId}`,
+                    JSON.stringify({ streak: data.currentStreak, ts: Date.now() }),
+                  );
+                } catch {
+                  // localStorage unavailable (private browsing) — silent
+                }
+              }
+              // Show streak bonus XP notification when a win streak earns a bonus
+              if (typeof data.streakBonus === "number" && data.streakBonus > 0 && typeof data.currentStreak === "number") {
+                const bonusXp = data.streakBonus * 5;
+                addXPMessageRef.current(`Win Streak \u00d7${data.currentStreak}`, bonusXp, "pvp-streak");
+              }
+            })
+            .catch(() => { /* network failure is non-fatal */ });
+        }
       }
 
       if (m.type === "REMATCH_OFFER" && m.payload.matchId === currentMatchId) {
@@ -595,24 +694,53 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
   }, [addListener, applyMatchStateSnapshot, applyProgressSnapshot, activeMatchId, resetMatchState, router]);
 
   const effectiveServerStartAt = latestMatchSnapshot?.serverStartAt ?? serverStartAt;
-  const startAtMs = effectiveServerStartAt ? new Date(effectiveServerStartAt).getTime() : null;
-  // C1 fix: Use the local countdown integer instead of raw clock-skew-vulnerable computation.
+  const startAtMs = useMemo(
+    () => (effectiveServerStartAt ? new Date(effectiveServerStartAt).getTime() : null),
+    [effectiveServerStartAt],
+  );
+  // C1 fix: Use the local countdown integer (driven by local timer from
+  // serverStartAt, calibrated by COUNTDOWN_TICK messages from the server).
   const countdownSeconds = effectiveMatchStatus === "COUNTDOWN" ? localCountdown : null;
   const showCountdownOverlay = latestMatchSnapshot?.isCountdown ?? (effectiveMatchStatus === "COUNTDOWN");
   const isMatchActive = latestMatchSnapshot?.isActive ?? (effectiveMatchStatus === "RUNNING");
   const inputLocked = !isMatchActive || !!matchEndingNotice || !!results;
   const waitingRemainingSec = waitingSinceMs ? Math.max(0, Math.ceil((waitingSinceMs + WAITING_TIMEOUT_MS - nowMs) / 1000)) : 40;
 
-  // Server-push countdown: localCountdown is now driven exclusively by
-  // COUNTDOWN_TICK messages from the server. Clear it when leaving COUNTDOWN.
+  // Local countdown timer: derives countdown from serverStartAt so the
+  // display is not dependent on fire-and-forget COUNTDOWN_TICK messages.
+  // COUNTDOWN_TICK messages still arrive and calibrate (see listener above),
+  // but the local 200ms interval ensures smooth, gap-free display even when
+  // ticks are lost to network jitter.
   useEffect(() => {
     if (effectiveMatchStatus === "COUNTDOWN") {
       countdownEnteredAtRef.current = Date.now();
-    } else {
-      setLocalCountdown(null);
-      countdownEnteredAtRef.current = null;
+      countdownPhaseRef.current = "active";
+
+      // Derive countdown from serverStartAt if available.
+      if (startAtMs) {
+        let rafId: number;
+        let lastInteger = -1;
+        const tick = () => {
+          const remaining = Math.ceil((startAtMs - Date.now()) / 1000);
+          const capped = Math.min(3, Math.max(0, remaining));
+          if (capped !== lastInteger) {
+            lastInteger = capped;
+            setLocalCountdown(capped);
+          }
+          rafId = requestAnimationFrame(tick);
+        };
+        tick();
+        return () => cancelAnimationFrame(rafId);
+      }
+      // No serverStartAt yet — localCountdown stays null until a
+      // COUNTDOWN_TICK or MATCH_STATE with serverStartAt arrives.
+      return undefined;
     }
-  }, [effectiveMatchStatus]);
+    // Leaving COUNTDOWN: clear display and ref.
+    setLocalCountdown(null);
+    countdownEnteredAtRef.current = null;
+    return undefined;
+  }, [effectiveMatchStatus, startAtMs]);
 
   // C3 fix: If COUNTDOWN persists > 15 seconds without transitioning to
   // RUNNING, abort and redirect back to queue.
@@ -629,6 +757,34 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     }, 15_000);
     return () => window.clearTimeout(timer);
   }, [effectiveMatchStatus, getLatestMatchSnapshot, activeMatchId, matchStatusRef, router]);
+
+  // Client-side countdown freeze watchdog:
+  // When localCountdown reaches 0 and effectiveMatchStatus is still COUNTDOWN
+  // (i.e. the RUNNING server message has not arrived), send a MATCH_SYNC_REQUEST
+  // to ask the gateway to either activate the match or replay MATCH_STATE.
+  // We allow up to 3 attempts per countdown phase (500 ms apart) before giving up.
+  useEffect(() => {
+    if (effectiveMatchStatus !== "COUNTDOWN") {
+      // Reset counter whenever we leave the COUNTDOWN phase.
+      syncRequestCountRef.current = 0;
+      return;
+    }
+    if (localCountdown !== 0) return;
+    if (syncRequestCountRef.current >= 3) return;
+
+    const attempt = syncRequestCountRef.current;
+    const delayMs = attempt * 500;
+    const timer = window.setTimeout(() => {
+      // Re-check: if the match already advanced while we were waiting, skip.
+      const snapshotStatus = getLatestMatchSnapshot(activeMatchId)?.status ?? matchStatusRef.current;
+      if (snapshotStatus === "RUNNING" || snapshotStatus === "FINISHED") return;
+
+      syncRequestCountRef.current += 1;
+      send({ type: "MATCH_SYNC_REQUEST", payload: { matchId: activeMatchId } });
+    }, delayMs);
+
+    return () => window.clearTimeout(timer);
+  }, [localCountdown, effectiveMatchStatus, send, activeMatchId, getLatestMatchSnapshot, matchStatusRef]);
 
   // Redirect back to queue when the opponent-connecting countdown expires
   useEffect(() => {
@@ -818,7 +974,11 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
                     {/* NC3 fix: don't show "GO!" at 0 in the white overlay — the
                         green showGoOverlay already handles the transition, so showing
                         "GO!" here would cause a double-flash. */}
-                    {countdownSeconds !== null && countdownSeconds > 0 ? countdownSeconds : null}
+                    {countdownSeconds !== null && countdownSeconds > 0
+                      ? countdownSeconds
+                      : countdownSeconds === null
+                        ? <span className="text-5xl animate-pulse text-sky-200">Get ready</span>
+                        : null}
                   </div>
                   <div className="mt-3 text-xs uppercase tracking-wider text-sky-400">Keyboard locked</div>
                 </div>

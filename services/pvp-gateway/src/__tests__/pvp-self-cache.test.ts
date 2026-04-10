@@ -36,6 +36,8 @@ describe("pvp self cache", () => {
         updatedAt: "2026-03-08T10:00:00.000Z",
         rank: { tier: "Gold" },
         classified: true,
+        currentStreak: 3,
+        level: 5,
       },
       redis
     );
@@ -48,6 +50,8 @@ describe("pvp self cache", () => {
       updatedAt: "2026-03-08T10:00:00.000Z",
       rank: { tier: "Gold" },
       classified: true,
+      currentStreak: 3,
+      level: 5,
     });
   });
 });

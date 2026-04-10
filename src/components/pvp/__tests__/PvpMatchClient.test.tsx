@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import PvpMatchClient from "../PvpMatchClient";
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
+import { useLevel } from "@/features/level/hooks/useLevel";
 import type { ClientMessage } from "@/features/pvp/client/types";
 
 jest.mock("next/navigation", () => ({
@@ -72,6 +73,10 @@ jest.mock("@/features/pvp/client/usePvpSocket", () => ({
   usePvpSocket: jest.fn(),
 }));
 
+jest.mock("@/features/level/hooks/useLevel", () => ({
+  useLevel: jest.fn(),
+}));
+
 type Listener = (message: Record<string, unknown>) => void;
 
 type Snapshot = {
@@ -89,6 +94,7 @@ type Snapshot = {
 
 const sendMock = jest.fn<boolean, [ClientMessage]>(() => true);
 const usePvpSocketMock = usePvpSocket as jest.Mock;
+const useLevelMock = useLevel as jest.Mock;
 
 let listeners: Listener[] = [];
 let latestSnapshot: Snapshot | null = null;
@@ -238,6 +244,9 @@ describe("PvpMatchClient", () => {
       getLatestMatchSnapshot: () => latestSnapshot,
       connectionPhase,
     }));
+    useLevelMock.mockReturnValue({
+      addXPMessage: jest.fn(),
+    });
     Object.defineProperty(window, "requestAnimationFrame", {
       writable: true,
       value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0),
@@ -376,5 +385,58 @@ describe("PvpMatchClient", () => {
     await emitProgress(buildProgress({ revision: 4, userId: "u1", caretIndex: 8, serverNowMs: 11_000 }));
 
     expect(syncInputMock).not.toHaveBeenCalled();
+  });
+
+  it("shows Get ready placeholder when countdown has no serverStartAt", async () => {
+    render(<PvpMatchClient matchId="match-1" />);
+
+    await emitMatchState(buildMatchState({ status: "COUNTDOWN", revision: 1, serverStartAt: "" }));
+
+    expect(screen.getByText("Get ready")).toBeInTheDocument();
+  });
+
+  it("drives countdown values locally from serverStartAt via rAF", async () => {
+    jest.setSystemTime(new Date("2026-03-24T12:00:00.000Z"));
+    render(<PvpMatchClient matchId="match-1" />);
+
+    await emitMatchState(
+      buildMatchState({
+        status: "COUNTDOWN",
+        revision: 1,
+        serverStartAt: new Date("2026-03-24T12:00:03.500Z").toISOString(),
+      }),
+    );
+
+    expect(screen.getByText("3")).toBeInTheDocument();
+
+    await act(async () => {
+      jest.setSystemTime(new Date("2026-03-24T12:00:01.200Z"));
+      jest.advanceTimersByTime(1200);
+    });
+    expect(screen.getByText("2")).toBeInTheDocument();
+
+    await act(async () => {
+      jest.setSystemTime(new Date("2026-03-24T12:00:02.200Z"));
+      jest.advanceTimersByTime(1000);
+    });
+    expect(screen.getByText("1")).toBeInTheDocument();
+  });
+
+  it("still shows GO when COUNTDOWN and RUNNING arrive in one batched act", async () => {
+    render(<PvpMatchClient matchId="match-1" />);
+
+    const countdown = buildMatchState({ status: "COUNTDOWN", revision: 1 });
+    const running = buildMatchState({ status: "RUNNING", revision: 2 });
+    updateSnapshotFromMatchState(countdown);
+    updateSnapshotFromMatchState(running);
+
+    await act(async () => {
+      for (const listener of listeners) {
+        listener(countdown as unknown as Record<string, unknown>);
+        listener(running as unknown as Record<string, unknown>);
+      }
+    });
+
+    expect(screen.getAllByText("GO!")).toHaveLength(1);
   });
 });

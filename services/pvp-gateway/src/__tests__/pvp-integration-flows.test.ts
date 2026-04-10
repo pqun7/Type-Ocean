@@ -15,7 +15,7 @@ import {
   shouldScheduleDisconnectForfeit,
 } from "../match-session-guards";
 import { canJoinPvpMatchSocket, canOpenPvpMatchPage } from "@/features/pvp/server/match-access";
-import { getPublicRoomStartCondition, selectNextRoomHost } from "../rooms/lifecycle";
+import { selectNextRoomHost } from "../rooms/lifecycle";
 import type { ConnectionUser, MatchState, QueueEntry } from "../state";
 import { MatchJoinMessageSchema, RoomJoinMessageSchema } from "@/lib/validation/ws-schemas";
 import { sanitizeRoomCode } from "@/lib/sanitize";
@@ -92,6 +92,7 @@ function createLiveMatchState(matchId: string): MatchState {
     revision: 1,
     lastSnapshotBroadcastAtMs: 0,
     tieWindowStartedAt: null,
+    isLowConfidence: false,
   };
 }
 
@@ -194,19 +195,6 @@ describe("pvp higher integration flows", () => {
         matchStatus: "RUNNING",
       })
     ).toBe(false);
-
-    expect(
-      getPublicRoomStartCondition({
-        members: [
-          { readyAt: new Date("2026-03-10T10:04:00.000Z"), leftAt: null },
-          { readyAt: new Date("2026-03-10T10:04:30.000Z"), leftAt: null },
-        ],
-        minimumPlayers: 2,
-        maxPlayers: 6,
-        autoStartAt: new Date("2026-03-10T10:10:00.000Z"),
-        nowMs: Date.parse("2026-03-10T10:05:00.000Z"),
-      })
-    ).toBe("all_ready");
   });
 
   it("prevents incompatible queue users from matching and blocks non-participant access", () => {
@@ -253,21 +241,6 @@ describe("pvp higher integration flows", () => {
     });
 
     expect(order).toEqual(["match-ended", "results"]);
-
-    expect(
-      getPublicRoomStartCondition({
-        members: [
-          { readyAt: new Date("2026-03-10T10:00:00.000Z"), leftAt: null },
-          { readyAt: null, leftAt: null },
-          { readyAt: null, leftAt: null },
-          { readyAt: null, leftAt: null },
-        ],
-        minimumPlayers: 2,
-        maxPlayers: 4,
-        autoStartAt: new Date("2026-03-10T10:01:00.000Z"),
-        nowMs: Date.parse("2026-03-10T10:02:00.000Z"),
-      })
-    ).toBe("room_full");
   });
 
   it("moves ranked match through waiting_for_both to countdown and live after both joins", () => {

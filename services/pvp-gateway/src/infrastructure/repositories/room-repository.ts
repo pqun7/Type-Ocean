@@ -10,11 +10,9 @@ export type RoomStatePayload = {
   room: {
     code: string;
     status: string;
-    visibility: string;
     minPlayers: number;
     maxPlayers: number;
     hostUserId: string | null;
-    autoStartAt: string | null;
     expiresAt: string | null;
     members: Array<{
       userId: string;
@@ -77,11 +75,9 @@ export class RoomRepository {
         id: true,
         code: true,
         status: true,
-        visibility: true,
         minPlayers: true,
         maxPlayers: true,
         hostUserId: true,
-        autoStartAt: true,
         expiresAt: true,
       },
       where: eq(pvpRooms.code, roomCode),
@@ -121,11 +117,9 @@ export class RoomRepository {
       room: {
         code: room.code,
         status: room.status,
-        visibility: room.visibility,
         minPlayers: room.minPlayers,
         maxPlayers: room.maxPlayers,
         hostUserId: room.hostUserId,
-        autoStartAt: room.autoStartAt?.toISOString() ?? null,
         expiresAt: room.expiresAt?.toISOString() ?? null,
         members: room.members.map((member) => ({
           userId: member.userId,

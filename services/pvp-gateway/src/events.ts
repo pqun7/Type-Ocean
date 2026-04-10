@@ -41,6 +41,19 @@ export type GatewayEventMap = {
     scope: string;
     userId?: string;
   };
+  /**
+   * Emitted by `MatchStartOrchestrator` whenever a match advances to a new
+   * start-sequence phase.  Feeds the `pvp_match_start_phase_total` Prometheus
+   * counter (see `registerGatewayMetricListeners`).
+   */
+  "match:start-phase": {
+    matchId: string;
+    variant: "ranked_human" | "ranked_ai" | "room";
+    phase: "waiting_for_both" | "no_show_armed" | "countdown_armed" | "live" | "aborted";
+    atMs: number;
+  };
+  /** Emitted when a stale match is recovered and timer is re-armed on startup sweep. */
+  "match:start-rehydrated": { matchId: string; phase: string; atMs: number };
 };
 
 export class GatewayEventBus {
@@ -86,5 +99,13 @@ export function registerGatewayMetricListeners(bus: GatewayEventBus) {
 
   bus.on("idempotency:miss", ({ scope }) => {
     incrementGatewayMetric("pvp_idempotency_cache_misses_total", { scope });
+  });
+
+  bus.on("match:start-phase", ({ variant, phase }) => {
+    incrementGatewayMetric("pvp_match_start_phase_total", { variant, phase });
+  });
+
+  bus.on("match:start-rehydrated", ({ phase }) => {
+    incrementGatewayMetric("pvp_startup_recovery_total", { action: "rehydrated", phase });
   });
 }

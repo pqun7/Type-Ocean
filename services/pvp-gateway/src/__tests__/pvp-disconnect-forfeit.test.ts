@@ -39,6 +39,7 @@ function createMatchState(participantCount: number): MatchState {
     revision: 1,
     lastSnapshotBroadcastAtMs: 0,
     tieWindowStartedAt: null,
+    isLowConfidence: false,
   };
 }
 

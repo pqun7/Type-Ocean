@@ -18,3 +18,4 @@ export { handleReady } from "./ready";
 export { handleRoomStart } from "./room-start";
 export { handleRoomKick } from "./room-kick";
 export { handleRoomLeave } from "./room-leave";
+export { handleMatchSyncRequest } from "./match-sync-request";

@@ -32,7 +32,7 @@ import { assessMatch } from "./anti-cheat/anomaly";
 import { recordCheatAssessment } from "./anti-cheat/flagging";
 import { clearReplayProtection, registerReplayNonce } from "./anti-cheat/replay";
 import { getDisconnectForfeitPolicy, getStaleMatchAbortReason, shouldDeferDisconnectForfeitForJoin, shouldRejectDuplicateMatchTab, shouldScheduleDisconnectForfeit } from "./match-session-guards";
-import { buildRoomReconnectKey, getPublicRoomStartCondition, selectNextRoomHost } from "./rooms/lifecycle";
+import { buildRoomReconnectKey, selectNextRoomHost } from "./rooms/lifecycle";
 import { selectRankedText } from "./anti-cheat/text-selection";
 import { createGatewayMetrics, type GatewayMetrics } from "./observability/metrics";
 import { MatchCache } from "./match-cache";
@@ -44,7 +44,7 @@ import { recomputeParticipantStats } from "./domain/match/participant-stats";
 import { MatchLockRegistry } from "./domain/match/match-lock";
 import { MatchCleanupService } from "./domain/match/match-cleanup";
 import { MatchAggregate } from "./domain/match/match-aggregate";
-import { playerProfiles, pvpMatches, pvpParticipants, pvpRatingChanges, pvpRatings, pvpRoomMembers, pvpRooms, users } from "../../../src/db/schema";
+import { pvpMatches, pvpParticipants, pvpRatingChanges, pvpRatings, pvpRoomMembers, pvpRooms, users } from "../../../src/db/schema";
 import { sanitizeAvatarUrl, sanitizeDisplayName } from "../../../src/lib/sanitize";
 import { PVP_ERROR_CODES } from "../../../src/features/pvp/shared/error-codes";
 import { getPvpRankInfo } from "../../../src/features/pvp/rank";
@@ -61,15 +61,17 @@ import {
 import {
   buildQueueError,
   createInputNonce,
-  extractAverageWpm,
   isAiUserId,
   toEpochMs,
 } from "./shared/errors";
-import { nextRoomExpiryDate } from "./shared/config";
+import { nextRoomExpiryDate, AI_QUEUE_TIMEOUT_MIN_MS, AI_QUEUE_TIMEOUT_MAX_MS, RANKED_MATCH_START_DELAY_MS, ROOM_MATCH_START_DELAY_MS } from "./shared/config";
 import { setupWssConnectionHandler, type WsServerOpts, type WsServerState } from "./presentation/ws-connection";
 import type { GatewayDeps } from "./application/deps";
 import { InputFlushCoordinator } from "./infrastructure/input-flush-coordinator";
 import { RedisQueueAdapter, LocalMemoryQueueAdapter } from "./matchmaking/queue-adapter";
+import { loadGatewayLongTermStats } from "./application/load-long-term-stats";
+import { MatchStartOrchestrator, productionTimerService } from "./application/match-start-orchestrator";
+import { createRedisCountdownQueue, type RedisCountdownQueue } from "./infrastructure/redis";
 
 // =============================================================================
 // BRANDED TYPES — canonical definitions live in shared/branded-ids.ts
@@ -106,19 +108,8 @@ const MATCH_NO_SHOW_TIMEOUT_MS = envMs("PVP_MATCH_NO_SHOW_TIMEOUT_MS", 40_000);
 const ONLINE_KEY_PREFIX = "pvp:online:";
 const ROOM_RECONNECT_GRACE_MS = envMs("PVP_ROOM_RECONNECT_GRACE_MS", 30_000);
 const ROOM_SWEEP_INTERVAL_MS = envMs("PVP_ROOM_SWEEP_INTERVAL_MS", 2_000);
-const PUBLIC_ROOM_AUTO_START_MS = envMs("PVP_PUBLIC_ROOM_AUTO_START_MS", 50_000);
-const DEV_MODE = process.env.NODE_ENV !== "production";
 const TEST_BYPASS = process.env.PVP_TEST_BYPASS_AUTH === "true" && process.env.NODE_ENV !== "production";
-const FORCE_BOT_MATCH_LOCAL = DEV_MODE && envBool("PVP_TEST_FORCE_BOT_MATCH", false);
 const MATCH_START_LATENCY_BUCKETS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2000];
-const RANKED_MATCH_START_DELAY_MS = envMs(
-  "PVP_RANKED_MATCH_START_DELAY_MS",
-  FORCE_BOT_MATCH_LOCAL ? 1_200 : 3_000,
-);
-const ROOM_MATCH_START_DELAY_MS = envMs(
-  "PVP_ROOM_MATCH_START_DELAY_MS",
-  FORCE_BOT_MATCH_LOCAL ? 1_500 : 3_000,
-);
 const ROOM_SWEEP_LOCK_KEY = "pvp:room:sweep:lock";
 
 const matchFinalizationLocks = new Set<MatchId>();
@@ -143,6 +134,8 @@ let matchLockRegistry: MatchLockRegistry | null = null;
  * `state.matches.delete/clearAiInterval/clearMatchCache` call chains.
  */
 let matchCleanupService: MatchCleanupService | null = null;
+let matchStartOrchestrator: MatchStartOrchestrator | null = null;
+let countdownQueue: RedisCountdownQueue | null = null;
 
 /**
  * Acquire the per-match exclusive lock, falling through without locking if
@@ -213,6 +206,7 @@ interface LocalMatch {
   reconnectUntilByUserId: Record<string, number>;
   recentDeltas: MatchDelta[];
   tieWindowStartedAt: number | null;
+  isLowConfidence: boolean;
 }
 
 interface LocalParticipant {
@@ -763,8 +757,7 @@ async function tryAcquireRoomSweepLock(): Promise<boolean> {
 
 async function sweepRoomLifecycle(
   db: GatewayDb,
-  wss: WebSocketServer,
-  onPublicRoomReady?: (roomCode: string) => Promise<unknown>
+  wss: WebSocketServer
 ): Promise<void> {
   const redis = redisBus?.redis ?? null;
   const acquired = await tryAcquireRoomSweepLock();
@@ -775,7 +768,6 @@ async function sweepRoomLifecycle(
     columns: {
       id: true,
       code: true,
-      visibility: true,
       expiresAt: true,
       status: true,
     },
@@ -831,9 +823,6 @@ async function sweepRoomLifecycle(
       await broadcastRoomState(db, wss, room.code);
     }
 
-    if (room.visibility === "PUBLIC") {
-      await onPublicRoomReady?.(room.code);
-    }
   }
 }
 
@@ -843,7 +832,6 @@ async function restoreRoomAfterMatch(db: GatewayDb, wss: WebSocketServer, roomCo
       id: pvpRooms.id,
       code: pvpRooms.code,
       status: pvpRooms.status,
-      visibility: pvpRooms.visibility,
       maxPlayers: pvpRooms.maxPlayers,
     })
     .from(pvpRooms)
@@ -858,7 +846,7 @@ async function restoreRoomAfterMatch(db: GatewayDb, wss: WebSocketServer, roomCo
       .update(pvpRooms)
       .set({
         status: "OPEN",
-        autoStartAt: room.visibility === "PUBLIC" ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS) : null,
+        autoStartAt: null,
         expiresAt: nextRoomExpiryDate(),
         updatedAt: new Date(),
       })
@@ -1139,8 +1127,10 @@ async function finalizeMatchResults(params: {
     ratingChanges,
   });
 
-  for (const change of ratingChanges) {
-    connectionUserCache?.invalidate(change.userId);
+  for (const participant of match.participants.values()) {
+    if (!isAiUserId(participant.userId)) {
+      connectionUserCache?.invalidate(participant.userId);
+    }
   }
 
   await invalidatePvpSelfCaches(
@@ -1307,6 +1297,8 @@ function buildMatchFoundPlayerPayload(user: ConnectionUser & { slot: number }): 
   rating: number;
   rankTier: string;
   averageWpm: number | null;
+  bestWpm: number | null;
+  avgAcc: number | null;
 } {
   return {
     userId: user.userId,
@@ -1316,6 +1308,8 @@ function buildMatchFoundPlayerPayload(user: ConnectionUser & { slot: number }): 
     rating: user.pvpRating,
     rankTier: user.rankTier ?? "unrated",
     averageWpm: user.averageWpm ?? null,
+    bestWpm: user.bestWpm ?? null,
+    avgAcc: user.avgAcc ?? null,
   };
 }
 
@@ -1349,14 +1343,18 @@ async function main(): Promise<void> {
   });
 
   const WS_PING_INTERVAL_MS = envInt("PVP_WS_PING_INTERVAL_MS", 15_000);
+  const STATS_PROCESSOR_URL = process.env.STATS_PROCESSOR_URL?.trim() || null;
+  const INTERNAL_STATS_SECRET = process.env.INTERNAL_STATS_SECRET?.trim() || null;
   const DEV = process.env.NODE_ENV !== "production";
   const TEST_FORCE_BOT_MATCH = DEV && envBool("PVP_TEST_FORCE_BOT_MATCH", false);
-  const AI_QUEUE_TIMEOUT_MS = envMs("PVP_AI_QUEUE_TIMEOUT_MS", TEST_FORCE_BOT_MATCH ? 2_000 : 8_000);
+  // Retained for legacy overrides and Redis queue TTL; actual per-session
+  // bot-fallback delays now use getBotFallbackDelayMs() (90–120 s range).
+  const AI_QUEUE_TIMEOUT_MS = envMs("PVP_AI_QUEUE_TIMEOUT_MS", TEST_FORCE_BOT_MATCH ? 2_000 : 120_000);
   const ENABLE_PROMETHEUS_METRICS = envBool("PVP_PROMETHEUS_METRICS_ENABLED", true);
   const WS_SOFT_CONNECTION_LIMIT = envInt("PVP_WS_SOFT_CONNECTION_LIMIT", 1_000);
   const SHUTDOWN_GRACE_MS = envMs("PVP_GRACEFUL_SHUTDOWN_TIMEOUT_MS", 30_000);
   const USE_REDIS = envBool("PVP_USE_REDIS", false);
-  const REDIS_URL = process.env.PVP_REDIS_URL ?? process.env.REDIS_URL ?? null;
+  const REDIS_URL = process.env.PVP_REDIS_URL?.trim() || process.env.REDIS_URL?.trim() || process.env.NEXT_REDIS_URL?.trim() || null;
   const INPUT_UPDATE_FLUSH_INTERVAL_MS = envMs("PVP_INPUT_UPDATE_FLUSH_INTERVAL_MS", 100);
   const INPUT_UPDATE_FLUSH_MAX_ENQUEUED = envInt("PVP_INPUT_UPDATE_FLUSH_MAX_ENQUEUED", 32);
 
@@ -1447,7 +1445,8 @@ async function main(): Promise<void> {
   gatewayLogInfo("Gateway runtime tuning", {
     testForceBotMatch: TEST_FORCE_BOT_MATCH,
     localRelaxedWsLimits: LOCAL_RELAXED_WS_LIMITS,
-    aiQueueTimeoutMs: AI_QUEUE_TIMEOUT_MS,
+    aiQueueTimeoutMinMs: AI_QUEUE_TIMEOUT_MIN_MS,
+    aiQueueTimeoutMaxMs: AI_QUEUE_TIMEOUT_MAX_MS,
     rankedMatchStartDelayMs: RANKED_MATCH_START_DELAY_MS,
     wsMaxConnectionsPerIp: WS_MAX_CONNECTIONS_PER_IP,
     wsConnectionAttemptsPerMin: WS_CONNECTION_ATTEMPTS_PER_MIN,
@@ -1500,7 +1499,35 @@ async function main(): Promise<void> {
     pendingInputUpdatesByMatch,
     inputUpdateFlushRetriesByMatch,
     matchLockRegistry,
+    firstPlaceFinalizationTimers, // Step 8: tie-window timer cleanup (P3 fix)
   );
+  // MatchStartOrchestrator — single owner of all start-sequence timers.
+  // Callbacks are wired after the closures they reference are defined below
+  // because the closures need `state`, `db`, etc. that are defined first.
+  // `matchStartOrchestrator` is assigned to the module-level `let` so the
+  // deps object can reference it, and also so it is accessible in the
+  // startup recovery sweep before deps is constructed.
+  //
+  // NOTE: Full wiring of `activateCountdown` / `sendCountdownTick` / `abortNoShow`
+  // happens at the `deps =` assignment further below, where both the orchestrator
+  // and the closures are in scope.  The orchestrator instance is created early
+  // so it can be referenced by the closures that need it.
+  matchStartOrchestrator = new MatchStartOrchestrator(productionTimerService, {
+    advanceToCountdown: async (matchId) => {
+      // Resolved after maybeStartRankedCountdown is defined; see wiring comment above.
+      void matchId;
+      return false;
+    },
+    activateCountdown: async (matchId, trigger) => {
+      void matchId; void trigger;
+    },
+    sendCountdownTick: (matchId, remainingSeconds) => {
+      void matchId; void remainingSeconds; // Wired below.
+    },
+    abortNoShow: async (matchId) => {
+      void matchId;
+    },
+  });
   // MatchAggregate: Command Bus + Aggregate Root (P2/P4).
   // Phase 2 uses withMatchLock() directly at call sites for minimal diff.
   // Phase 3 will migrate full handler logic into this aggregate.
@@ -1742,7 +1769,7 @@ async function main(): Promise<void> {
     }
   };
 
-  const activateCountdownMatch = async (matchId: string, reason: "timer" | "sweep"): Promise<boolean> => {
+  const activateCountdownMatch = async (matchId: string, reason: "timer" | "sweep" | "redis-worker" | "client-sync"): Promise<boolean> => {
     const localMatch = state.matches.get(matchId) as LocalMatch | undefined;
     if (!localMatch) return false;
 
@@ -1937,6 +1964,7 @@ async function main(): Promise<void> {
       const serverStartAtMs = Date.now() + RANKED_MATCH_START_DELAY_MS;
       lockedLiveState.state = "countdown";
       lockedLiveState.stateChangedAtMs = Date.now();
+      lockedLiveState.serverStartAtEpochMs = serverStartAtMs;
 
       const updateResult = await matchRepository.updateWithRevision(tx, match.matchId, {
         expectedRevision: locked.revision,
@@ -1984,7 +2012,8 @@ async function main(): Promise<void> {
 
     match.revision = lockResult.nextRevision;
 
-    scheduleCountdownActivation(match);
+    // Timer arming is handled by the orchestrator's advanceToCountdown after
+    // this callback returns — do NOT call scheduleCountdownActivation here.
     broadcastMatchState(match);
 
     gatewayLogInfo("Ranked countdown started", {
@@ -2390,10 +2419,31 @@ async function main(): Promise<void> {
     staleMatchSweepInterval.unref();
   }
 
+  // Countdown worker: polls the Redis sorted-set for due countdown activations.
+  // Provides a durable fallback when the in-process timer was lost (e.g. after
+  // a gateway restart or crash while a match was in the countdown phase).
+  const PVP_COUNTDOWN_WORKER_POLL_MS = envMs("PVP_COUNTDOWN_WORKER_POLL_MS", 500);
+  const countdownWorkerInterval: NodeJS.Timeout | null = countdownQueue
+    ? setInterval(() => {
+        void countdownQueue!.pollDue().then(async (matchIds) => {
+          for (const matchId of matchIds) {
+            await activateCountdownMatch(matchId, "redis-worker").catch((err: unknown) => {
+              gatewayLogError("Redis countdown worker activation failed", err, { matchId });
+            });
+          }
+        }).catch((err: unknown) => {
+          gatewayLogError("Redis countdown worker poll failed", err);
+        });
+      }, PVP_COUNTDOWN_WORKER_POLL_MS)
+    : null;
+  if (countdownWorkerInterval && typeof countdownWorkerInterval.unref === "function") {
+    countdownWorkerInterval.unref();
+  }
+
   let roomLifecycleSweepInterval: NodeJS.Timeout | null = null;
   if (isGatewayDbConfigured) {
     roomLifecycleSweepInterval = setInterval(() => {
-      void sweepRoomLifecycle(db, wss, maybeAutoStartPublicRoom).catch((error: unknown) => {
+      void sweepRoomLifecycle(db, wss).catch((error: unknown) => {
         gatewayLogError("Failed to sweep room lifecycle", error);
       });
     }, ROOM_SWEEP_INTERVAL_MS);
@@ -2436,9 +2486,11 @@ async function main(): Promise<void> {
   // =============================================================================
 
   if (USE_REDIS) {
-    if (!REDIS_URL) throw new Error("PVP_USE_REDIS is enabled but PVP_REDIS_URL/REDIS_URL is missing");
+    if (!REDIS_URL) throw new Error("PVP_USE_REDIS is enabled but PVP_REDIS_URL/REDIS_URL/NEXT_REDIS_URL is missing");
 
     redisBus = await createRedisBus(REDIS_URL);
+    countdownQueue = createRedisCountdownQueue(redisBus.redis);
+    matchStartOrchestrator?.wireCountdownQueue(countdownQueue);
     gatewayLogInfo("Redis bus enabled for PvP gateway", {
       instanceId: INSTANCE_ID,
       hasRedisUrl: Boolean(REDIS_URL),
@@ -2720,7 +2772,7 @@ return nil
       roomCode: params.roomCode,
       atMs: local.stateChangedAt,
     });
-    scheduleCountdownActivation(local);
+    matchStartOrchestrator?.arm(local, "room");
 
     await db
       .update(pvpMatches)
@@ -2759,73 +2811,6 @@ return nil
     });
 
     return { matchId: match.id, local, serverStartAtMs };
-  };
-
-  const maybeAutoStartPublicRoom = async (roomCode: string): Promise<boolean> => {
-    const roomRows = await db
-      .select({
-        id: pvpRooms.id,
-        code: pvpRooms.code,
-        status: pvpRooms.status,
-        visibility: pvpRooms.visibility,
-        minPlayers: pvpRooms.minPlayers,
-        maxPlayers: pvpRooms.maxPlayers,
-        autoStartAt: pvpRooms.autoStartAt,
-      })
-      .from(pvpRooms)
-      .where(eq(pvpRooms.code, roomCode))
-      .limit(1);
-
-    const roomBase = roomRows[0] ?? null;
-    if (!roomBase || roomBase.status !== "OPEN" || roomBase.visibility !== "PUBLIC") {
-      return false;
-    }
-
-    const memberRows = await db
-      .select({
-        userId: pvpRoomMembers.userId,
-        colorSlot: pvpRoomMembers.colorSlot,
-        readyAt: pvpRoomMembers.readyAt,
-        leftAt: pvpRoomMembers.leftAt,
-        username: users.username,
-        avatar: playerProfiles.avatar,
-      })
-      .from(pvpRoomMembers)
-      .innerJoin(users, eq(pvpRoomMembers.userId, users.id))
-      .leftJoin(playerProfiles, eq(pvpRoomMembers.userId, playerProfiles.userId))
-      .where(and(eq(pvpRoomMembers.roomId, roomBase.id), isNull(pvpRoomMembers.leftAt)))
-      .orderBy(asc(pvpRoomMembers.joinedAt));
-
-    const room = {
-      ...roomBase,
-      members: memberRows.map((member) => ({
-        userId: member.userId,
-        colorSlot: member.colorSlot,
-        readyAt: member.readyAt,
-        leftAt: member.leftAt,
-        user: {
-          username: member.username,
-          profile: { avatar: member.avatar },
-        },
-      })),
-    };
-
-    const startCondition = getPublicRoomStartCondition({
-      members: room.members,
-      minimumPlayers: room.minPlayers,
-      maxPlayers: room.maxPlayers,
-      autoStartAt: room.autoStartAt,
-    });
-    if (!startCondition) {
-      return false;
-    }
-
-    await startRoomMatch({
-      roomId: room.id,
-      roomCode: room.code,
-      members: room.members,
-    });
-    return true;
   };
 
   // =============================================================================
@@ -2973,6 +2958,15 @@ return nil
       const rating = user.pvpRating ?? { rating: 1500, deviation: 350 };
       const rankInfo = getPvpRankInfo(rating.rating);
 
+      const longTermStats = await loadGatewayLongTermStats({
+        db,
+        redisBus,
+        userId,
+        logContext: "loadConnectionUser",
+        profileLongTermStats: user.profile?.longTermStats,
+        hasProfileLongTermStats: true,
+      });
+
       return {
         userId,
         username: sanitizeDisplayName(user.username ?? "user", 32) || "user",
@@ -2980,7 +2974,9 @@ return nil
         pvpRating: rating.rating,
         pvpDeviation: rating.deviation,
         rankTier: rankInfo.tier,
-        averageWpm: extractAverageWpm(user.profile?.longTermStats),
+        averageWpm: longTermStats.averageWpm,
+        bestWpm: longTermStats.bestWpm,
+        avgAcc: longTermStats.avgAcc,
         matchmakingPreference: normalizeMatchmakingPreference({
           mode: user.pvpMatchmakingPreference?.preferredMode ?? undefined,
         }),
@@ -2996,6 +2992,7 @@ return nil
     users: Array<(ConnectionUser & { slot: number })>;
     persistUserIds: string[];
     startDelayMs?: number;
+    isLowConfidence?: boolean;
   }): Promise<{ matchId: string; local: LocalMatch; serverStartAtMs: number; payload: unknown }> {
     const matchId = crypto.randomUUID();
     const hasAiParticipant = params.users.some((user) => isAiUserId(user.userId));
@@ -3092,6 +3089,10 @@ return nil
       inputNonce,
     }) as LocalMatch;
 
+    if (params.isLowConfidence) {
+      local.isLowConfidence = true;
+    }
+
     if (hasAiParticipant) {
       eventBus.emit("match:countdown", {
         matchId,
@@ -3100,7 +3101,7 @@ return nil
         roomCode: null,
         atMs: local.stateChangedAt,
       });
-      scheduleCountdownActivation(local);
+      matchStartOrchestrator?.arm(local, "ranked_ai");
     }
 
     await registerReplayNonce(redis, matchId, local.inputNonce);
@@ -3120,7 +3121,7 @@ return nil
     }
 
     if (!hasAiParticipant) {
-      scheduleNoShowTimeout(matchId);
+      matchStartOrchestrator?.arm(local, "ranked_human");
     }
 
     gatewayLogInfo("Created ranked 1v1 match", {
@@ -3140,6 +3141,68 @@ return nil
   // =============================================================================
   // WEBSOCKET CONNECTION HANDLER
   // =============================================================================
+
+  // ---------------------------------------------------------------------------
+  // Wire MatchStartOrchestrator callbacks now that all closures are in scope.
+  // The orchestrator was constructed early with stub callbacks (to avoid a
+  // forward-reference problem); we patch them here before the WS server starts.
+  // ---------------------------------------------------------------------------
+  matchStartOrchestrator.wireCallbacks({
+    advanceToCountdown: async (matchId: MatchId): Promise<boolean> => {
+      const match = state.matches.get(matchId) as LocalMatch | undefined;
+      if (!match) return false;
+      return maybeStartRankedCountdown(match);
+    },
+    activateCountdown: async (matchId: MatchId, trigger: "timer" | "sweep" | "redis-worker" | "client-sync"): Promise<void> => {
+      await activateCountdownMatch(matchId, trigger);
+    },
+    sendCountdownTick: (matchId: MatchId, remainingSeconds: number): void => {
+      const match = state.matches.get(matchId) as LocalMatch | undefined;
+      if (!match) return;
+      for (const participant of match.participants.values()) {
+        if (isAiUserId(participant.userId)) continue;
+        sendToUser(wss, participant.userId, "COUNTDOWN_TICK", {
+          matchId,
+          remainingSeconds,
+        });
+      }
+    },
+    abortNoShow: async (matchId: MatchId): Promise<void> => {
+      const match = state.matches.get(matchId) as LocalMatch | undefined;
+      if (!match) return;
+      if (match.roomCode !== null) return;
+      if (match.state !== "waiting_for_both") return;
+
+      const readyCount = getReadyParticipantCount(matchId, match);
+      if (readyCount >= match.participants.size) return;
+
+      const opponentType = getMatchOpponentType(match);
+      incrementGatewayMetric("pvp_match_no_show_total", { opponent_type: opponentType });
+      gatewayLogWarn("Aborting ranked match due to no-show timeout [orchestrator]", {
+        matchId,
+        opponentType,
+        readyParticipants: readyCount,
+        totalParticipants: match.participants.size,
+        timeoutMs: MATCH_NO_SHOW_TIMEOUT_MS,
+      });
+
+      for (const userId of match.participants.keys()) {
+        clearDisconnectForfeitTimer(matchId, userId);
+      }
+
+      await withMatchLock(toMatchId(matchId), () => abortMatchLifecycle({
+        db,
+        wss,
+        state,
+        eventBus,
+        matchId,
+        reasonCode: "no_show",
+        reasonMessage: "The opponent did not connect in time, so the match was cancelled.",
+      })).catch((err: unknown) => {
+        gatewayLogError("No-show abort failed [orchestrator]", err, { matchId });
+      });
+    },
+  });
 
   // ---------------------------------------------------------------------------
   // Wire up the GatewayDeps container — one snapshot of all runtime services,
@@ -3200,6 +3263,8 @@ return nil
     rematchAcceptedTtlMs: REMATCH_ACCEPTED_TTL_MS,
     aiRematchCooldownMs: AI_REMATCH_COOLDOWN_MS,
     wsPingIntervalMs: WS_PING_INTERVAL_MS,
+    statsProcessorUrl: STATS_PROCESSOR_URL,
+    statsProcessorSecret: INTERNAL_STATS_SECRET,
     // Locks
     localQueueLock,
     matchJoinLock,
@@ -3214,7 +3279,6 @@ return nil
     loadConnectionUser,
     createRanked1v1Match,
     startRoomMatch,
-    maybeAutoStartPublicRoom,
     beginMatchJoinInFlight,
     endMatchJoinInFlight,
     isMatchJoinInFlight,
@@ -3226,6 +3290,10 @@ return nil
     enqueueInputUpdateBatch,
     queueAdapter,
     persistReconnectGraceWindow,
+    matchStartOrchestrator,
+    activateCountdownMatchIfDue: async (matchId: string): Promise<boolean> => {
+      return activateCountdownMatch(matchId, "client-sync");
+    },
   };
 
   const wsOpts: WsServerOpts = {
@@ -3251,6 +3319,70 @@ return nil
     connectionAttemptBuckets,
     globalConnectionBucket,
   };
+
+  // =============================================================================
+  // STARTUP RECOVERY SWEEP (Step 4 — RC-4 fix)
+  // =============================================================================
+  // Activate any COUNTDOWN matches whose serverStartAt has already passed.
+  // This handles the case where the gateway restarted after the start time was
+  // reached but before the activation timer fired.  Players who later reconnect
+  // via MATCH_JOIN will receive MATCH_STATE with state="live" and can resume.
+  {
+    const _startupNow = Date.now();
+    const overdueRows = await db
+      .select({ id: pvpMatches.id })
+      .from(pvpMatches)
+      .where(and(
+        eq(pvpMatches.status, "COUNTDOWN"),
+        lte(pvpMatches.serverStartAt, new Date(_startupNow)),
+      ))
+      .limit(50)
+      .catch((err: unknown) => {
+        gatewayLogError("[Startup] Countdown recovery query failed", err);
+        return [] as { id: string }[];
+      });
+
+    if (overdueRows.length > 0) {
+      gatewayLogWarn("[Startup] Activating overdue COUNTDOWN matches", { count: overdueRows.length });
+      let activated = 0;
+      for (const row of overdueRows) {
+        try {
+          const applied = await matchRepository.withTransaction(async (tx) => {
+            const locked = await matchRepository.loadForUpdate(tx, row.id);
+            if (!locked || locked.status !== "COUNTDOWN") return false;
+            const nowMs = Date.now();
+            const effectiveStartAtMs =
+              locked.liveState?.serverStartAtEpochMs ?? (locked.serverStartAt ? locked.serverStartAt.getTime() : 0);
+            if (nowMs < effectiveStartAtMs) return false; // still in the future (timezone edge case)
+            const activatedLiveState = activateMatchLiveState(
+              locked.liveState ?? createInitialLiveState({ state: "countdown", participants: [] }),
+              nowMs,
+            );
+            const result = await matchRepository.updateWithRevision(tx, row.id, {
+              expectedRevision: locked.revision,
+              nextState: "live",
+              liveState: activatedLiveState,
+              instanceId: INSTANCE_ID,
+              serverStartAt: locked.serverStartAt,
+              startedAt: locked.startedAt ?? new Date(nowMs),
+              endedAt: null,
+            });
+            return result.applied;
+          });
+          if (applied) {
+            activated++;
+            eventBus.emit("match:start-rehydrated", { matchId: row.id, phase: "live", atMs: Date.now() });
+          }
+        } catch (err: unknown) {
+          gatewayLogError("[Startup] Failed to activate overdue COUNTDOWN match", err, { matchId: row.id });
+        }
+      }
+      gatewayLogWarn("[Startup] Countdown recovery complete", {
+        activated,
+        skipped: overdueRows.length - activated,
+      });
+    }
+  }
 
   setupWssConnectionHandler(wss, deps, wsOpts, connWsState);
 
@@ -3332,6 +3464,9 @@ return nil
       }
 
       clearInterval(metricSnapshotInterval);
+      if (countdownWorkerInterval) {
+        clearInterval(countdownWorkerInterval);
+      }
       if (roomLifecycleSweepInterval) {
         clearInterval(roomLifecycleSweepInterval);
       }

@@ -46,8 +46,9 @@ class RedisManager {
     const wantsTls = process.env.REDIS_TLS === "true";
 
     // If a full URL is provided, prefer it in any environment.
-    if (process.env.REDIS_URL) {
-      return process.env.REDIS_URL;
+    const canonicalRedisUrl = process.env.REDIS_URL || process.env.NEXT_REDIS_URL;
+    if (canonicalRedisUrl) {
+      return canonicalRedisUrl;
     }
     
     if (isDevelopment) {

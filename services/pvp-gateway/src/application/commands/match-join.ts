@@ -212,6 +212,7 @@ export async function handleMatchJoin(
           reconnectUntilByUserId: joinSnapshot.liveState.reconnectUntilByUserId ?? {},
           recentDeltas: joinSnapshot.liveState.deltas ?? [],
           tieWindowStartedAt: joinSnapshot.liveState.tieWindowStartedAt ?? null,
+          isLowConfidence: joinSnapshot.liveState.isLowConfidence ?? false,
         };
         deps.state.matches.set(dbMatch.id, newMatch as unknown as ReturnType<(typeof deps.state)["createLocalMatch"]>);
 
@@ -290,15 +291,19 @@ export async function handleMatchJoin(
       deps.clearDisconnectForfeitTimer(msg.payload.matchId, ws.user!.userId);
 
       if (effective.state === "countdown") {
-        // C6 fix: Re-schedule the activation timer so a reconnecting player
-        // always has a running timer aligned with the DB-authoritative startAt.
-        // The authoritative MATCH_STATE (with serverStartAt) is delivered by the
-        // unconditional send below — no extra send needed here.
-        deps.scheduleCountdownActivation(effective);
+        // RC-2 fix: Rehydrate via orchestrator (idempotent, computes remaining
+        // delay from DB-authoritative serverStartAt, handles gateway restart).
+        deps.matchStartOrchestrator?.rehydrate(effective, joinSnapshot.liveState);
       }
 
       if (effective.roomCode === null && effective.state === "waiting_for_both") {
-        await deps.maybeStartRankedCountdown(effective);
+        // Try to advance to countdown if both players are now joined.
+        // advanceToCountdown is idempotent; if not yet ready, rehydrate re-arms
+        // the no-show timer (RC-1 fix: timer survives gateway restart).
+        const advanced = await deps.matchStartOrchestrator?.advanceToCountdown(effective);
+        if (!advanced) {
+          deps.matchStartOrchestrator?.rehydrate(effective, joinSnapshot.liveState);
+        }
       }
 
       const matchStatePayload = buildMatchStatePayload(

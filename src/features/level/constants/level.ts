@@ -280,4 +280,6 @@ export const XP_MESSAGE_TIMEOUT = {
   MYTHIC: 7500,
   "PERSONAL-BEST": 6500,
   ERROR: 4000,
+  "PVP-WIN": 4500,
+  "PVP-STREAK": 5500,
 } as const;

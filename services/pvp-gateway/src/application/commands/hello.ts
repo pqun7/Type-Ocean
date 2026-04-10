@@ -14,10 +14,12 @@ import {
 } from "../../shared/errors";
 import { gatewayLogInfo, gatewayLogWarn } from "../../shared/logger";
 import { send } from "../../presentation/ws-sender";
+import { getPvpRankInfo } from "../../../../../src/features/pvp/rank";
 import type { WsAuthContext } from "../../auth";
 import type { WsConn } from "../../presentation/ws-conn";
 import type { ClientMessage } from "../../protocol";
 import type { GatewayDeps } from "../deps";
+import { loadGatewayLongTermStats } from "../load-long-term-stats";
 
 // ---------------------------------------------------------------------------
 // Bypass-auth context builder (used only when TEST_BYPASS is set)
@@ -108,6 +110,13 @@ export async function handleHello(
   deps.matchCache?.addUserSocket(ws);
   await deps.markOnline(ws.user.userId);
 
+  const longTermStats = await loadGatewayLongTermStats({
+    db: deps.db,
+    redisBus: deps.redisBus,
+    userId: ws.user.userId,
+    logContext: "HELLO",
+  });
+
   if (deps.redisBus?.redis) {
     ws.presenceInterval = setInterval(() => {
       if (!ws.user) return;
@@ -120,6 +129,11 @@ export async function handleHello(
       userId: ws.user.userId,
       username: ws.user.username,
       avatar: ws.user.avatar,
+      rating: ws.user.pvpRating,
+      rankTier: getPvpRankInfo(ws.user.pvpRating).tier,
+      averageWpm: longTermStats.averageWpm,
+      bestWpm: longTermStats.bestWpm,
+      avgAcc: longTermStats.avgAcc,
     },
   }, deps);
 }

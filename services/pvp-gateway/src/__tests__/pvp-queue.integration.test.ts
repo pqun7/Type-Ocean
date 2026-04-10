@@ -140,7 +140,7 @@ describe("in-memory queue integration", () => {
       queue,
       user: createUser("u2", 1620),
       ratingRange: 50,
-      nowMs: 20_000,
+      nowMs: 30_000,
     });
 
     expect(first.kind).toBe("searching");
@@ -148,7 +148,7 @@ describe("in-memory queue integration", () => {
 
     if (second.kind === "matched") {
       expect(second.users.map((u) => u.userId).sort()).toEqual(["u1", "u2"]);
-      expect(second.queueWaitMs).toEqual([20_000, 0]);
+      expect(second.queueWaitMs).toEqual([30_000, 0]);
     }
     expect(queue).toHaveLength(0);
   });

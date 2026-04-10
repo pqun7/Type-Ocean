@@ -302,6 +302,24 @@ const PingMessageBaseSchema = z
 
 export const PingMessageSchema = withByteLimit(PingMessageBaseSchema, MAX_MESSAGE_BYTES, "PING payload is too large");
 
+const MatchSyncRequestMessageBaseSchema = z
+  .object({
+    type: z.literal("MATCH_SYNC_REQUEST"),
+    requestId: RequestIdSchema.optional(),
+    payload: z
+      .object({
+        matchId: z.string().uuid(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const MatchSyncRequestMessageSchema = withByteLimit(
+  MatchSyncRequestMessageBaseSchema,
+  MAX_MESSAGE_BYTES,
+  "MATCH_SYNC_REQUEST payload is too large"
+);
+
 export const PvpClientMessageSchema = z
   .discriminatedUnion("type", [
     HelloMessageBaseSchema,
@@ -320,6 +338,7 @@ export const PvpClientMessageSchema = z
     RematchRequestMessageBaseSchema,
     RematchResponseMessageBaseSchema,
     PingMessageBaseSchema,
+    MatchSyncRequestMessageBaseSchema,
   ])
   .superRefine((value, ctx) => {
     const maxBytes = value.type === "INPUT_UPDATE" ? MAX_INPUT_MESSAGE_BYTES : MAX_MESSAGE_BYTES;

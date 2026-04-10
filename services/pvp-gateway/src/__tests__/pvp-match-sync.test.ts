@@ -51,6 +51,7 @@ function createMatch(): MatchState {
     endedReason: null,
     forfeitedUserId: null,
     tieWindowStartedAt: null,
+    isLowConfidence: false,
   };
 }
 

@@ -16,6 +16,8 @@ type CachedPvpSelfPayload = {
   updatedAt: string;
   rank: unknown;
   classified: boolean;
+  currentStreak: number;
+  level: number;
 };
 
 export type PvpSelfResponse = Omit<CachedPvpSelfPayload, "v">;
@@ -46,6 +48,10 @@ export async function readCachedPvpSelf(userId: string, redisClient?: RedisLike)
       if (typeof parsed.gamesPlayed !== "number") return null;
       if (typeof parsed.updatedAt !== "string") return null;
       if (typeof parsed.classified !== "boolean") return null;
+      // currentStreak may be absent in stale cache entries — treat as cache miss
+      if (typeof parsed.currentStreak !== "number") return null;
+      // level may be absent in stale cache entries — treat as cache miss
+      if (typeof parsed.level !== "number") return null;
 
       return {
         rating: parsed.rating,
@@ -54,6 +60,8 @@ export async function readCachedPvpSelf(userId: string, redisClient?: RedisLike)
         updatedAt: parsed.updatedAt,
         rank: parsed.rank,
         classified: parsed.classified,
+        currentStreak: parsed.currentStreak,
+        level: parsed.level,
       };
     } catch {
       return null;

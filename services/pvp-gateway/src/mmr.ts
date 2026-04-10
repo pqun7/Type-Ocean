@@ -15,6 +15,12 @@ export function updateElo1v1(input: {
   a: PvpRatingRow;
   b: PvpRatingRow;
   aScore: 0 | 0.5 | 1;
+  /**
+   * Multiplier applied to both K-factors before computing deltas.
+   * Use values < 1 for low-confidence matches (e.g. bot fallback).
+   * Defaults to 1 (full rating change).
+   */
+  eloFactor?: number;
 }): { nextA: PvpRatingRow; nextB: PvpRatingRow; deltaA: number; deltaB: number } {
   const ra = clamp(Math.round(input.a.rating), 0, 3000);
   const rb = clamp(Math.round(input.b.rating), 0, 3000);
@@ -22,9 +28,10 @@ export function updateElo1v1(input: {
   const ea = expectedScore(ra, rb);
   const eb = expectedScore(rb, ra);
 
+  const factor = clamp(input.eloFactor ?? 1, 0, 1);
   const baseK = 32;
-  const ka = clamp(baseK * clamp(input.a.deviation / 350, 0.25, 1), 8, 48);
-  const kb = clamp(baseK * clamp(input.b.deviation / 350, 0.25, 1), 8, 48);
+  const ka = clamp(baseK * clamp(input.a.deviation / 350, 0.25, 1), 8, 48) * factor;
+  const kb = clamp(baseK * clamp(input.b.deviation / 350, 0.25, 1), 8, 48) * factor;
 
   const aScore = input.aScore;
   const bScore: 0 | 0.5 | 1 = aScore === 1 ? 0 : aScore === 0 ? 1 : 0.5;

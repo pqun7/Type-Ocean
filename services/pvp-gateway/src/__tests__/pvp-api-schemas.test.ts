@@ -20,9 +20,8 @@ describe("pvp api schemas", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts valid private and public room payloads", () => {
-    expect(PvpRoomCreateBodySchema.safeParse({ maxPlayers: 6, visibility: "PRIVATE" }).success).toBe(true);
-    expect(PvpRoomCreateBodySchema.safeParse({ visibility: "PUBLIC" }).success).toBe(true);
-    expect(PvpRoomCreateBodySchema.safeParse({ visibility: "RANKED" }).success).toBe(false);
+  it("accepts valid private room payload", () => {
+    expect(PvpRoomCreateBodySchema.safeParse({ maxPlayers: 6 }).success).toBe(true);
+    expect(PvpRoomCreateBodySchema.safeParse({}).success).toBe(true);
   });
 });

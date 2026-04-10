@@ -232,6 +232,9 @@ export const pvpRatings = pgTable("pvp_rating", {
 	rating: integer("rating").notNull().default(1500),
 	deviation: integer("deviation").notNull().default(350),
 	gamesPlayed: integer("gamesPlayed").notNull().default(0),
+	currentStreak: integer("currentStreak").notNull().default(0),
+	longestStreak: integer("longestStreak").notNull().default(0),
+	lastStreakMatchId: uuid("lastStreakMatchId"),
 	createdAt: timestamp("createdAt", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
 	updatedAt: timestamp("updatedAt", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
 });
@@ -458,3 +461,35 @@ export const cheatFlagsRelations = relations(cheatFlags, ({ one }) => ({
 		references: [pvpMatches.id],
 	}),
 }));
+
+/**
+ * pvp_failed_stats — Durability / retry table for PvP match stats that could
+ * not be processed by the Stats Processor (e.g. Redis unavailable).
+ *
+ * The Stats Processor's lazy-drain job polls rows with `nextRetryAt <= now()`
+ * and `retryCount < 10`, retrying `updateLongTermCumulativeStats()` for each.
+ * Successful rows are deleted; failed rows get an exponential-backoff update on
+ * `nextRetryAt` before the next poll.
+ */
+export const pvpFailedStats = pgTable(
+	"pvp_failed_stats",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		matchId: text("matchId").notNull(),
+		userId: text("userId").notNull(),
+		wpm: integer("wpm").notNull(),
+		accuracy: doublePrecision("accuracy").notNull(),
+		timeMs: integer("timeMs").notNull(),
+		textLength: integer("textLength").notNull().default(0),
+		errors: integer("errors").notNull().default(0),
+		completedAt: timestamp("completedAt", { withTimezone: false, mode: "date" }).notNull(),
+		retryCount: integer("retryCount").notNull().default(0),
+		nextRetryAt: timestamp("nextRetryAt", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+		lastError: text("lastError"),
+		createdAt: timestamp("createdAt", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+	},
+	(table) => ({
+		drainIdx: index("idx_pvp_failed_stats_drain").on(table.nextRetryAt, table.retryCount),
+		matchUserIdx: index("idx_pvp_failed_stats_match_user").on(table.matchId, table.userId),
+	}),
+);

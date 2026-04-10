@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 
 // Components
@@ -138,6 +139,8 @@ const XPMessages = () => {
       error:             `${pill} bg-red-950/40 text-red-200 border-red-500/25`,
       "personal-best":   `${pill} border-cyan-400/30 bg-gradient-to-r from-cyan-500/10 via-sky-400/5 to-blue-500/10 text-cyan-100`,
       mythic:            `${pill} border-violet-400/45 bg-gradient-to-r from-violet-600/20 via-purple-500/15 to-fuchsia-600/15 text-violet-100`,
+      "pvp-win":         `${pill} border-blue-400/25 bg-blue-500/8 text-blue-100`,
+      "pvp-streak":      `${pill} border-red-400/40 bg-gradient-to-r from-red-600/15 via-orange-500/10 to-red-600/15 text-red-100`,
     };
 
     return map[type] ?? `${pill} border-white/10 bg-white/5 text-[#E0E7FF]`;
@@ -275,20 +278,8 @@ const UserMenu: React.FC<UserMenuProps> = ({
   const pathname = usePathname();
 
   const { avatarUrl: profileAvatarUrl, username: profileUsername } = useUserAvatar(isLoggedIn);
-  const [avatarBroken, setAvatarBroken] = useState(false);
 
-  useEffect(() => {
-    // Reset broken state when avatar changes or auth toggles.
-    setAvatarBroken(false);
-  }, [profileAvatarUrl, isLoggedIn]);
-
-  const profileInitials = useMemo(() => {
-    const name = (profileUsername ?? "").trim();
-    if (!name) return "U";
-    return name.slice(0, 2).toUpperCase();
-  }, [profileUsername]);
-
-  const handleAuthNavigation = (formType: "login" | "signup") => {
+  const handleAuthNavigation = useCallback((formType: "login" | "signup") => {
     const target = `/auth?form=${formType}`;
     // If we're already on the auth page, replace to switch forms without stacking history.
     if (pathname === "/auth") {
@@ -296,7 +287,7 @@ const UserMenu: React.FC<UserMenuProps> = ({
       return;
     }
     router.push(target);
-  };
+  }, [pathname, router]);
 
   return (
     <div className="flex items-center gap-3">
@@ -321,22 +312,13 @@ const UserMenu: React.FC<UserMenuProps> = ({
                 "ring-[rgba(160,220,255,0.3)] hover:ring-[rgba(160,220,255,0.6)]"
               }
             >
-              {profileAvatarUrl && !avatarBroken ? (
-                <Image
-                  src={profileAvatarUrl}
-                  alt="Profile avatar"
-                  width={32}
-                  height={32}
-                  sizes="32px"
-                  className="h-8 w-8 rounded-full border border-white/10 bg-white/5 object-cover"
-                  referrerPolicy="no-referrer"
-                  onError={() => setAvatarBroken(true)}
-                />
-              ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[10px] font-semibold text-slate-200">
-                  {profileInitials}
-                </div>
-              )}
+              <UserAvatar
+                username={profileUsername}
+                avatarUrl={profileAvatarUrl}
+                alt="Profile avatar"
+                className="h-8 w-8 rounded-full border border-white/10 bg-white/5"
+                fallbackClassName="text-[10px] font-semibold text-slate-200"
+              />
             </div>
           </Link>
 

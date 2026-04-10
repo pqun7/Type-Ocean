@@ -1,7 +1,6 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { pvpRoomMembers, pvpRooms } from "@/db/schema";
@@ -10,8 +9,6 @@ import { generateInviteCode } from "@/features/pvp/server/invite-code";
 import { incrementSecurityMetric } from "@/lib/security-metrics";
 import { rateLimiter } from "@/lib/rate-limiter";
 import { PvpRoomCreateBodySchema, type PvpRoomCreateBody } from "@/lib/validation/pvp-api-schemas";
-
-const PUBLIC_ROOM_AUTO_START_MS = 50_000;
 
 async function safeJson<T>(req: NextRequest): Promise<T | null> {
   const raw = await req.text().catch(() => null);
@@ -52,7 +49,6 @@ export async function POST(req: NextRequest) {
   }
 
   const maxPlayers = parsedBody.data.maxPlayers ?? 6;
-  const visibility = parsedBody.data.visibility ?? "PRIVATE";
 
   // Create a unique room code (retry a few times on collision)
   let code = "";
@@ -61,36 +57,42 @@ export async function POST(req: NextRequest) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     code = generateInviteCode(6);
     try {
-      const room = await db.transaction(async (tx) => {
-        const createdRows = await tx
-          .insert(pvpRooms)
-          .values({
-            code,
-            status: "OPEN",
-            visibility,
-            createdByUserId: userId,
-            hostUserId: userId,
-            minPlayers: 2,
-            maxPlayers,
-            autoStartAt: visibility === "PUBLIC" ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS) : null,
-            expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-          })
-          .returning({ id: pvpRooms.id, code: pvpRooms.code });
+      const createdRows = await db
+        .insert(pvpRooms)
+        .values({
+          code,
+          status: "OPEN",
+          visibility: "PRIVATE",
+          createdByUserId: userId,
+          hostUserId: userId,
+          minPlayers: 2,
+          maxPlayers,
+          autoStartAt: null,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        })
+        .returning({ id: pvpRooms.id, code: pvpRooms.code });
 
-        const created = createdRows[0]!;
-        await tx.insert(pvpRoomMembers).values({
-          roomId: created.id,
-          userId,
-          colorSlot: 0,
-        });
-
-        return created;
+      const created = createdRows[0]!;
+      await db.insert(pvpRoomMembers).values({
+        roomId: created.id,
+        userId,
+        colorSlot: 0,
       });
 
-      roomId = room.id;
+      roomId = created.id;
       break;
-    } catch {
-      // likely code collision; retry
+    } catch (err: unknown) {
+      // Only silently retry on unique constraint collision (code duplicate)
+      const msg = err instanceof Error ? err.message : String(err);
+      const isCollision =
+        msg.includes("unique") || msg.includes("duplicate") || msg.includes("23505");
+      if (!isCollision) {
+        console.error("[pvp/rooms/create] DB error (non-collision):", err);
+        return NextResponse.json(
+          { error: "Failed to create room" },
+          { status: 500, headers: rateLimit.headers }
+        );
+      }
     }
   }
 
@@ -101,5 +103,5 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ roomId, code, maxPlayers, visibility }, { headers: rateLimit.headers });
+  return NextResponse.json({ roomId, code, maxPlayers }, { headers: rateLimit.headers });
 }

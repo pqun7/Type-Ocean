@@ -21,7 +21,7 @@ export default async function LeaderboardPage() {
             ) : (
               <div className="divide-y divide-white/10 rounded-xl border border-white/10">
                 {top.entries.map((p) => {
-                  const rankSrc = getRankImageSrc(p.tier);
+                  const rankSrc = getRankImageSrc(p.tier, "illustrated");
                   return (
                     <div
                       key={p.userId}

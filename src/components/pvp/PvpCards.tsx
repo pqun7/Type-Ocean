@@ -5,7 +5,7 @@ import Link from "next/link";
 import useSWR from "swr";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getRankImageSrc } from "@/features/ranking/rank-visuals";
+import { getPvpRankImageSrc } from "@/features/ranking/rank-visuals";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -31,7 +31,7 @@ export default function PvpCards() {
                 <span>
                   {data?.rank?.tier ? (
                     (() => {
-                      const rankSrc = getRankImageSrc(data.rank.tier);
+                      const rankSrc = getPvpRankImageSrc(data.rank.tier);
                       return (
                         <span className="inline-flex items-center gap-1.5">
                           <Image src={rankSrc} alt={data.rank.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_10px_rgba(100,200,255,0.5)]" />

@@ -35,35 +35,6 @@ export function isRoomReadyToStart(params: {
   return activeMembers.length >= minimumPlayers && activeMembers.every((member) => member.readyAt != null);
 }
 
-export function getPublicRoomStartCondition(params: {
-  members: Array<Pick<RoomMemberLifecycle, "leftAt" | "readyAt">>;
-  minimumPlayers?: number;
-  maxPlayers: number;
-  autoStartAt?: Date | null;
-  nowMs?: number;
-}) {
-  const minimumPlayers = params.minimumPlayers ?? 2;
-  const activeMembers = getActiveRoomMembers(params.members);
-
-  if (activeMembers.length < minimumPlayers) {
-    return null;
-  }
-
-  if (activeMembers.every((member) => member.readyAt != null)) {
-    return "all_ready" as const;
-  }
-
-  if (activeMembers.length >= params.maxPlayers) {
-    return "room_full" as const;
-  }
-
-  if (params.autoStartAt && params.autoStartAt.getTime() <= (params.nowMs ?? Date.now())) {
-    return "timeout" as const;
-  }
-
-  return null;
-}
-
 export function buildRoomReconnectKey(roomId: string, userId: string) {
   return `pvp:room:reconnect:${roomId}:${userId}`;
 }

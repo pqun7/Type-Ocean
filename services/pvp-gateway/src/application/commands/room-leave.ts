@@ -29,7 +29,7 @@ export async function handleRoomLeave(
   }
 
   const roomRows = await deps.db
-    .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility })
+    .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status })
     .from(pvpRooms)
     .where(eq(pvpRooms.code, code))
     .limit(1);
@@ -52,9 +52,6 @@ export async function handleRoomLeave(
   await transferRoomHostIfNeeded(deps.db, room.id);
   await touchRoomExpiry(deps.db, room.id);
   await broadcastRoomState(deps.db, code, deps);
-  if (room.visibility === "PUBLIC") {
-    await deps.maybeAutoStartPublicRoom(code);
-  }
 
   await storeIdempotencyHit({
     redis: deps.redisBus?.redis ?? null,

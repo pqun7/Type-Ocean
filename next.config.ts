@@ -7,6 +7,22 @@ import type { NextConfig } from "next";
 import { securityHeaderEntries } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    reactCompiler: true,
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "lh3.googleusercontent.com",
+      },
+      {
+        protocol: "https",
+        hostname: "*.blob.vercel-storage.com",
+      },
+    ],
+  },
+
   async headers() {
     return [
       {

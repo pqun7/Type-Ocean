@@ -28,7 +28,7 @@ export async function handleRoomStart(
   }
 
   const roomRows = await deps.db
-    .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility, hostUserId: pvpRooms.hostUserId })
+    .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, hostUserId: pvpRooms.hostUserId })
     .from(pvpRooms)
     .where(eq(pvpRooms.code, code))
     .limit(1);
@@ -39,10 +39,6 @@ export async function handleRoomStart(
   }
   if (room.status !== "OPEN") {
     send(ws, "ERROR", { message: "Room not open" }, deps);
-    return;
-  }
-  if (room.visibility !== "PRIVATE") {
-    send(ws, "ERROR", { message: "Public rooms start automatically" }, deps);
     return;
   }
   if (room.hostUserId !== ws.user!.userId) {

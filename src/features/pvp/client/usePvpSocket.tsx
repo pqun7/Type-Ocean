@@ -92,7 +92,7 @@ type PvpSocketContextValue = {
   status: Status;
   /** Last server-sent ERROR message (cleared on successful HELLO_OK). */
   error: string | null;
-  user: { userId: string; username: string; avatar: string | null } | null;
+  user: { userId: string; username: string; avatar: string | null; rating?: number; rankTier?: string; averageWpm?: number | null; bestWpm?: number | null; avgAcc?: number | null } | null;
   lastMessage: ServerMessage | null;
   send: (msg: ClientMessage) => boolean;
   addListener: (fn: (m: ServerMessage) => void) => () => void;
@@ -119,6 +119,8 @@ type PvpSocketContextValue = {
    * `fatal_close_code`, blocking reconnects for CIRCUIT_BREAKER_COOLDOWN_MS.
    */
   circuitBreakerActiveUntil: number | null;
+  /** Refresh auth and user card stats without reopening the websocket. */
+  refreshUserSnapshot: () => Promise<boolean>;
 };
 
 /* ------------------------------------------------------------------ */
@@ -196,7 +198,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
   const connectionPhaseRef = useRef<ConnectionState>(idleState());
 
   const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<{ userId: string; username: string; avatar: string | null } | null>(null);
+  const [user, setUser] = useState<{ userId: string; username: string; avatar: string | null; rating?: number; rankTier?: string; averageWpm?: number | null; bestWpm?: number | null; avgAcc?: number | null } | null>(null);
   const [lastMessage, setLastMessage] = useState<ServerMessage | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -524,6 +526,9 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
           }
 
           if (msg.type === "AUTH_REFRESH_OK") {
+            if (msg.payload.user) {
+              setUser(msg.payload.user);
+            }
             logger.pvp.debug("PvP websocket auth refresh acknowledged", {
               expiresAt: msg.payload.expiresAt,
             });
@@ -805,6 +810,35 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
     void ensureConnected();
   }, [clearReconnectTimer, ensureConnected, updateConnectionPhase]);
 
+  const refreshUserSnapshot = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      await ensureConnected();
+      return false;
+    }
+
+    try {
+      const nextAuth = await fetchWsToken();
+      ws.send(
+        JSON.stringify({
+          type: "AUTH_REFRESH",
+          payload: { token: nextAuth.token, clientSecret: nextAuth.clientSecret },
+        } satisfies ClientMessage),
+      );
+      scheduleRefresh(nextAuth.refreshAfter);
+      return true;
+    } catch (refreshError) {
+      logger.pvp.error(
+        "Manual PvP auth refresh failed",
+        refreshError instanceof Error ? refreshError : new Error(String(refreshError)),
+      );
+      setSafeError(
+        refreshError instanceof Error ? refreshError.message : "Failed to refresh websocket token",
+      );
+      return false;
+    }
+  }, [ensureConnected, fetchWsToken, scheduleRefresh, setSafeError]);
+
   // Derive the coarse `status` from the state machine (no separate state var)
   const status: Status = toStatus(connectionPhase);
 
@@ -823,6 +857,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
       connectionPhase,
       isOffline,
       circuitBreakerActiveUntil,
+      refreshUserSnapshot,
     }),
     [
       status,
@@ -838,6 +873,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
       connectionPhase,
       isOffline,
       circuitBreakerActiveUntil,
+      refreshUserSnapshot,
     ],
   );
 
@@ -874,6 +910,7 @@ export function usePvpSocket() {
       connectionPhase: ctx.connectionPhase,
       isOffline: ctx.isOffline,
       circuitBreakerActiveUntil: ctx.circuitBreakerActiveUntil,
+      refreshUserSnapshot: ctx.refreshUserSnapshot,
     }),
     [
       ctx.status,
@@ -888,6 +925,7 @@ export function usePvpSocket() {
       ctx.connectionPhase,
       ctx.isOffline,
       ctx.circuitBreakerActiveUntil,
+      ctx.refreshUserSnapshot,
     ],
   );
 }

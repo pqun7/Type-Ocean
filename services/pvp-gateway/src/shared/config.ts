@@ -198,16 +198,22 @@ export const MATCH_NO_SHOW_TIMEOUT_MS = envMs("PVP_MATCH_NO_SHOW_TIMEOUT_MS", 40
  * without any user-visible increase (keyboard is locked during this window).
  * Applied uniformly regardless of bot vs. human opponent so the local dev
  * experience (FORCE_BOT_MATCH_LOCAL) matches production behaviour.
+ *
+ * Dev default (FORCE_BOT_MATCH_LOCAL): 9500ms — the Pvp1v1Client opponent-
+ * reveal animation takes 4600ms before it navigates to the match page, and
+ * the subsequent page-load + WebSocket handshake + MATCH_JOIN round-trip adds
+ * another ~2–4s, so a 3500ms delay caused the countdown to fire before the
+ * player arrived, showing no countdown on first entry from /pvp/1v1.
  */
 export const RANKED_MATCH_START_DELAY_MS = envMs(
   "PVP_RANKED_MATCH_START_DELAY_MS",
-  5_000,
+  FORCE_BOT_MATCH_LOCAL ? 9_500 : 5_000,
 );
 
 /** Delay (ms) between room-match creation and countdown start. */
 export const ROOM_MATCH_START_DELAY_MS = envMs(
   "PVP_ROOM_MATCH_START_DELAY_MS",
-  5_000,
+  FORCE_BOT_MATCH_LOCAL ? 9_500 : 5_000,
 );
 
 // =============================================================================
@@ -229,9 +235,6 @@ export const ROOM_RECONNECT_GRACE_MS = envMs("PVP_ROOM_RECONNECT_GRACE_MS", 30_0
 /** How often the room sweep runs (ms). */
 export const ROOM_SWEEP_INTERVAL_MS = envMs("PVP_ROOM_SWEEP_INTERVAL_MS", 2_000);
 
-/** Time after the first player joins a public room before auto-start fires. */
-export const PUBLIC_ROOM_AUTO_START_MS = envMs("PVP_PUBLIC_ROOM_AUTO_START_MS", 50_000);
-
 // =============================================================================
 // REDIS / ONLINE PRESENCE
 // =============================================================================
@@ -241,6 +244,46 @@ export const ONLINE_KEY_PREFIX = "pvp:online:" as const;
 
 /** Redis key used to gate concurrent room sweep workers. */
 export const ROOM_SWEEP_LOCK_KEY = "pvp:room:sweep:lock" as const;
+
+// =============================================================================
+// PROGRESSIVE MATCHMAKING — BOT FALLBACK TIMING
+// =============================================================================
+
+/**
+ * Minimum wait (ms) before a bot-fallback match is created for a queued player
+ * who found no human opponent.  Corresponds to the start of the 90–120 s
+ * randomised window.
+ *
+ * Override via `PVP_AI_QUEUE_TIMEOUT_MIN_MS`.
+ * Default: 90 s (production).  Unaffected by FORCE_BOT_MATCH_LOCAL — use
+ * that flag to bypass the queue entirely instead.
+ */
+export const AI_QUEUE_TIMEOUT_MIN_MS = envMs("PVP_AI_QUEUE_TIMEOUT_MIN_MS", 90_000);
+
+/**
+ * Maximum wait (ms) for the randomised bot-fallback window.
+ * The actual timeout is drawn uniformly from [MIN, MAX] so different players
+ * get staggered delays, reducing thundering-herd bot creation.
+ *
+ * Override via `PVP_AI_QUEUE_TIMEOUT_MAX_MS`.
+ * Default: 120 s (production).
+ */
+export const AI_QUEUE_TIMEOUT_MAX_MS = envMs("PVP_AI_QUEUE_TIMEOUT_MAX_MS", 120_000);
+
+/**
+ * Returns a randomised bot-fallback delay for the current queue session.
+ *
+ * Production: uniform random value in [`AI_QUEUE_TIMEOUT_MIN_MS`, `AI_QUEUE_TIMEOUT_MAX_MS`].
+ * Dev + `PVP_TEST_FORCE_BOT_MATCH=true`: returns `0` (bot is created
+ * immediately via the shortcut path and never reaches this timer).
+ *
+ * Called once per QUEUE_JOIN to give each user their own staggered delay.
+ */
+export function getBotFallbackDelayMs(): number {
+  const min = AI_QUEUE_TIMEOUT_MIN_MS;
+  const max = Math.max(min, AI_QUEUE_TIMEOUT_MAX_MS);
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
 
 // =============================================================================
 // MATCHMAKING PREFERENCES TABLE

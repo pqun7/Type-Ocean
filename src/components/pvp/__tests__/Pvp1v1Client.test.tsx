@@ -42,10 +42,19 @@ async function emitMessage(message: Record<string, unknown>) {
 
 describe("Pvp1v1Client", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     listeners = [];
     pushMock.mockClear();
     replaceMock.mockClear();
     sendMock.mockClear();
+    // Mock fetch (not available as spyable in jsdom without prior definition)
+    Object.defineProperty(global, "fetch", {
+      writable: true,
+      value: jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ currentStreak: 0, level: 1 }),
+      } as unknown as Response),
+    });
     usePvpSocketMock.mockImplementation(() => ({
       status: "ready",
       error: null,
@@ -58,10 +67,16 @@ describe("Pvp1v1Client", () => {
         };
       },
       reconnect: jest.fn(),
+      refreshUserSnapshot: jest.fn(),
       connectionPhase: { kind: "ready" },
       isOffline: false,
       circuitBreakerActiveUntil: null,
     }));
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
   it("keeps the queue page loading-only after MATCH_FOUND and redirects to the match page", async () => {
@@ -72,7 +87,7 @@ describe("Pvp1v1Client", () => {
       payload: { status: "SEARCHING" },
     });
 
-    expect(screen.getByText("Finding opponent...")).toBeInTheDocument();
+    expect(screen.getByText("Hunting for a worthy rival...")).toBeInTheDocument();
     expect(screen.queryByText("Match starts in")).not.toBeInTheDocument();
 
     await emitMessage({
@@ -90,10 +105,16 @@ describe("Pvp1v1Client", () => {
       },
     });
 
-    expect(screen.getByText("Match found")).toBeInTheDocument();
-    expect(screen.getByText("Loading arena")).toBeInTheDocument();
-    expect(screen.getByText("Redirecting to the match page. Countdown begins there only.")).toBeInTheDocument();
+    // After MATCH_FOUND the pre-match status bar appears with the first label
+    expect(screen.getByText("Syncing Players")).toBeInTheDocument();
     expect(screen.queryByText("Match starts in")).not.toBeInTheDocument();
+    // Router redirect happens after the 4.6 s animation completes
+    expect(pushMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(5_000);
+    });
+
     expect(pushMock).toHaveBeenCalledWith("/pvp/match/match-1");
   });
 });

@@ -9,7 +9,9 @@ export type XPMessageType =
   | "error"
   | "participation"
   | "mythic"
-  | "personal-best";
+  | "personal-best"
+  | "pvp-win"
+  | "pvp-streak";
 
 export type XPMessage = {
   id: string;

@@ -3,7 +3,6 @@
 import {
   buildRoomReconnectKey,
   getActiveRoomMembers,
-  getPublicRoomStartCondition,
   isRoomReadyToStart,
   selectNextRoomHost,
 } from "../rooms/lifecycle";
@@ -102,98 +101,5 @@ describe("pvp room lifecycle helpers", () => {
 
   it("builds a reconnect lease key per room and user", () => {
     expect(buildRoomReconnectKey("room-1", "user-1")).toBe("pvp:room:reconnect:room-1:user-1");
-  });
-
-  it("derives the correct public room auto-start condition", () => {
-    expect(
-      getPublicRoomStartCondition({
-        members: [
-          { readyAt: new Date(), leftAt: null },
-          { readyAt: new Date(), leftAt: null },
-        ],
-        minimumPlayers: 2,
-        maxPlayers: 6,
-        autoStartAt: new Date(Date.now() + 5_000),
-      })
-    ).toBe("all_ready");
-
-    expect(
-      getPublicRoomStartCondition({
-        members: new Array(6).fill(null).map(() => ({ readyAt: null, leftAt: null })),
-        minimumPlayers: 2,
-        maxPlayers: 6,
-        autoStartAt: new Date(Date.now() + 5_000),
-      })
-    ).toBe("room_full");
-
-    expect(
-      getPublicRoomStartCondition({
-        members: [
-          { readyAt: null, leftAt: null },
-          { readyAt: null, leftAt: null },
-          { readyAt: new Date(), leftAt: null },
-        ],
-        minimumPlayers: 2,
-        maxPlayers: 6,
-        autoStartAt: new Date(Date.now() - 1_000),
-      })
-    ).toBe("timeout");
-  });
-
-  it("returns null start condition when below minimum players even after timeout", () => {
-    expect(
-      getPublicRoomStartCondition({
-        members: [{ readyAt: null, leftAt: null }],
-        minimumPlayers: 2,
-        maxPlayers: 6,
-        autoStartAt: new Date(10_000),
-        nowMs: 20_000,
-      })
-    ).toBeNull();
-  });
-
-  it("prioritizes all_ready over room_full when both are true", () => {
-    expect(
-      getPublicRoomStartCondition({
-        members: new Array(4).fill(null).map(() => ({ readyAt: new Date("2026-03-10T10:00:00.000Z"), leftAt: null })),
-        minimumPlayers: 2,
-        maxPlayers: 4,
-        autoStartAt: new Date(10_000),
-        nowMs: 20_000,
-      })
-    ).toBe("all_ready");
-  });
-
-  it("prioritizes room_full over timeout when players are not all ready", () => {
-    expect(
-      getPublicRoomStartCondition({
-        members: [
-          { readyAt: new Date("2026-03-10T10:00:00.000Z"), leftAt: null },
-          { readyAt: null, leftAt: null },
-          { readyAt: null, leftAt: null },
-          { readyAt: null, leftAt: null },
-        ],
-        minimumPlayers: 2,
-        maxPlayers: 4,
-        autoStartAt: new Date(10_000),
-        nowMs: 20_000,
-      })
-    ).toBe("room_full");
-  });
-
-  it("returns null when no start rule applies", () => {
-    expect(
-      getPublicRoomStartCondition({
-        members: [
-          { readyAt: null, leftAt: null },
-          { readyAt: null, leftAt: null },
-          { readyAt: null, leftAt: null },
-        ],
-        minimumPlayers: 2,
-        maxPlayers: 6,
-        autoStartAt: new Date(30_000),
-        nowMs: 20_000,
-      })
-    ).toBeNull();
   });
 });

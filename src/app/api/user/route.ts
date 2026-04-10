@@ -178,7 +178,7 @@ export async function GET(req: NextRequest) {
         p."avatar",
         p."hideFromLeaderboard"
       FROM "User" u
-      LEFT JOIN "PlayerProfile" p ON p."userId" = u."id"
+      LEFT JOIN "player_profile" p ON p."userId" = u."id"
       WHERE u."id" = ${session.user.id}
       LIMIT 1
     `);
@@ -722,7 +722,7 @@ export async function DELETE(req: NextRequest) {
 
     // Delete user and all related data (cascade)
     // Use a non-interactive transaction for better compatibility in serverless.
-    await db.execute(sql`DELETE FROM "PlayerProfile" WHERE "userId" = ${userId}`);
+    await db.execute(sql`DELETE FROM "player_profile" WHERE "userId" = ${userId}`);
     await db.execute(sql`DELETE FROM "SessionStat" WHERE "userId" = ${userId}`);
     await db.execute(sql`DELETE FROM "Session" WHERE "userId" = ${userId}`);
     await db.execute(sql`DELETE FROM "Account" WHERE "userId" = ${userId}`);

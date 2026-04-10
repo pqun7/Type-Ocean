@@ -164,11 +164,11 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
         const latest = await params.matchRepository.load(params.matchId);
         if (!latest) return false;
         expectedRevision = latest.revision;
-        aiLogDebug("Adaptive AI progress CAS conflict", {
-          matchId: params.matchId,
-          expectedRevision,
-          reloadedRevision: latest.revision,
-        });
+        // aiLogDebug("Adaptive AI progress CAS conflict", {
+        //   matchId: params.matchId,
+        //   expectedRevision,
+        //   reloadedRevision: latest.revision,
+        // });
         return false;
       }
 

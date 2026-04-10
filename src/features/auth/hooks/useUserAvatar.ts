@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { useEffect, useMemo, useState } from "react";
+import { resolveAvatarUrl } from "@/features/auth/avatar";
 
 type UserAvatarResponse = {
   user?: {
@@ -74,12 +75,7 @@ export function useUserAvatar(enabled: boolean) {
     const avatarRaw = data?.user?.profile?.avatar;
 
     const username = typeof usernameRaw === "string" ? usernameRaw : null;
-    const avatarUrl =
-      typeof avatarRaw === "string" && avatarRaw.length > 0
-        ? avatarRaw
-        : typeof imageRaw === "string" && imageRaw.length > 0
-          ? imageRaw
-          : null;
+    const avatarUrl = resolveAvatarUrl(avatarRaw, imageRaw);
 
     return { username, avatarUrl };
   }, [data]);

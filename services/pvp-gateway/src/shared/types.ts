@@ -231,6 +231,12 @@ export interface LocalMatch {
   /** Wall-clock timestamp (ms) when the cleanup timer was scheduled. */
   cleanupScheduledAtMs: number | null;
   /**
+   * `true` when this was a bot-fallback match created after the full
+   * progressive search window elapsed with no human opponent.  ELO gain/loss
+   * is reduced for low-confidence matches; XP (activity stats) is unaffected.
+   */
+  isLowConfidence: boolean;
+  /**
    * Per-userId expiry timestamps indicating how long this match's slot
    * should remain available for a disconnected participant to reconnect.
    */
@@ -242,4 +248,12 @@ export interface LocalMatch {
    * the tie-detection window.  `null` before any participant finishes.
    */
   tieWindowStartedAt: number | null;
+  /**
+   * Mirrors `MatchLiveState.startPhase` in-process so the orchestrator can
+   * read and update the phase without loading from the JSONB column each time.
+   *
+   * Only set for ranked 1v1 matches that go through `waiting_for_both`.
+   * `undefined` for room matches that start in `countdown` directly.
+   */
+  startPhase?: "waiting_for_both" | "no_show_armed" | "countdown_armed" | "live";
 }

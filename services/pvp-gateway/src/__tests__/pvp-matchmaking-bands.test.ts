@@ -8,11 +8,11 @@ import {
 } from "../matchmaking/bands";
 
 describe("pvp matchmaking bands", () => {
-  it("expands the queue band every five seconds and caps at 300", () => {
-    expect(getExpandedQueueRatingRange(0)).toBe(150);
-    expect(getExpandedQueueRatingRange(5_000)).toBe(175);
-    expect(getExpandedQueueRatingRange(10_000)).toBe(200);
-    expect(getExpandedQueueRatingRange(60_000)).toBe(300);
+  it("expands the queue band every thirty seconds and caps at 300", () => {
+    expect(getExpandedQueueRatingRange(0)).toBe(50);
+    expect(getExpandedQueueRatingRange(30_000)).toBe(125);
+    expect(getExpandedQueueRatingRange(60_000)).toBe(200);
+    expect(getExpandedQueueRatingRange(120_000)).toBe(300);
   });
 
   it("matches only compatible preferences", () => {
@@ -32,16 +32,18 @@ describe("pvp matchmaking bands", () => {
   });
 
   it("uses the wider of the two expanded bands for fairness", () => {
+    // After 30 s, the long-waiting user expands to ±125; gap of 120 fits
     expect(
       canUsersMatchByRating({
         myRating: 1500,
         otherRating: 1620,
         myJoinedAtMs: 0,
-        otherJoinedAtMs: 20_000,
-        nowMs: 20_000,
+        otherJoinedAtMs: 30_000,
+        nowMs: 30_000,
       })
     ).toBe(true);
 
+    // Both users only waited 20 s (< 1 expansion step) → range stays at 50; gap of 305 exceeds it
     expect(
       canUsersMatchByRating({
         myRating: 1500,

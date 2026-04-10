@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { MessageSquarePlus, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ const categoryLabels: Record<FeedbackCategory, string> = {
 };
 
 export function FeedbackDialog() {
+  const pathname = usePathname();
   const { isAuthenticated, isLoading } = useUserSession();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -88,7 +90,10 @@ export function FeedbackDialog() {
     void loadFeedback();
   }, [isAuthenticated, open]);
 
-  if (isLoading || !isAuthenticated) {
+  const isMatchPage = pathname?.includes("/pvp/match/");
+  const isRoomMatchPage = pathname?.startsWith("/pvp/room/") && pathname.split("/").length > 3;
+
+  if (isLoading || !isAuthenticated || isMatchPage || isRoomMatchPage) {
     return null;
   }
 

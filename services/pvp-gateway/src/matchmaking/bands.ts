@@ -16,10 +16,15 @@ export const DEFAULT_MATCHMAKING_PREFERENCE: MatchmakingPreference = {
 };
 
 export const DEFAULT_QUEUE_BAND_CONFIG: QueueBandConfig = {
+  // Progressive search expansion:
+  //   0–30 s  → ±50  (initial range)
+  //  30–60 s  → ±125 (+75)
+  //  60–90 s  → ±200 (+75)
+  //  90–120 s → ±275 (+75) — bot fallback fires within this window
   initialRange: 50,
-  expansionStep: 25,
-  expansionIntervalMs: 5_000,
-  maxRange: 200,
+  expansionStep: 75,
+  expansionIntervalMs: 30_000,
+  maxRange: 300,
 };
 
 export function normalizeMatchmakingPreference(

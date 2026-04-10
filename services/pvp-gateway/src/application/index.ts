@@ -48,11 +48,17 @@ export {
 
 export { finalizeMatchByDisconnectForfeit } from "./disconnect-handler";
 
+export {
+  MatchStartOrchestrator,
+  productionTimerService,
+  type TimerService,
+  type MatchStartCallbacks,
+} from "./match-start-orchestrator";
+
 export { abortMatchLifecycle } from "./abort-match";
 
 export {
   buildMatchFoundPlayerPayload,
   startRoomMatch,
-  maybeAutoStartPublicRoom,
   createRanked1v1Match,
 } from "./create-match";

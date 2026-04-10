@@ -2,6 +2,16 @@ import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
 
 export const env = createEnv({
+  onValidationError: (error) => {
+    console.error("❌ Environment validation failed:", error.flatten().fieldErrors);
+    throw new Error("Invalid environment variables. Fix the .env file and restart.");
+  },
+  onInvalidAccess: (variable) => {
+    if (variable.includes("REDIS") && variable.startsWith("NEXT_PUBLIC_")) {
+      throw new Error(`🚫 Security Breach: Client-side access to ${variable} is strictly forbidden!`);
+    }
+    throw new Error(`❌ Attempted to access server-side environment variable '${variable}' on the client.`);
+  },
   server: {
     AUTH_GITHUB_ID: z.string().optional(),
     AUTH_GITHUB_SECRET: z.string().optional(),
@@ -21,6 +31,15 @@ export const env = createEnv({
     REDIS_PORT: z.string().optional(),
     REDIS_PASSWORD: z.string().optional(),
     REDIS_TLS: z.enum(["true", "false"]).optional(),
+
+    // Secret Rotation (Current + Previous)
+    AUTH_SECRET: z.string().min(32),
+    AUTH_SECRET_PREVIOUS: z.string().min(32).optional(),
+    
+    // PvP Gateway Settings
+    PVP_GATEWAY_JWT_SECRET: z.string().min(32),
+    NEXT_PUBLIC_PVP_WS_URL: z.string().url(),
+    PVP_USE_REDIS: z.coerce.number().optional(),
 
     RESEND_API_KEY: z.string().optional(),
 
@@ -67,6 +86,10 @@ export const env = createEnv({
     REDIS_PORT: process.env.REDIS_PORT,
     REDIS_PASSWORD: process.env.REDIS_PASSWORD,
     REDIS_TLS: process.env.REDIS_TLS,
+
+    PVP_GATEWAY_JWT_SECRET: process.env.PVP_GATEWAY_JWT_SECRET,
+    NEXT_PUBLIC_PVP_WS_URL: process.env.NEXT_PUBLIC_PVP_WS_URL,
+    PVP_USE_REDIS: process.env.PVP_USE_REDIS,
 
     RESEND_API_KEY: process.env.RESEND_API_KEY,
 

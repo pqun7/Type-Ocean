@@ -63,11 +63,13 @@ import { SignOut } from "@/components/auth/sign-out";
 import { computeDailyActivityStrength } from "@/features/typing/utils/activity-strength";
 import { NumberAnimation } from "@/components/core/number-animation-view";
 import { StatTile } from "@/components/ui/stat-tile";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import KeyboardHeatmap, { type Language, type PerformanceData } from "@/components/TypingTest/KeyboardHeatmap";
 import {
   getTotalsFromPerformance,
   type OverallKeyboardPerformanceSnapshot,
 } from "@/components/TypingTest/utils/overallKeyboardPerformance";
+import { resolveAvatarUrl } from "@/features/auth/avatar";
 
 // ------------------- Types -------------------
 type AchievementStateSlim = {
@@ -164,12 +166,6 @@ function formatDurationSeconds(totalSeconds: number): string {
   return `${seconds}s`;
 }
 
-function getInitials(username: string): string {
-  const trimmed = username.trim();
-  if (!trimmed) return "U";
-  return trimmed.slice(0, 2).toUpperCase();
-}
-
 function safeDate(value: string | null | undefined): Date | null {
   if (!value) return null;
   const d = new Date(value);
@@ -202,29 +198,6 @@ const STAGGER_CONTAINER = {
 };
 
 // ------------------- Memoized Subcomponents -------------------
-const AvatarView = memo(function AvatarView({ url, username }: { url: string | null; username: string }) {
-  if (!url) {
-    return (
-      <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-slate-200">
-        {getInitials(username)}
-      </div>
-    );
-  }
-
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt={`${username} avatar`}
-      className="h-16 w-16 rounded-full border border-white/10 bg-white/5 object-cover"
-      referrerPolicy="no-referrer"
-      onError={(e) => {
-        (e.currentTarget as HTMLImageElement).src = "";
-      }}
-    />
-  );
-});
-
 // Achievement icon + colour map (unchanged, but memoized)
 type AchTier = "common" | "rare" | "epic" | "legendary" | "mythic";
 
@@ -480,17 +453,17 @@ const KeyboardHeatmapSection = memo(function KeyboardHeatmapSection({
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <StatTile
                   label="Tracked sessions"
-                  value={<NumberAnimation value={sessions} delay={0.2} className="font-jetbrainsLocal" />}
+                  value={<NumberAnimation value={sessions} delay={0.2} />}
                   icon={<BarChart3 className="h-4 w-4 text-cyan-300" />}
                 />
                 <StatTile
                   label="Key accuracy"
-                  value={<NumberAnimation value={Math.round(keyboardAccuracy)} unit="%" delay={0.3} className="font-jetbrainsLocal" />}
+                  value={<NumberAnimation value={Math.round(keyboardAccuracy)} unit="%" delay={0.3} />}
                   icon={<Target className="h-4 w-4 text-green-300" />}
                 />
                 <StatTile
                   label="Total key hits"
-                  value={<NumberAnimation value={keyboardTotals.correct + keyboardTotals.error} delay={0.4} className="font-jetbrainsLocal" />}
+                  value={<NumberAnimation value={keyboardTotals.correct + keyboardTotals.error} delay={0.4} />}
                   icon={<Activity className="h-4 w-4 text-purple-300" />}
                 />
               </div>
@@ -640,7 +613,7 @@ function ProfileClient(props: {
   const otpDialogJustVerifiedRef = useRef(false);
 
   // Memoized computed values
-  const avatarUrl = props.profile.avatar ?? props.user.image;
+  const avatarUrl = resolveAvatarUrl(props.profile.avatar, props.user.image);
 
   const usernameIsDirty = useMemo(() => {
     return username.trim().toLowerCase() !== props.user.username.trim().toLowerCase();
@@ -1137,7 +1110,13 @@ function ProfileClient(props: {
                                 : "ring-[rgba(160,220,255,0.3)] hover:ring-[rgba(160,220,255,0.6)]")
                             }
                           >
-                            <AvatarView url={avatarUrl} username={props.user.username} />
+                            <UserAvatar
+                              username={props.user.username}
+                              avatarUrl={avatarUrl}
+                              alt={`${props.user.username} avatar`}
+                              className="h-16 w-16 rounded-full border border-white/10 bg-white/5"
+                              fallbackClassName="text-sm font-semibold text-slate-200"
+                            />
                           </div>
                           <button
                             type="button"
@@ -1210,7 +1189,7 @@ function ProfileClient(props: {
                             </div>
                             <p className="text-sm font-semibold font-grotesk text-[#E0E7FF] leading-tight inline-flex items-center justify-center gap-1.5">
                               {(() => {
-                                const rankSrc = getRankImageSrc(props.profile.rank.tier as RankTier);
+                                const rankSrc = getRankImageSrc(props.profile.rank.tier as RankTier, "illustrated");
                                 return <NextImage src={rankSrc} alt={props.profile.rank.tier} width={28} height={28} className="h-8 w-8 object-contain drop-shadow-[0_0_16px_rgba(100,200,255,0.5)]" />;
                               })()}
                               <span>{props.profile.rank.tier}</span>

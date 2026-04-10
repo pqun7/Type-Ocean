@@ -17,6 +17,8 @@ export type ConnectionUser = {
   pvpDeviation: number;
   rankTier?: string;
   averageWpm?: number | null;
+  bestWpm?: number | null;
+  avgAcc?: number | null;
   matchmakingPreference?: MatchmakingPreference | null;
 };
 
@@ -68,6 +70,11 @@ export type MatchState = {
     atMs: number;
   }>;
   tieWindowStartedAt: number | null;
+  /**
+   * `true` when this is a bot-fallback match (no human found after progressive
+   * search window).  ELO change is halved; XP/activity stats are unaffected.
+   */
+  isLowConfidence?: boolean;
 };
 
 export type QueueEntry = {
@@ -225,6 +232,7 @@ export class InMemoryState implements IState {
       reconnectUntilByUserId: {},
       recentDeltas: [],
       tieWindowStartedAt: null,
+      isLowConfidence: false,
     };
 
     this.matches.set(match.matchId, match);

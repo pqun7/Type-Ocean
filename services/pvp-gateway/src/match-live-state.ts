@@ -48,6 +48,23 @@ export type MatchLiveState = {
   /** Timestamp (ms) when the first participant finished (tie-detection window). */
   tieWindowStartedAt?: number | null;
   /**
+   * `true` when this was a bot-fallback (low-confidence) match.
+   * Carried through JSONB so it survives gateway restarts.
+   */
+  isLowConfidence?: boolean;
+  /**
+   * Durable start-sequence phase tag persisted in JSONB so that a gateway
+   * restart can re-arm the correct timer without guessing from state alone.
+   *
+   * - `"waiting_for_both"` — ranked match created, no-show timer running, waiting for both MATCH_JOINs.
+   * - `"no_show_armed"`    — at least one player joined; no-show deadline still pending.
+   * - `"countdown_armed"`  — both joined; countdown tick + activation timers are running.
+   * - `"live"`             — match is live; start-sequence complete.
+   *
+   * Absent in room matches that go directly to countdown without a wait phase.
+   */
+  startPhase?: "waiting_for_both" | "no_show_armed" | "countdown_armed" | "live";
+  /**
    * UTC epoch ms of match start (when typing begins). Stored here as a plain
    * number inside the JSONB `liveState` column so it is immune to the
    * TIMESTAMP WITHOUT TIMEZONE timezone mis-parse that affects the

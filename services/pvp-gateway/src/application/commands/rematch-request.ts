@@ -155,9 +155,9 @@ export async function handleRematchRequest(
       })),
     }, deps);
 
-    // Schedule the countdown activation timer so the match transitions to
-    // RUNNING at serverStartAtMs instead of relying on the 30 s sweep.
-    deps.scheduleCountdownActivation(local);
+    // Arm the orchestrator for the new AI match so the activation timer is
+    // durable (Redis queue) and the no-show / tick timers are managed centrally.
+    deps.matchStartOrchestrator?.arm(local, "ranked_ai");
 
     await startAiSimulationAdaptive({
       db: deps.db,

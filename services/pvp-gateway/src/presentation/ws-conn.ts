@@ -20,4 +20,6 @@ export interface WsConn extends WebSocket {
   rl?: { general: TokenBucket; input: TokenBucket; roomAction: TokenBucket };
   rawMsgStrikes?: number;
   presenceInterval?: NodeJS.Timeout | null;
+  /** Per-socket rate-limit state for MATCH_SYNC_REQUEST. */
+  matchSyncRequests?: { count: number; windowStartMs: number };
 }

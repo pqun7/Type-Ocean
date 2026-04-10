@@ -15,6 +15,7 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import {
+  pvpFailedStats,
   pvpMatches,
   pvpParticipants,
   pvpRatingChanges,
@@ -32,7 +33,7 @@ import { invalidatePvpSelfCaches } from "../pvp-rating-cache";
 import { incrementGatewayMetric } from "../metrics";
 import { isAiUserId } from "../shared/errors";
 import { INSTANCE_ID, MATCH_TIE_WINDOW_MS } from "../shared/config";
-import { gatewayLogDebug, gatewayLogError, gatewayLogInfo } from "../shared/logger";
+import { gatewayLogDebug, gatewayLogError, gatewayLogInfo, gatewayLogWarn } from "../shared/logger";
 import { toMatchId } from "../shared/branded-ids";
 import { buildLiveStateFromLocalMatch, applyMatchTransition } from "./match-state";
 import { runWithMatchFinalizationLock, scheduleMatchCleanup } from "./match-helpers";
@@ -190,6 +191,65 @@ export async function finalizeMatchResults(params: {
       }),
   );
 
+  // ── Emit stats to the stats processor (single writer for Redis + DB) ──────
+  const humanPlacements = params.placements.filter((p) => !isAiUserId(p.userId));
+  if (humanPlacements.length > 0 && deps.statsProcessorUrl && deps.statsProcessorSecret) {
+    const statsPayload = {
+      matchId: params.matchId,
+      participants: humanPlacements.map((p) => ({
+        userId: p.userId,
+        wpm: p.wpm,
+        accuracy: p.accuracy,
+        timeMs: p.timeMs,
+        textLength: match.textSnapshot.length,
+        errors: p.errors,
+        completedAt: new Date(match.serverStartAtMs + p.timeMs).toISOString(),
+      })),
+    };
+    try {
+      const resp = await fetch(`${deps.statsProcessorUrl}/api/internal/pvp-stats`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${deps.statsProcessorSecret}`,
+        },
+        body: JSON.stringify(statsPayload),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!resp.ok) {
+        throw new Error(`Stats processor responded ${resp.status}`);
+      }
+    } catch (err) {
+      gatewayLogError("Stats processor request failed — saving to pvpFailedStats", err, {
+        matchId: params.matchId,
+      });
+      // Persist failures so the stats processor can drain them later.
+      try {
+        await deps.db.insert(pvpFailedStats).values(
+          humanPlacements.map((p) => ({
+            matchId: params.matchId,
+            userId: p.userId,
+            wpm: p.wpm,
+            accuracy: p.accuracy,
+            timeMs: p.timeMs,
+            textLength: match.textSnapshot.length,
+            errors: p.errors,
+            completedAt: new Date(match.serverStartAtMs + p.timeMs),
+            retryCount: 0,
+            nextRetryAt: new Date(),
+            lastError: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
+          })),
+        );
+      } catch (dbErr) {
+        gatewayLogError("Failed to save pvpFailedStats fallback", dbErr, { matchId: params.matchId });
+      }
+    }
+  } else if (humanPlacements.length > 0) {
+    gatewayLogWarn("Stats processor not configured — pvp match stats will not be recorded", {
+      matchId: params.matchId,
+    });
+  }
+
   let ratingChanges: Array<{ userId: string; before: number; after: number; delta: number }> = [];
 
   const ai = params.placements.find((p) => isAiUserId(p.userId)) ?? null;
@@ -219,6 +279,9 @@ export async function finalizeMatchResults(params: {
       a: { rating: humanRow.rating, deviation: humanRow.deviation },
       b: { rating: aiRating, deviation: 180 },
       aScore: humanWon ? 1 : 0,
+      // Low-confidence matches (bot fallback after progressive search timeout)
+      // award half ELO to reflect the reduced match quality.
+      eloFactor: match.isLowConfidence ? 0.5 : 1,
     });
 
     await runGatewayTransaction(deps.db, async (tx) => {
@@ -378,12 +441,15 @@ export async function finalizeMatchResults(params: {
     matchId: match.matchId,
     placements: params.placements,
     ratingChanges,
+    isLowConfidence: match.isLowConfidence ?? false,
   }, deps);
 
   broadcastMatch(match.matchId, "MATCH_ENDED", { matchId: match.matchId }, deps);
 
-  for (const change of ratingChanges) {
-    deps.connectionUserCache?.invalidate(change.userId);
+  for (const participant of match.participants.values()) {
+    if (!isAiUserId(participant.userId)) {
+      deps.connectionUserCache?.invalidate(participant.userId);
+    }
   }
 
   await invalidatePvpSelfCaches(

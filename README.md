@@ -115,6 +115,30 @@ Use this flow to run a reproducible PvP websocket load test with k6.
 - `npm run test:ci` - jest CI run
 - `npm run admin:grant -- --email you@example.com` - grant admin locally through Drizzle-backed scripts
 
+## Local Production-like PvP
+Use this flow when you want `next start` behavior on `localhost` without mixing in the deployed `typeocean.com` domain.
+
+Files:
+- `.env.local` keeps secrets and shared local credentials such as `DATABASE_URL`, `AUTH_SECRET`, and `PVP_GATEWAY_JWT_SECRET`.
+- `.env.production.local` overrides app host/origin values for `next build` and `next start` so Auth.js and PvP stay on `http://localhost:3000`.
+- `.env.gateway.local` overrides gateway origin/TLS behavior for the compiled PvP gateway running locally on `ws://localhost:8787`.
+
+Recommended local production-like values:
+- App: `NEXT_PUBLIC_SITE_URL="http://localhost:3000"`, `NEXTAUTH_URL="http://localhost:3000"`, `NEXT_PUBLIC_PVP_WS_URL="ws://localhost:8787"`
+- Gateway: `PVP_ALLOWED_ORIGINS="http://localhost:3000"`, `PVP_TRUST_PROXY_TLS=0`, `PVP_INSECURE_LOCALHOST=1`
+
+Run order:
+1. Ensure dependencies, database, and Redis are available.
+2. Build the Next.js app: `npm run build`
+3. Build the PvP gateway: `npm run pvp:gateway:build`
+4. Start the Next.js production server: `npm run start`
+5. In a second terminal, start the compiled gateway: `npm run pvp:gateway:start`
+
+Important:
+- Do not point local production-like runs at `https://typeocean.com` or `wss://pvp.typeocean.com`.
+- Do not keep `PVP_TRUST_PROXY_TLS=1` for localhost runs unless you are actually behind a local HTTPS reverse proxy.
+- The PvP gateway does not read `.env.production`; it loads `.env.gateway.local`, `.env.gateway`, `.env.local`, then `.env`.
+
 ## Production deployment
 - Deploy the Next.js app to Vercel.
 - Deploy the PvP gateway as a separate service; Vercel should not be used for the long-lived WebSocket gateway in this repo.
@@ -138,6 +162,11 @@ Gateway notes:
 - Redis connection issues in Docker: set `REDIS_HOST=redis` (or `REDIS_URL=redis://redis:6379`).
 
 
+
+console.log('💡 Development troubleshooting:');
+console.log('1. Make sure Redis is installed: sudo apt install redis-server');
+console.log('2. Start Redis: sudo service redis-server start');
+console.log('3. Check status: sudo service redis-server status');
 
 $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH','User') + ';' + [System.Environment]::GetEnvironmentVariable('PATH','Machine')
 .\scripts\local-prod.ps1

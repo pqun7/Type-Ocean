@@ -39,6 +39,7 @@ import type { MatchId } from "../shared/branded-ids";
 import type { LocalMatch, PendingInputUpdateBatch } from "../shared/types";
 import type { LocalLock } from "../local-lock";
 import type { IQueueAdapter } from "../matchmaking/queue-adapter";
+import type { MatchStartOrchestrator } from "./match-start-orchestrator";
 
 // =============================================================================
 // GATEWAY DEPS
@@ -69,6 +70,13 @@ export interface GatewayDeps {
   matchLockRegistry: MatchLockRegistry | null;
   /** Centralised per-match resource disposal service (P3). */
   matchCleanupService: MatchCleanupService | null;
+  /**
+   * Authoritative orchestrator for the match start-sequence pipeline.
+   * Owns no-show timers, countdown tick intervals, and activation timers.
+   * Replaces all scattered `scheduleCountdownActivation` / `scheduleNoShowTimeout`
+   * call sites.  `null` until assigned in `main()` before the WS server starts.
+   */
+  matchStartOrchestrator: MatchStartOrchestrator | null;
   /** Internal typed event bus. */
   eventBus: ReturnType<typeof createGatewayEventBus>;
   /** Prometheus / OpenMetrics recorder — `null` when metrics are disabled. */
@@ -167,6 +175,10 @@ export interface GatewayDeps {
   aiRematchCooldownMs: number;
   /** WS ping interval (ms). */
   wsPingIntervalMs: number;
+  /** Full URL of the internal stats processor endpoint — `null` when not configured. */
+  statsProcessorUrl: string | null;
+  /** Shared secret used to authenticate gateway → stats processor requests. */
+  statsProcessorSecret: string | null;
 
   // ---------------------------------------------------------------------------
   // Local exclusive locks (serialise concurrent operations per connection)
@@ -202,6 +214,8 @@ export interface GatewayDeps {
     users: Array<ConnectionUser & { slot: number }>;
     persistUserIds: string[];
     startDelayMs?: number;
+    /** Set `true` for bot-fallback matches to apply halved ELO change. */
+    isLowConfidence?: boolean;
   }) => Promise<{ matchId: string; local: LocalMatch; serverStartAtMs: number; payload: unknown }>;
   /** Create a new room match and broadcast MATCH_FOUND to the room. */
   startRoomMatch: (params: {
@@ -216,8 +230,6 @@ export interface GatewayDeps {
     }>;
     startDelayMs?: number;
   }) => Promise<{ matchId: string; local: LocalMatch; serverStartAtMs: number } | null>;
-  /** Check and possibly auto-start a public room that is full or timed out. */
-  maybeAutoStartPublicRoom: (roomCode: string) => Promise<boolean>;
   /** Record that a MATCH_JOIN flow has begun (prevents premature forfeit). */
   beginMatchJoinInFlight: (matchId: string, userId: string) => void;
   /** Record that a MATCH_JOIN flow has completed. */
@@ -244,4 +256,10 @@ export interface GatewayDeps {
   queueAdapter: IQueueAdapter;
   /** Persist a reconnect-grace-window timestamp to the DB live-state for a match. */
   persistReconnectGraceWindow: (matchId: string, userId: string, reconnectUntilMs: number) => Promise<void>;
+  /**
+   * Activate a countdown match if its `serverStartAtMs` has passed.
+   * Returns `true` if the transition to `live` was applied, `false` otherwise.
+   * Used by the `MATCH_SYNC_REQUEST` handler as a client-triggered catch-up.
+   */
+  activateCountdownMatchIfDue: (matchId: string) => Promise<boolean>;
 }

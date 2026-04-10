@@ -5,8 +5,16 @@
  * Three paths:
  *  1. Dev shortcut: TEST_FORCE_BOT_MATCH → immediate AI match.
  *  2. Redis-backed queue: try to match immediately, otherwise schedule
- *     an AI-fallback timer.
+ *     a progressive-search AI-fallback timer (fires randomly at 90–120 s).
  *  3. Local in-memory queue: same shape as Redis path but lockless.
+ *
+ * Progressive ELO expansion (handled in matchmaking/bands.ts):
+ *   0–30 s  → ±50
+ *  30–60 s  → ±125
+ *  60–90 s  → ±200
+ *  90–120 s → ±275 (bot fallback fires randomly in this window)
+ *
+ * Bot-fallback matches are classified as Low Confidence: full XP, halved ELO.
  */
 
 import crypto from "crypto";
@@ -20,7 +28,7 @@ import { send, sendToUser, getAuthedSocketsForUser } from "../../presentation/ws
 import { finalizeMatchIfComplete } from "../finalize-match";
 import { maybeBroadcastMatchSnapshot } from "../match-helpers";
 import { PVP_ERROR_CODES } from "../../../../../src/features/pvp/shared/error-codes";
-import { RANKED_MATCH_START_DELAY_MS } from "../../shared/config";
+import { RANKED_MATCH_START_DELAY_MS, getBotFallbackDelayMs } from "../../shared/config";
 import { gatewayLogDebug, gatewayLogInfo, gatewayLogWarn, gatewayLogError } from "../../shared/logger";
 import { toClientErrorPayload } from "../../shared/errors";
 import type { WsConn } from "../../presentation/ws-conn";
@@ -181,6 +189,7 @@ export async function handleQueueJoin(
     });
 
     // AI fallback timer (Redis path)
+    const botFallbackDelayMs = getBotFallbackDelayMs();
     const timeout = setTimeout(() => {
       const userId = ws.user?.userId;
       if (!userId) return;
@@ -196,11 +205,23 @@ export async function handleQueueJoin(
       void (async () => {
         gatewayLogInfo("Ranked queue AI fallback timer fired", {
           ...queueLogContext,
-          timeoutMs: deps.aiQueueTimeoutMs,
+          botFallbackDelayMs,
         });
         const removed = await deps.queueAdapter.leave(userId);
         if (removed === 0) {
           gatewayLogDebug("Skipped ranked queue AI fallback because the user was no longer queued", queueLogContext);
+          return;
+        }
+        // RC-5 guard: skip if user already obtained a match between timer arm and fire.
+        const hasActiveMatch = Array.from(deps.state.getAllMatches()).some((m) => {
+          const lm = m as LocalMatch;
+          return (
+            (lm.state === "waiting_for_both" || lm.state === "countdown" || lm.state === "live") &&
+            lm.participants.has(userId)
+          );
+        });
+        if (hasActiveMatch) {
+          gatewayLogWarn("Skipped ranked queue AI fallback — user already has an active match", queueLogContext);
           return;
         }
         deps.state.clearQueueTimeout(userId);
@@ -213,10 +234,12 @@ export async function handleQueueJoin(
           ],
           persistUserIds: [human.userId],
           startDelayMs: RANKED_MATCH_START_DELAY_MS,
+          isLowConfidence: true,
         });
-        gatewayLogInfo("Created ranked AI fallback match", {
+        gatewayLogInfo("Created ranked AI fallback match (low confidence)", {
           ...queueLogContext,
           matchId: created.matchId,
+          botFallbackDelayMs,
           queuedForMs: queuedMeta ? Math.max(0, Date.now() - queuedMeta.joinedAtMs) : undefined,
         });
         incrementGatewayMetric("pvp_queue_ai_fallback_total", { queue_mode: "redis" });
@@ -249,10 +272,10 @@ export async function handleQueueJoin(
         sendToUser(userId, "ERROR", payload, deps);
         sendToUser(userId, "QUEUE_STATUS", { status: "IDLE" }, deps);
       });
-    }, deps.aiQueueTimeoutMs);
+    }, botFallbackDelayMs);
 
     deps.state.queueTimeouts.set(me.userId, timeout);
-    gatewayLogDebug("Scheduled ranked queue AI fallback timer", { ...queueLogContext, timeoutMs: deps.aiQueueTimeoutMs });
+    gatewayLogDebug("Scheduled ranked queue AI fallback timer", { ...queueLogContext, botFallbackDelayMs });
     send(ws, "QUEUE_STATUS", { status: "SEARCHING" }, deps);
     return;
   }
@@ -319,6 +342,7 @@ export async function handleQueueJoin(
     }
 
     // AI fallback timer (local path)
+    const botFallbackDelayMs = getBotFallbackDelayMs();
     const timeout = setTimeout(() => {
       const userId = ws.user?.userId;
       if (!userId) return;
@@ -326,6 +350,21 @@ export async function handleQueueJoin(
         (e) => e.user.userId === userId && e.requestId === requestId && e.connectionId === ws.connectionId,
       );
       if (!stillQueued) return;
+
+      // RC-5 guard: skip if user already obtained a match between timer arm and fire.
+      const hasActiveMatchLocal = Array.from(deps.state.getAllMatches()).some((m) => {
+        const lm = m as LocalMatch;
+        return (
+          (lm.state === "waiting_for_both" || lm.state === "countdown" || lm.state === "live") &&
+          lm.participants.has(userId)
+        );
+      });
+      if (hasActiveMatchLocal) {
+        gatewayLogWarn("Skipped local ranked queue AI fallback — user already has an active match", queueLogContext);
+        deps.state.removeFromQueue(userId);
+        deps.state.clearQueueTimeout(userId);
+        return;
+      }
 
       const sockets = getAuthedSocketsForUser(userId, deps);
       if (sockets.length === 0) {
@@ -340,7 +379,7 @@ export async function handleQueueJoin(
       void (async () => {
         gatewayLogInfo("Local ranked queue AI fallback timer fired", {
           ...queueLogContext,
-          timeoutMs: deps.aiQueueTimeoutMs,
+          botFallbackDelayMs,
         });
         const human = stillQueued.user;
         const aiUserId = `ai:${crypto.randomUUID()}`;
@@ -351,10 +390,12 @@ export async function handleQueueJoin(
           ],
           persistUserIds: [human.userId],
           startDelayMs: RANKED_MATCH_START_DELAY_MS,
+          isLowConfidence: true,
         });
-        gatewayLogInfo("Created local ranked AI fallback match", {
+        gatewayLogInfo("Created local ranked AI fallback match (low confidence)", {
           ...queueLogContext,
           matchId: created.matchId,
+          botFallbackDelayMs,
           queuedForMs: Math.max(0, Date.now() - stillQueued.joinedAtMs),
         });
         incrementGatewayMetric("pvp_queue_ai_fallback_total", { queue_mode: "local" });
@@ -387,10 +428,10 @@ export async function handleQueueJoin(
         sendToUser(userId, "ERROR", payload, deps);
         sendToUser(userId, "QUEUE_STATUS", { status: "IDLE" }, deps);
       });
-    }, deps.aiQueueTimeoutMs);
+    }, botFallbackDelayMs);
 
     deps.state.queueTimeouts.set(ws.user!.userId, timeout);
-    gatewayLogDebug("Scheduled local ranked queue AI fallback timer", { ...queueLogContext, timeoutMs: deps.aiQueueTimeoutMs });
+    gatewayLogDebug("Scheduled local ranked queue AI fallback timer", { ...queueLogContext, botFallbackDelayMs });
     localQueueResponseType = "QUEUE_STATUS";
     localQueueResponsePayload = { status: "SEARCHING" };
     shouldSendLocalQueueResponse = true;

@@ -1,8 +1,8 @@
 import type { PvpErrorPayload } from "@/features/pvp/shared/error-codes";
 
 export type ServerMessage =
-  | { type: "HELLO_OK"; payload: { user: { userId: string; username: string; avatar: string | null } } }
-  | { type: "AUTH_REFRESH_OK"; payload: { expiresAt: number } }
+  | { type: "HELLO_OK"; payload: { user: { userId: string; username: string; avatar: string | null; rating?: number; rankTier?: string; averageWpm?: number | null; bestWpm?: number | null; avgAcc?: number | null } } }
+  | { type: "AUTH_REFRESH_OK"; payload: { expiresAt: number; user?: { userId: string; username: string; avatar: string | null; rating?: number; rankTier?: string; averageWpm?: number | null; bestWpm?: number | null; avgAcc?: number | null } } }
   | { type: "QUEUE_STATUS"; payload: { status: string } }
   | {
       type: "ROOM_STATE";
@@ -10,11 +10,9 @@ export type ServerMessage =
         room: {
           code: string;
           status: string;
-          visibility?: "PRIVATE" | "PUBLIC";
           minPlayers?: number;
           maxPlayers: number;
           hostUserId?: string | null;
-          autoStartAt?: string | null;
           expiresAt?: string | null;
           members: Array<{ userId: string; username: string; avatar: string | null; slot: number; ready: boolean }>;
         };
@@ -36,6 +34,8 @@ export type ServerMessage =
           rating?: number;
           rankTier?: string;
           averageWpm?: number | null;
+          bestWpm?: number | null;
+          avgAcc?: number | null;
         }>;
       };
     }
@@ -133,4 +133,5 @@ export type ClientMessage =
   | { type: "FINISH"; payload: { matchId: string; clientTs?: number }; requestId?: string }
   | { type: "REMATCH_REQUEST"; payload: { matchId: string }; requestId?: string }
   | { type: "REMATCH_RESPONSE"; payload: { matchId: string; accept: boolean }; requestId?: string }
+  | { type: "MATCH_SYNC_REQUEST"; payload: { matchId: string }; requestId?: string }
   | { type: "PING"; payload?: Record<string, never>; requestId?: string };

@@ -4,7 +4,6 @@
  * Match creation use-cases extracted from main() closures:
  *   - `buildMatchFoundPlayerPayload` — pure helper, builds the player summary
  *   - `startRoomMatch` — create a room match, persist DB rows, broadcast MATCH_FOUND
- *   - `maybeAutoStartPublicRoom` — auto-trigger startRoomMatch for public rooms
  *   - `createRanked1v1Match` — create a ranked 1v1 (human/AI) match, broadcast MATCH_FOUND
  *
  * ## Import policy
@@ -26,7 +25,6 @@ import { createInitialLiveState } from "../match-live-state";
 import { runGatewayTransaction } from "../gateway-db";
 import { selectRankedText } from "../anti-cheat/text-selection";
 import { registerReplayNonce } from "../anti-cheat/replay";
-import { getPublicRoomStartCondition } from "../rooms/lifecycle";
 import { sanitizeDisplayName } from "../../../../src/lib/sanitize";
 import { createInputNonce, isAiUserId } from "../shared/errors";
 import { RANKED_MATCH_START_DELAY_MS, ROOM_MATCH_START_DELAY_MS, INSTANCE_ID } from "../shared/config";
@@ -172,87 +170,6 @@ export async function startRoomMatch(
 }
 
 // =============================================================================
-// PUBLIC ROOM AUTO-START
-// =============================================================================
-
-/**
- * Check if a public room meets its start condition and, if so, trigger
- * `startRoomMatch`.  Returns `true` when a match was started.
- */
-export async function maybeAutoStartPublicRoom(
-  roomCode: string,
-  deps: GatewayDeps,
-): Promise<boolean> {
-  const roomRows = await deps.db
-    .select({
-      id: pvpRooms.id,
-      code: pvpRooms.code,
-      status: pvpRooms.status,
-      visibility: pvpRooms.visibility,
-      minPlayers: pvpRooms.minPlayers,
-      maxPlayers: pvpRooms.maxPlayers,
-      autoStartAt: pvpRooms.autoStartAt,
-    })
-    .from(pvpRooms)
-    .where(eq(pvpRooms.code, roomCode))
-    .limit(1);
-
-  const roomBase = roomRows[0] ?? null;
-  if (!roomBase || roomBase.status !== "OPEN" || roomBase.visibility !== "PUBLIC") {
-    return false;
-  }
-
-  const memberRows = await deps.db
-    .select({
-      userId: pvpRoomMembers.userId,
-      colorSlot: pvpRoomMembers.colorSlot,
-      readyAt: pvpRoomMembers.readyAt,
-      leftAt: pvpRoomMembers.leftAt,
-      username: users.username,
-      avatar: playerProfiles.avatar,
-    })
-    .from(pvpRoomMembers)
-    .innerJoin(users, eq(pvpRoomMembers.userId, users.id))
-    .leftJoin(playerProfiles, eq(pvpRoomMembers.userId, playerProfiles.userId))
-    .where(and(eq(pvpRoomMembers.roomId, roomBase.id), isNull(pvpRoomMembers.leftAt)))
-    .orderBy(asc(pvpRoomMembers.joinedAt));
-
-  const room = {
-    ...roomBase,
-    members: memberRows.map((member) => ({
-      userId: member.userId,
-      colorSlot: member.colorSlot,
-      readyAt: member.readyAt,
-      leftAt: member.leftAt,
-      user: {
-        username: member.username,
-        profile: { avatar: member.avatar },
-      },
-    })),
-  };
-
-  const startCondition = getPublicRoomStartCondition({
-    members: room.members,
-    minimumPlayers: room.minPlayers,
-    maxPlayers: room.maxPlayers,
-    autoStartAt: room.autoStartAt,
-  });
-  if (!startCondition) {
-    return false;
-  }
-
-  await startRoomMatch(
-    {
-      roomId: room.id,
-      roomCode: room.code,
-      members: room.members,
-    },
-    deps,
-  );
-  return true;
-}
-
-// =============================================================================
 // RANKED 1v1 MATCH CREATION
 // =============================================================================
 
@@ -266,6 +183,8 @@ export async function createRanked1v1Match(
     users: Array<ConnectionUser & { slot: number }>;
     persistUserIds: string[];
     startDelayMs?: number;
+    /** Set to `true` for bot-fallback matches (progressive search timed out). */
+    isLowConfidence?: boolean;
   },
   deps: GatewayDeps,
 ): Promise<{ matchId: string; local: LocalMatch; serverStartAtMs: number; payload: unknown }> {
@@ -371,6 +290,10 @@ export async function createRanked1v1Match(
     textId: rankedText.textId,
     inputNonce,
   }) as LocalMatch;
+
+  if (params.isLowConfidence) {
+    local.isLowConfidence = true;
+  }
 
   if (hasAiParticipant) {
     deps.eventBus.emit("match:countdown", {

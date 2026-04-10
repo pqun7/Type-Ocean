@@ -273,3 +273,25 @@ export function extractAverageWpm(longTermStats: unknown): number | null {
 
   return Math.max(0, Math.round(averageWpm));
 }
+
+export function extractBestWpm(longTermStats: unknown): number | null {
+  if (!longTermStats || typeof longTermStats !== "object") return null;
+
+  const bestWpm = (longTermStats as Record<string, unknown>).bestWPM;
+  if (typeof bestWpm !== "number" || !Number.isFinite(bestWpm)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round(bestWpm));
+}
+
+export function extractAvgAcc(longTermStats: unknown): number | null {
+  if (!longTermStats || typeof longTermStats !== "object") return null;
+
+  const avgAcc = (longTermStats as Record<string, unknown>).averageAccuracy;
+  if (typeof avgAcc !== "number" || !Number.isFinite(avgAcc)) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(100, Number(avgAcc.toFixed(1))));
+}

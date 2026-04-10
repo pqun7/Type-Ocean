@@ -15,7 +15,7 @@ import { pvpRooms, pvpRoomMembers } from "../../../../src/db/schema";
 import { sanitizeAvatarUrl, sanitizeDisplayName } from "../../../../src/lib/sanitize";
 import { runGatewayTransaction, type GatewayDb } from "../gateway-db";
 import { buildRoomReconnectKey, selectNextRoomHost } from "../rooms/lifecycle";
-import { nextRoomExpiryDate, PUBLIC_ROOM_AUTO_START_MS, ONLINE_KEY_PREFIX } from "../shared/config";
+import { nextRoomExpiryDate, ONLINE_KEY_PREFIX } from "../shared/config";
 import { gatewayLogError } from "../shared/logger";
 import { broadcastRoom, getAuthedSocketsForUser } from "../presentation/ws-sender";
 import type { GatewayDeps } from "./deps";
@@ -75,11 +75,9 @@ export interface RoomStatePayload {
   room: {
     code: string;
     status: string;
-    visibility: string;
     minPlayers: number;
     maxPlayers: number;
     hostUserId: string | null;
-    autoStartAt: string | null;
     expiresAt: string | null;
     members: Array<{
       userId: string;
@@ -106,11 +104,9 @@ export async function loadRoomStatePayload(
       id: true,
       code: true,
       status: true,
-      visibility: true,
       minPlayers: true,
       maxPlayers: true,
       hostUserId: true,
-      autoStartAt: true,
       expiresAt: true,
     },
     where: eq(pvpRooms.code, roomCode),
@@ -142,11 +138,9 @@ export async function loadRoomStatePayload(
     room: {
       code: room.code,
       status: room.status,
-      visibility: room.visibility,
       minPlayers: room.minPlayers,
       maxPlayers: room.maxPlayers,
       hostUserId: room.hostUserId,
-      autoStartAt: room.autoStartAt?.toISOString() ?? null,
       expiresAt: room.expiresAt?.toISOString() ?? null,
       members: room.members.map((member) => ({
         userId: member.userId,
@@ -181,11 +175,9 @@ export async function broadcastRoomState(
     room: {
       code: payload.room.code,
       status: payload.room.status,
-      visibility: payload.room.visibility,
       minPlayers: payload.room.minPlayers,
       maxPlayers: payload.room.maxPlayers,
       hostUserId: payload.room.hostUserId,
-      autoStartAt: payload.room.autoStartAt,
       expiresAt: payload.room.expiresAt,
       members: payload.room.members.map((member) => ({
         userId: member.userId,
@@ -217,8 +209,7 @@ async function tryAcquireRoomSweepLock(
 }
 
 /**
- * Sweep open rooms: evict offline members, transfer hosts, expire rooms,
- * and trigger public-room auto-start as needed.
+ * Sweep open rooms: evict offline members, transfer hosts, and expire rooms.
  */
 export async function sweepRoomLifecycle(
   db: GatewayDb,
@@ -226,7 +217,6 @@ export async function sweepRoomLifecycle(
     GatewayDeps,
     "redisBus" | "matchCache" | "messageBatcher" | "gatewayMetrics" | "instanceId"
   >,
-  onPublicRoomReady?: (roomCode: string) => Promise<unknown>,
 ): Promise<void> {
   const redis = deps.redisBus?.redis ?? null;
   const acquired = await tryAcquireRoomSweepLock(deps);
@@ -234,7 +224,7 @@ export async function sweepRoomLifecycle(
 
   const now = Date.now();
   const rooms = await db.query.pvpRooms.findMany({
-    columns: { id: true, code: true, visibility: true, expiresAt: true, status: true },
+    columns: { id: true, code: true, expiresAt: true, status: true },
     where: or(eq(pvpRooms.status, "OPEN"), lte(pvpRooms.expiresAt, new Date(now))),
     with: {
       members: {
@@ -287,10 +277,6 @@ export async function sweepRoomLifecycle(
       await transferRoomHostIfNeeded(db, room.id);
       await broadcastRoomState(db, room.code, deps);
     }
-
-    if (room.visibility === "PUBLIC") {
-      await onPublicRoomReady?.(room.code);
-    }
   }
 }
 
@@ -300,7 +286,7 @@ export async function sweepRoomLifecycle(
 
 /**
  * Restore a room back to `OPEN` state after a match concludes,
- * clearing all readiness flags and resetting auto-start timers.
+ * clearing all readiness flags.
  */
 export async function restoreRoomAfterMatch(
   db: GatewayDb,
@@ -310,10 +296,6 @@ export async function restoreRoomAfterMatch(
   const roomRows = await db
     .select({
       id: pvpRooms.id,
-      code: pvpRooms.code,
-      status: pvpRooms.status,
-      visibility: pvpRooms.visibility,
-      maxPlayers: pvpRooms.maxPlayers,
     })
     .from(pvpRooms)
     .where(eq(pvpRooms.code, roomCode))
@@ -327,9 +309,7 @@ export async function restoreRoomAfterMatch(
       .update(pvpRooms)
       .set({
         status: "OPEN",
-        autoStartAt: room.visibility === "PUBLIC"
-          ? new Date(Date.now() + PUBLIC_ROOM_AUTO_START_MS)
-          : null,
+        autoStartAt: null,
         expiresAt: nextRoomExpiryDate(),
         updatedAt: new Date(),
       })

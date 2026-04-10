@@ -392,7 +392,7 @@ export function setupWssConnectionHandler(
         const userId = ws.user.userId;
         void (async () => {
           const roomRows = await deps.db
-            .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status, visibility: pvpRooms.visibility })
+            .select({ id: pvpRooms.id, code: pvpRooms.code, status: pvpRooms.status })
             .from(pvpRooms)
             .where(eq(pvpRooms.code, code))
             .limit(1);
@@ -426,9 +426,6 @@ export function setupWssConnectionHandler(
 
           await transferRoomHostIfNeeded(deps.db, room.id);
           await broadcastRoomState(deps.db, code, deps);
-          if (room.visibility === "PUBLIC") {
-            await deps.maybeAutoStartPublicRoom(code);
-          }
         })().catch((err: unknown) => {
           gatewayLogError("Room post-leave handler failed", err, { code });
         });
