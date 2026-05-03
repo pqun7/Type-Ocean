@@ -64,14 +64,15 @@ import {
   isAiUserId,
   toEpochMs,
 } from "./shared/errors";
-import { nextRoomExpiryDate, AI_QUEUE_TIMEOUT_MIN_MS, AI_QUEUE_TIMEOUT_MAX_MS, RANKED_MATCH_START_DELAY_MS, ROOM_MATCH_START_DELAY_MS } from "./shared/config";
+import { nextRoomExpiryDate, AI_QUEUE_TIMEOUT_MIN_MS, AI_QUEUE_TIMEOUT_MAX_MS, RANKED_MATCH_START_DELAY_MS, ROOM_MATCH_START_DELAY_MS, DISCONNECT_FORFEIT_QUEUE_KEY, NOSHOW_QUEUE_KEY, FORFEIT_TIMER_POLL_MS, NOSHOW_TIMER_POLL_MS } from "./shared/config";
 import { setupWssConnectionHandler, type WsServerOpts, type WsServerState } from "./presentation/ws-connection";
 import type { GatewayDeps } from "./application/deps";
 import { InputFlushCoordinator } from "./infrastructure/input-flush-coordinator";
 import { RedisQueueAdapter, LocalMemoryQueueAdapter } from "./matchmaking/queue-adapter";
 import { loadGatewayLongTermStats } from "./application/load-long-term-stats";
 import { MatchStartOrchestrator, productionTimerService } from "./application/match-start-orchestrator";
-import { createRedisCountdownQueue, type RedisCountdownQueue } from "./infrastructure/redis";
+import { createRedisCountdownQueue, createRedisDeferredTimerQueue, type RedisCountdownQueue, type RedisDeferredTimerQueue } from "./infrastructure/redis";
+import { rehydrateActiveMatches } from "./application/recovery";
 
 // =============================================================================
 // BRANDED TYPES — canonical definitions live in shared/branded-ids.ts
@@ -136,6 +137,8 @@ let matchLockRegistry: MatchLockRegistry | null = null;
 let matchCleanupService: MatchCleanupService | null = null;
 let matchStartOrchestrator: MatchStartOrchestrator | null = null;
 let countdownQueue: RedisCountdownQueue | null = null;
+let forfeitQueue: RedisDeferredTimerQueue | null = null;
+let noshowQueue: RedisDeferredTimerQueue | null = null;
 
 /**
  * Acquire the per-match exclusive lock, falling through without locking if
@@ -1723,9 +1726,13 @@ async function main(): Promise<void> {
   const clearDisconnectForfeitTimer = (matchId: string, userId: string): void => {
     const key = getDisconnectForfeitKey(matchId, userId);
     const existing = disconnectForfeitTimers.get(key);
-    if (!existing) return;
-    clearTimeout(existing);
-    disconnectForfeitTimers.delete(key);
+    if (existing) {
+      clearTimeout(existing);
+      disconnectForfeitTimers.delete(key);
+    }
+    // Always remove from Redis so the forfeit worker never fires for a
+    // cancelled forfeit, even when there was no local timer (e.g. after restart).
+    void forfeitQueue?.remove(key).catch(() => {});
   };
 
   const clearNoShowTimer = (matchId: string): void => {
@@ -2157,7 +2164,10 @@ async function main(): Promise<void> {
     }
 
     disconnectForfeitTimers.set(getDisconnectForfeitKey(matchId, userId), timer);
-  };
+    // Durable backup: persist the deadline in Redis so the forfeit worker can
+    // fire even if the in-process timer is lost (e.g. after a gateway crash).
+    void forfeitQueue?.enqueue(getDisconnectForfeitKey(matchId, userId), Date.now() + delayMs).catch(() => {});
+};
 
   const createLockedHumanRematch = async (params: {
     sourceMatchId: string;
@@ -2440,6 +2450,98 @@ async function main(): Promise<void> {
     countdownWorkerInterval.unref();
   }
 
+  // Forfeit worker: polls the Redis sorted-set for overdue disconnect-forfeit
+  // deadlines.  Provides a durable fallback when the in-process timer was lost
+  // (e.g. after a gateway restart while a player was disconnected).
+  const forfeitWorkerInterval: NodeJS.Timeout | null = forfeitQueue
+    ? setInterval(() => {
+        void forfeitQueue!.pollDue().then(async (keys) => {
+          for (const key of keys) {
+            // Keys are composite "matchId:userId" — matchId is a UUID (contains
+            // hyphens but no colons), userId is also UUID.  Split on the first
+            // colon that separates the two UUIDs (UUID is 36 chars + hyphen separators,
+            // so total matchId length is 36, then a colon, then userId 36 chars).
+            const sepIdx = key.indexOf(":", 0);
+            if (sepIdx === -1) continue;
+            const matchId = key.slice(0, sepIdx);
+            const userId = key.slice(sepIdx + 1);
+            if (!matchId || !userId) continue;
+
+            const activeMatch = state.matches.get(matchId) as LocalMatch | undefined;
+            if (!activeMatch) continue; // Match not in state (already finished or not yet recovered).
+
+            // If the user has an active socket for this match, they reconnected
+            // before the deadline fired — skip.
+            if (getAuthedSocketsForUser(wss, userId).length > 0) {
+              // Clean up the Redis key since the user is online again.
+              void forfeitQueue!.remove(key).catch(() => {});
+              continue;
+            }
+
+            if (
+              !shouldScheduleDisconnectForfeit({
+                policy: getDisconnectForfeitPolicy({
+                  roomCode: activeMatch.roomCode,
+                  participantCount: activeMatch.participants.size,
+                }),
+                participantCount: activeMatch.participants.size,
+                otherActiveSocketsForUser: 0,
+                matchState: activeMatch.state,
+                matchStatus: activeMatch.status,
+              })
+            ) {
+              void forfeitQueue!.remove(key).catch(() => {});
+              continue;
+            }
+
+            await withMatchLock(toMatchId(matchId), () => finalizeMatchByDisconnectForfeit({
+              db,
+              wss,
+              state,
+              eventBus,
+              matchId,
+              forfeitedUserId: userId,
+            })).catch((err: unknown) => {
+              gatewayLogError("Redis forfeit worker finalization failed", err, { matchId, userId });
+            });
+          }
+        }).catch((err: unknown) => {
+          gatewayLogError("Redis forfeit worker poll failed", err);
+        });
+      }, FORFEIT_TIMER_POLL_MS)
+    : null;
+  if (forfeitWorkerInterval && typeof forfeitWorkerInterval.unref === "function") {
+    forfeitWorkerInterval.unref();
+  }
+
+  // No-show worker: polls the Redis sorted-set for overdue no-show deadlines.
+  // Provides a durable fallback for PENDING matches whose no-show timer was
+  // lost after a gateway restart.
+  const noshowWorkerInterval: NodeJS.Timeout | null = noshowQueue
+    ? setInterval(() => {
+        void noshowQueue!.pollDue().then(async (matchIds) => {
+          for (const matchId of matchIds) {
+            const activeMatch = state.matches.get(matchId) as LocalMatch | undefined;
+            if (!activeMatch) continue; // Not in state — already finished or not recovered.
+            if (activeMatch.state !== "waiting_for_both") {
+              // Match advanced past the no-show phase — remove stale entry.
+              void noshowQueue!.remove(matchId).catch(() => {});
+              continue;
+            }
+
+            await matchStartOrchestrator?.triggerNoShowAbort(toMatchId(matchId)).catch((err: unknown) => {
+              gatewayLogError("Redis no-show worker abort failed", err, { matchId });
+            });
+          }
+        }).catch((err: unknown) => {
+          gatewayLogError("Redis no-show worker poll failed", err);
+        });
+      }, NOSHOW_TIMER_POLL_MS)
+    : null;
+  if (noshowWorkerInterval && typeof noshowWorkerInterval.unref === "function") {
+    noshowWorkerInterval.unref();
+  }
+
   let roomLifecycleSweepInterval: NodeJS.Timeout | null = null;
   if (isGatewayDbConfigured) {
     roomLifecycleSweepInterval = setInterval(() => {
@@ -2490,7 +2592,10 @@ async function main(): Promise<void> {
 
     redisBus = await createRedisBus(REDIS_URL);
     countdownQueue = createRedisCountdownQueue(redisBus.redis);
+    forfeitQueue = createRedisDeferredTimerQueue(redisBus.redis, DISCONNECT_FORFEIT_QUEUE_KEY);
+    noshowQueue = createRedisDeferredTimerQueue(redisBus.redis, NOSHOW_QUEUE_KEY);
     matchStartOrchestrator?.wireCountdownQueue(countdownQueue);
+    matchStartOrchestrator?.wireNoshowQueue(noshowQueue);
     gatewayLogInfo("Redis bus enabled for PvP gateway", {
       instanceId: INSTANCE_ID,
       hasRedisUrl: Boolean(REDIS_URL),
@@ -3291,6 +3396,8 @@ return nil
     queueAdapter,
     persistReconnectGraceWindow,
     matchStartOrchestrator,
+    forfeitQueue,
+    noshowQueue,
     activateCountdownMatchIfDue: async (matchId: string): Promise<boolean> => {
       return activateCountdownMatch(matchId, "client-sync");
     },
@@ -3321,44 +3428,33 @@ return nil
   };
 
   // =============================================================================
-  // STARTUP RECOVERY SWEEP (Step 4 — RC-4 fix)
+  // STARTUP RECOVERY SWEEP (Step 4 — extended RC-4 fix)
   // =============================================================================
-  // Activate any COUNTDOWN matches whose serverStartAt has already passed.
-  // This handles the case where the gateway restarted after the start time was
-  // reached but before the activation timer fired.  Players who later reconnect
-  // via MATCH_JOIN will receive MATCH_STATE with state="live" and can resume.
-  {
-    const _startupNow = Date.now();
-    const overdueRows = await db
-      .select({ id: pvpMatches.id })
-      .from(pvpMatches)
-      .where(and(
-        eq(pvpMatches.status, "COUNTDOWN"),
-        lte(pvpMatches.serverStartAt, new Date(_startupNow)),
-      ))
-      .limit(50)
-      .catch((err: unknown) => {
-        gatewayLogError("[Startup] Countdown recovery query failed", err);
-        return [] as { id: string }[];
-      });
-
-    if (overdueRows.length > 0) {
-      gatewayLogWarn("[Startup] Activating overdue COUNTDOWN matches", { count: overdueRows.length });
-      let activated = 0;
-      for (const row of overdueRows) {
+  // Rebuild in-memory state for ALL non-terminal matches (PENDING, COUNTDOWN,
+  // RUNNING) and re-arm their start-sequence timers.  Overdue COUNTDOWN matches
+  // are activated immediately.  This replaces the previous narrow sweep that
+  // only activated overdue COUNTDOWN rows.
+  if (isGatewayDbConfigured) {
+    await rehydrateActiveMatches({
+      matchRepository,
+      state,
+      orchestrator: matchStartOrchestrator!,
+      maxAgeMs: 24 * 60 * 60 * 1_000, // 24 h
+      onActivateOverdueCountdown: async (matchId: string) => {
         try {
           const applied = await matchRepository.withTransaction(async (tx) => {
-            const locked = await matchRepository.loadForUpdate(tx, row.id);
+            const locked = await matchRepository.loadForUpdate(tx, matchId);
             if (!locked || locked.status !== "COUNTDOWN") return false;
             const nowMs = Date.now();
             const effectiveStartAtMs =
-              locked.liveState?.serverStartAtEpochMs ?? (locked.serverStartAt ? locked.serverStartAt.getTime() : 0);
+              locked.liveState?.serverStartAtEpochMs ??
+              (locked.serverStartAt ? locked.serverStartAt.getTime() : 0);
             if (nowMs < effectiveStartAtMs) return false; // still in the future (timezone edge case)
             const activatedLiveState = activateMatchLiveState(
               locked.liveState ?? createInitialLiveState({ state: "countdown", participants: [] }),
               nowMs,
             );
-            const result = await matchRepository.updateWithRevision(tx, row.id, {
+            const result = await matchRepository.updateWithRevision(tx, matchId, {
               expectedRevision: locked.revision,
               nextState: "live",
               liveState: activatedLiveState,
@@ -3367,21 +3463,29 @@ return nil
               startedAt: locked.startedAt ?? new Date(nowMs),
               endedAt: null,
             });
+            if (result.applied) {
+              // Sync in-memory match state with the DB row we just activated.
+              const local = state.matches.get(matchId) as LocalMatch | undefined;
+              if (local) {
+                local.state = "live";
+                local.status = "RUNNING";
+                local.stateChangedAt = nowMs;
+                local.revision = result.nextRevision;
+              }
+              eventBus.emit("match:start-rehydrated", { matchId, phase: "live", atMs: nowMs });
+            }
             return result.applied;
           });
-          if (applied) {
-            activated++;
-            eventBus.emit("match:start-rehydrated", { matchId: row.id, phase: "live", atMs: Date.now() });
+          if (!applied) {
+            gatewayLogWarn("[Startup] Skipped overdue COUNTDOWN activation (already changed)", { matchId });
           }
         } catch (err: unknown) {
-          gatewayLogError("[Startup] Failed to activate overdue COUNTDOWN match", err, { matchId: row.id });
+          gatewayLogError("[Startup] Failed to activate overdue COUNTDOWN match via recovery", err, { matchId });
         }
-      }
-      gatewayLogWarn("[Startup] Countdown recovery complete", {
-        activated,
-        skipped: overdueRows.length - activated,
-      });
-    }
+      },
+    }).catch((err: unknown) => {
+      gatewayLogError("[Startup] rehydrateActiveMatches threw unexpectedly", err);
+    });
   }
 
   setupWssConnectionHandler(wss, deps, wsOpts, connWsState);
@@ -3466,6 +3570,12 @@ return nil
       clearInterval(metricSnapshotInterval);
       if (countdownWorkerInterval) {
         clearInterval(countdownWorkerInterval);
+      }
+      if (forfeitWorkerInterval) {
+        clearInterval(forfeitWorkerInterval);
+      }
+      if (noshowWorkerInterval) {
+        clearInterval(noshowWorkerInterval);
       }
       if (roomLifecycleSweepInterval) {
         clearInterval(roomLifecycleSweepInterval);

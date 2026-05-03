@@ -25,14 +25,25 @@ function tryLoadEnvFile(baseDir: string, filePath: string) {
   }
 }
 
-// Always prefer workspace cwd when started via npm scripts from repo root.
-const gatewayDir = path.resolve(__dirname, "..");
 const repoRoot = process.cwd();
+const sourceGatewayDir = path.resolve(repoRoot, "services", "pvp-gateway");
+const runtimeGatewayDir = path.resolve(__dirname, "..");
 
-// Match Next.js precedence: .env then .env.local
-tryLoadEnvFile(repoRoot, path.join(repoRoot, ".env"));
-tryLoadEnvFile(repoRoot, path.join(repoRoot, ".env.local"));
+const candidateBaseDirs = [sourceGatewayDir, repoRoot, runtimeGatewayDir].filter(
+  (baseDir, index, all) => all.indexOf(baseDir) === index
+);
 
-// Also support gateway-local env files
-tryLoadEnvFile(gatewayDir, path.join(gatewayDir, ".env"));
-tryLoadEnvFile(gatewayDir, path.join(gatewayDir, ".env.local"));
+// First-loaded value wins (dotenv override=false). Keep gateway-specific files first
+// so start/build can use dedicated values without clobbering shell-provided env.
+const envFileOrder = [
+  ".env.gateway.local",
+  ".env.gateway",
+  ".env.local",
+  ".env",
+] as const;
+
+for (const fileName of envFileOrder) {
+  for (const baseDir of candidateBaseDirs) {
+    tryLoadEnvFile(baseDir, path.join(baseDir, fileName));
+  }
+}

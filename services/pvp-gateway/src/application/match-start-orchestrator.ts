@@ -47,7 +47,7 @@ import type { MatchLifecycleState } from "../match-fsm";
 import type { MatchLiveState } from "../match-live-state";
 import type { LocalMatch } from "../shared/types";
 import type { MatchId } from "../shared/branded-ids";
-import type { RedisCountdownQueue } from "../infrastructure/redis";
+import type { RedisCountdownQueue, RedisDeferredTimerQueue } from "../infrastructure/redis";
 import { MATCH_NO_SHOW_TIMEOUT_MS, MATCH_MAX_COUNTDOWN_AGE_MS } from "../shared/config";
 import { gatewayLogInfo, gatewayLogWarn } from "../shared/logger";
 
@@ -186,6 +186,9 @@ export class MatchStartOrchestrator {
     private countdownQueue: RedisCountdownQueue | null = null,
   ) {}
 
+  /** Durable no-show deadline queue; set via `wireNoshowQueue` after construction. */
+  private noshowQueue: RedisDeferredTimerQueue | null = null;
+
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
@@ -211,6 +214,29 @@ export class MatchStartOrchestrator {
     this.countdownQueue = queue;
   }
 
+  /**
+   * Patch the durable no-show queue after the orchestrator is constructed.
+   *
+   * Call once from `main()` after `redisBus` is initialised.
+   * When set, `_armNoShow` enqueues the deadline and `_cancelNoShow` / `disarm`
+   * remove it so the poller never fires for a cleanly-cancelled match.
+   */
+  wireNoshowQueue(queue: RedisDeferredTimerQueue | null): void {
+    this.noshowQueue = queue;
+  }
+  /**
+   * Fire the no-show abort callback directly — used by the Redis noshow worker
+   * to recover overdue entries after a gateway restart (when the in-process
+   * timer was lost).
+   *
+   * Clears the in-process armed flag before calling `abortNoShow` so we don't
+   * double-fire if `rehydrate()` has also armed a local timer.
+   */
+  async triggerNoShowAbort(matchId: MatchId): Promise<void> {
+    // Cancel any in-process no-show timer (idempotent).
+    this._cancelNoShow(matchId);
+    await this.callbacks.abortNoShow(matchId);
+  }
   /**
    * Arm the start-sequence for a newly created match.
    *
@@ -362,6 +388,9 @@ export class MatchStartOrchestrator {
     this.timers.delete(matchId);
     this.countdownArmed.delete(matchId);
     this.noShowArmed.delete(matchId);
+    // Belt-and-suspenders: also remove from Redis queue in case _cancelNoShow
+    // missed it (e.g. if timers entry was already absent).
+    void this.noshowQueue?.remove(matchId).catch(() => {});
   }
 
   // ---------------------------------------------------------------------------
@@ -382,6 +411,10 @@ export class MatchStartOrchestrator {
     }, delayMs);
 
     this.timers.set(matchId, entry);
+
+    // Durable backup: enqueue the deadline in Redis so the no-show worker
+    // can fire even if this in-process timer is lost (e.g. after a crash).
+    void this.noshowQueue?.enqueue(matchId, Date.now() + delayMs).catch(() => {});
   }
 
   private _cancelNoShow(matchId: MatchId): void {
@@ -390,6 +423,9 @@ export class MatchStartOrchestrator {
     this.timerSvc.clearTimer(entry.noShowHandle);
     delete entry.noShowHandle;
     this.noShowArmed.delete(matchId);
+    // Remove from Redis so the worker won't try to cancel a match that was
+    // already cleanly cancelled (both players joined → countdown).
+    void this.noshowQueue?.remove(matchId).catch(() => {});
   }
 
   private _armCountdown(match: LocalMatch, remainingMs: number): void {

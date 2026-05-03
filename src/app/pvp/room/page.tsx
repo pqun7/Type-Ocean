@@ -1,135 +1,157 @@
-'use client';
+"use client";
 
-import { useState, useRef, useEffect, ClipboardEvent } from 'react';
-import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useRef, useEffect, ClipboardEvent } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   DoorOpen,
-  LockKeyhole,
   Sparkles,
   Sword,
   Trophy,
   Users,
-  Zap,
-  Copy,
+  Plus,
   CheckCircle2,
   Loader2,
   ChevronDown,
   ArrowRight,
-  Globe,
-  Shield,
   Hash,
-} from 'lucide-react';
-import Header from '@/components/layout/Header/Header';
+  Wifi,
+  Crown,
+  ShieldCheck,
+  Eye,
+} from "lucide-react";
+import Header from "@/components/layout/Header/Header";
+import { Button } from "@/components/ui/button";
+import { useAlert } from "@/contexts/alert-context";
 
 // ============================================================================
-// Premium UI Components (inspired by reference Arena design)
+// Living Design System Tokens (Premium Gaming Lobby Edition)
 // ============================================================================
+const designTokens = {
+  glass: {
+    base: "bg-black/30 backdrop-blur-2xl",
+    border: "border-white/10",
+    hoverBorder: "hover:border-white/20",
+    shadow: "shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5)]",
+    tactile:
+      "shadow-[inset_0_1px_1px_rgba(255,255,255,0.06),0_12px_24px_-12px_rgba(0,0,0,0.8)]",
+  },
+  accents: {
+    cyan: "from-cyan-400/20 to-blue-500/5",
+    purple: "from-purple-400/20 to-pink-500/5",
+    amber: "from-amber-400/20 to-orange-500/5",
+  },
+  handDrawn: {
+    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))",
+    stroke: "stroke-white/40 stroke-[1.5] fill-none",
+  },
+};
 
+// ============================================================================
+// Hand-Drawn Accent Components (Proof of Personhood Aesthetic)
+// ============================================================================
+const HandDrawnSquiggle = ({ className = "" }: { className?: string }) => (
+  <svg
+    className={`pointer-events-none absolute ${className}`}
+    width="120"
+    height="30"
+    viewBox="0 0 120 30"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    style={{ filter: designTokens.handDrawn.filter }}
+  >
+    <path
+      d="M5,15 Q20,5 35,15 T65,15 T95,15 T115,12"
+      className={designTokens.handDrawn.stroke}
+      strokeLinecap="round"
+      strokeDasharray="3 2"
+    />
+  </svg>
+);
+
+const HandDrawnCircle = ({ className = "" }: { className?: string }) => (
+  <svg
+    className={`pointer-events-none absolute ${className}`}
+    width="40"
+    height="40"
+    viewBox="0 0 40 40"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    style={{ filter: designTokens.handDrawn.filter }}
+  >
+    <circle
+      cx="20"
+      cy="20"
+      r="16"
+      className={designTokens.handDrawn.stroke}
+      strokeDasharray="4 3"
+    />
+  </svg>
+);
+
+// ============================================================================
+// Premium Glass Card 3.0 – Whisper‑light Elegance for 2027
+// ============================================================================
+// ============================================================================
+// Premium Glass Card 3.1 – Fixed Field Visibility on Hover
+// ============================================================================
 const GlassCard = ({
   children,
-  className = '',
-  glowColor = 'cyan',
+  className = "",
+  glowColor = "cyan",
+  depth = "default",
 }: {
   children: React.ReactNode;
   className?: string;
-  glowColor?: 'cyan' | 'purple' | 'pink';
+  glowColor?: "cyan" | "purple" | "amber";
+  depth?: "default" | "elevated";
 }) => {
   const glowMap = {
-    cyan: 'from-cyan-500/20 via-blue-500/10 to-transparent',
-    purple: 'from-purple-500/20 via-pink-500/10 to-transparent',
-    pink: 'from-pink-500/20 via-rose-500/10 to-transparent',
+    cyan: "from-cyan-500/5 via-cyan-400/5 to-transparent",
+    purple: "from-purple-500/5 via-purple-400/5 to-transparent",
+    amber: "from-amber-500/5 via-amber-400/5 to-transparent",
   };
+
+  const depthClass =
+    depth === "elevated"
+      ? "shadow-[0_20px_40px_-12px_rgba(0,0,0,0.4),0_8px_20px_-8px_rgba(0,0,0,0.3)]"
+      : "shadow-[0_12px_24px_-8px_rgba(0,0,0,0.3),0_4px_12px_-4px_rgba(0,0,0,0.2)]";
+
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-xl transition-all duration-500 hover:border-white/20 hover:shadow-2xl ${className}`}
+      className={`
+        group relative rounded-3xl
+        border border-white/[0.06]
+        bg-black/15 backdrop-blur-md
+        transition-all duration-700 ease-out
+        hover:border-white/[0.12]
+        ${depthClass}
+        ${className}
+      `}
     >
-      <div
-        className={`absolute -inset-px bg-gradient-to-r ${glowMap[glowColor]} opacity-0 blur-2xl transition-opacity duration-700 group-hover:opacity-100`}
-      />
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-      {children}
+      {/* الطبقات الزخرفية محصورة داخلها overflow-hidden */}
+      <div className="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
+        <div
+          className={`
+            absolute inset-0 z-0
+            bg-gradient-to-r ${glowMap[glowColor]}
+            opacity-0 blur-2xl transition-opacity duration-1000
+            group-hover:opacity-100
+          `}
+        />
+        <div className="absolute inset-0 z-0 bg-gradient-to-b from-white/[0.02] to-transparent" />
+      </div>
+
+      {/* المحتوى – يمكنه الفيض خارج الحدود (للـ dropdown) */}
+      <div className="relative z-10">{children}</div>
     </div>
   );
 };
 
-const PremiumButton = ({
-  onClick,
-  children,
-  disabled,
-  loading = false,
-  variant = 'primary',
-  icon: Icon = null,
-}: {
-  onClick: () => void;
-  children: React.ReactNode;
-  disabled?: boolean;
-  loading?: boolean;
-  variant?: 'primary' | 'secondary' | 'danger';
-  icon?: React.ElementType | null;
-}) => {
-  const variants = {
-    primary: {
-      bg: 'from-cyan-500 via-blue-500 to-purple-600',
-      shadow: 'shadow-[0_8px_20px_-6px_rgba(6,182,212,0.3)]',
-      hover: 'hover:shadow-[0_8px_25px_-6px_rgba(6,182,212,0.5)]',
-      text: 'text-white',
-    },
-    secondary: {
-      bg: 'from-slate-600 via-slate-500 to-zinc-600',
-      shadow: 'shadow-none',
-      hover: 'hover:shadow-[0_4px_15px_-3px_rgba(255,255,255,0.1)]',
-      text: 'text-white/90',
-    },
-    danger: {
-      bg: 'from-red-500 via-rose-500 to-red-600',
-      shadow: 'shadow-[0_8px_20px_-6px_rgba(239,68,68,0.3)]',
-      hover: 'hover:shadow-[0_8px_25px_-6px_rgba(239,68,68,0.5)]',
-      text: 'text-white',
-    },
-  };
-  const current = variants[variant];
-
-  return (
-    <motion.button
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={`relative overflow-hidden rounded-xl px-5 py-2.5 font-bold text-sm uppercase tracking-wider transition-all duration-300 ${
-        disabled || loading ? 'cursor-not-allowed opacity-60' : `${current.hover} hover:scale-[1.02] active:scale-[0.98]`
-      } ${current.shadow}`}
-      style={{
-        background: `linear-gradient(135deg, ${current.bg.split(' ').join(', ')})`,
-      }}
-      whileTap={{ scale: 0.98 }}
-    >
-      <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
-      <span className={`relative flex items-center justify-center gap-2 ${current.text}`}>
-        {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <>
-            {Icon && <Icon className="h-3.5 w-3.5" />}
-            {children}
-          </>
-        )}
-      </span>
-    </motion.button>
-  );
-};
-
-const RuleItem = ({ icon: Icon, text }: { icon: React.ElementType; text: string }) => (
-  <motion.div
-    className="group flex items-start gap-2 rounded-lg p-1.5 transition-all hover:bg-white/5"
-    whileHover={{ x: 4 }}
-  >
-    <div className="shrink-0 rounded-full bg-cyan-500/10 p-1 text-cyan-400 transition-all group-hover:scale-110 group-hover:bg-cyan-500/20">
-      <Icon className="h-3 w-3" />
-    </div>
-    <span className="text-[11px] leading-relaxed text-white/50 group-hover:text-white/80">{text}</span>
-  </motion.div>
-);
-
-const StyledSelect = ({
+// ============================================================================
+// Organic Fluid Select (Responsive)
+// ============================================================================
+const FluidSelect = ({
   value,
   onChange,
   options,
@@ -140,38 +162,59 @@ const StyledSelect = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   return (
-    <div className="relative">
+    <div className="relative inline-block">
       <motion.button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 rounded-lg border border-white/20 bg-black/40 px-4 py-2.5 text-sm font-medium text-white backdrop-blur-sm transition-all hover:border-cyan-500/50 focus:outline-none"
+        className="flex items-center gap-3 rounded-xl border border-white/20 bg-black/30 px-[clamp(1rem,3vw,1.5rem)] py-[clamp(0.5rem,1.5vw,0.75rem)] text-sm font-medium text-white backdrop-blur-md transition-all hover:border-cyan-400/50 focus:outline-none"
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
-        {value} Players
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+        <span className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-cyan-400" />
+          <span className="tabular-nums">{value}</span>
+          <span className="text-white/50">Players</span>
+        </span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 text-white/60 transition-transform duration-500 ${isOpen ? "rotate-180" : ""}`}
+        />
       </motion.button>
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute left-0 top-full z-20 mt-2 w-full overflow-hidden rounded-xl border border-white/10 bg-black/90 backdrop-blur-xl"
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            className="absolute left-0 top-full z-20 mt-3 w-44 overflow-hidden rounded-2xl border border-white/20 bg-black/80 backdrop-blur-2xl shadow-2xl"
           >
-            {options.map((opt) => (
-              <button
-                key={opt}
-                onClick={() => {
-                  onChange(opt);
-                  setIsOpen(false);
-                }}
-                className={`w-full px-4 py-2 text-left text-sm transition-all hover:bg-white/10 ${
-                  value === opt ? 'text-cyan-400' : 'text-white/70'
-                }`}
-              >
-                {opt} Players
-              </button>
-            ))}
+            <div className="py-1">
+              {options.map((opt) => (
+                <motion.button
+                  key={opt}
+                  onClick={() => {
+                    onChange(opt);
+                    setIsOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm transition-all hover:bg-white/10 ${
+                    value === opt
+                      ? "text-cyan-300 bg-cyan-500/10"
+                      : "text-white/70"
+                  }`}
+                  whileHover={{
+                    x: 6,
+                    backgroundColor: "rgba(6, 182, 212, 0.15)",
+                  }}
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  <span className="tabular-nums">{opt}</span>
+                  <span>Players</span>
+                  {value === opt && (
+                    <CheckCircle2 className="ml-auto h-3.5 w-3.5 text-cyan-400" />
+                  )}
+                </motion.button>
+              ))}
+            </div>
+            <HandDrawnSquiggle className="-bottom-2 left-2 opacity-60" />
           </motion.div>
         )}
       </AnimatePresence>
@@ -180,100 +223,117 @@ const StyledSelect = ({
 };
 
 // ============================================================================
-// OTP-style Code Input Component (letters only, 8 boxes with dash)
+// OTP Code Input – 8-Character Single Row (4 + — + 4)
 // ============================================================================
 interface CodeInputProps {
-  value: string; // full code with dash (e.g., "ABCD-EFGH")
+  value: string;
   onChange: (code: string) => void;
   onComplete?: (code: string) => void;
 }
-
 const CodeInput = ({ value, onChange, onComplete }: CodeInputProps) => {
   const [digits, setDigits] = useState<string[]>(() => {
-    const clean = value.replace('-', '');
-    const arr = clean.split('').slice(0, 8);
-    while (arr.length < 8) arr.push('');
+    const clean = value.replace("-", "");
+    const arr = clean.split("").slice(0, 8);
+    while (arr.length < 8) arr.push("");
     return arr;
   });
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Sync external value changes (e.g., paste from demo)
   useEffect(() => {
-    const clean = value.replace('-', '');
-    const newDigits = clean.split('').slice(0, 8);
-    while (newDigits.length < 8) newDigits.push('');
+    const clean = value.replace("-", "");
+    const newDigits = clean.split("").slice(0, 6);
+    while (newDigits.length < 6) newDigits.push("");
     setDigits(newDigits);
   }, [value]);
 
   const updateFullCode = (newDigits: string[]) => {
-    const firstPart = newDigits.slice(0, 4).join('');
-    const secondPart = newDigits.slice(4, 8).join('');
+    const firstPart = newDigits.slice(0, 3).join("");
+    const secondPart = newDigits.slice(3, 6).join("");
     const formatted = `${firstPart}-${secondPart}`;
     onChange(formatted);
-    if (newDigits.every(d => d.match(/[A-Z]/)) && newDigits.length === 8) {
+    if (newDigits.every((d) => d.match(/[A-Z0-9]/)) && newDigits.length === 6) {
       onComplete?.(formatted);
     }
   };
 
   const handleChange = (index: number, val: string) => {
-    // Only allow letters A-Z, convert to uppercase
-    let upperVal = val.toUpperCase().replace(/[^A-Z]/g, '');
+    // السماح بالأرقام والحروف (A-Z, a-z, 0-9) وتحويل الحروف إلى uppercase
+    let upperVal = val.toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (upperVal.length > 1) upperVal = upperVal.slice(0, 1);
     const newDigits = [...digits];
     newDigits[index] = upperVal;
     setDigits(newDigits);
     updateFullCode(newDigits);
-
-    // Move to next input if value entered
-    if (upperVal && index < 7) {
+    if (upperVal && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
   };
 
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace') {
-      if (digits[index] === '') {
-        // Move to previous input if current is empty
-        if (index > 0) {
-          inputRefs.current[index - 1]?.focus();
-        }
+  const handleKeyDown = (
+    index: number,
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (e.key === "Backspace") {
+      if (digits[index] === "") {
+        if (index > 0) inputRefs.current[index - 1]?.focus();
       } else {
-        // Clear current
         const newDigits = [...digits];
-        newDigits[index] = '';
+        newDigits[index] = "";
         setDigits(newDigits);
         updateFullCode(newDigits);
       }
-    } else if (e.key === 'ArrowLeft' && index > 0) {
+    } else if (e.key === "ArrowLeft" && index > 0) {
       inputRefs.current[index - 1]?.focus();
-    } else if (e.key === 'ArrowRight' && index < 7) {
+    } else if (e.key === "ArrowRight" && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
   };
 
   const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').toUpperCase().replace(/[^A-Z]/g, '');
-    const pastedArr = pasted.split('').slice(0, 8);
+    const pasted = e.clipboardData
+      .getData("text")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    const pastedArr = pasted.split("").slice(0, 6);
     const newDigits = [...digits];
     for (let i = 0; i < pastedArr.length; i++) {
-      if (i < 8) newDigits[i] = pastedArr[i];
+      if (i < 6) newDigits[i] = pastedArr[i];
     }
     setDigits(newDigits);
     updateFullCode(newDigits);
-    // Focus last filled or first empty
-    const lastFilledIndex = newDigits.findLastIndex(d => d !== '');
-    const focusIndex = lastFilledIndex === -1 ? 0 : Math.min(lastFilledIndex + 1, 7);
+    const lastFilledIndex = newDigits.findLastIndex((d) => d !== "");
+    const focusIndex =
+      lastFilledIndex === -1 ? 0 : Math.min(lastFilledIndex + 1, 5);
     inputRefs.current[focusIndex]?.focus();
   };
 
+  // تصميم الحقول (بدون أي أنيميشن مزعج)
+  const inputClassName = `
+    rounded-lg 
+    border border-white/10
+    bg-black/25 
+    text-center font-mono font-semibold text-white 
+    shadow-[0_2px_8px_rgba(0,0,0,0.1)] 
+    backdrop-blur-[2px] 
+    placeholder:text-white/20 
+    focus:bg-black/40 
+    focus:outline-none 
+    focus:ring-1 focus:ring-white/20
+    w-[clamp(2.5rem,10vw,3rem)] 
+    h-[clamp(2.5rem,10vw,3rem)] 
+    text-[clamp(1.25rem,5vw,1.6rem)]
+    transition-colors duration-150
+  `;
+
   return (
-    <div className="flex items-center justify-center gap-2">
-      {/* First 4 boxes */}
-      {digits.slice(0, 4).map((digit, idx) => (
-        <input
+    <div className="flex items-center justify-center gap-[clamp(0.375rem,2vw,0.625rem)]">
+      {digits.slice(0, 3).map((digit, idx) => (
+        <motion.input
           key={idx}
-          ref={(el) => { inputRefs.current[idx] = el; }}
+          ref={(el) => {
+            inputRefs.current[idx] = el;
+          }}
           type="text"
           inputMode="text"
           maxLength={1}
@@ -281,26 +341,30 @@ const CodeInput = ({ value, onChange, onComplete }: CodeInputProps) => {
           onChange={(e) => handleChange(idx, e.target.value)}
           onKeyDown={(e) => handleKeyDown(idx, e)}
           onPaste={idx === 0 ? handlePaste : undefined}
-          className="h-12 w-12 rounded-xl border border-white/20 bg-black/40 text-center font-mono text-xl font-bold text-white transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50"
+          className={inputClassName}
           autoFocus={idx === 0}
         />
       ))}
-      {/* Dash separator */}
-      <span className="text-2xl font-bold text-white/30">-</span>
-      {/* Last 4 boxes */}
-      {digits.slice(4, 8).map((digit, idx) => {
-        const globalIdx = idx + 4;
+
+      <span className="select-none px-1 text-[clamp(1.25rem,5vw,1.8rem)] font-thin text-white/20">
+        —
+      </span>
+
+      {digits.slice(3, 6).map((digit, idx) => {
+        const globalIdx = idx + 3;
         return (
-          <input
+          <motion.input
             key={globalIdx}
-            ref={(el) => { inputRefs.current[globalIdx] = el; }}
+            ref={(el) => {
+              inputRefs.current[globalIdx] = el;
+            }}
             type="text"
             inputMode="text"
             maxLength={1}
             value={digit}
             onChange={(e) => handleChange(globalIdx, e.target.value)}
             onKeyDown={(e) => handleKeyDown(globalIdx, e)}
-            className="h-12 w-12 rounded-xl border border-white/20 bg-black/40 text-center font-mono text-xl font-bold text-white transition-all focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-400/50"
+            className={inputClassName}
           />
         );
       })}
@@ -308,33 +372,89 @@ const CodeInput = ({ value, onChange, onComplete }: CodeInputProps) => {
   );
 };
 
-// ============================================================================
-// Main Page Component
-// ============================================================================
 
+// ============================================================================
+// Enhanced Ambient Oracle – Host Privileges + Dynamic Tips with Smooth Transitions
+// ============================================================================
+const AmbientOracle = () => {
+  const [messageIndex, setMessageIndex] = useState(0);
+  const tips = [
+    { icon: Sword, text: "Host decides when the battle begins." },
+    { icon: ShieldCheck, text: "Kick players or lock the lobby anytime." },
+    { icon: Eye, text: "Spectate matches while you wait." },
+    { icon: Wifi, text: "Low‑latency dedicated servers." },
+    { icon: Trophy, text: "Wins here don’t affect public rank." },
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMessageIndex((prev) => (prev + 1) % tips.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [tips.length]);
+
+  const CurrentIcon = tips[messageIndex].icon;
+
+  return (
+    <div className="inline-flex items-stretch rounded-2xl border border-white/10 bg-black/20 backdrop-blur-md overflow-hidden">
+      {/* Host Privileges Badge */}
+      <div className="flex items-center gap-2 bg-gradient-to-r from-amber-500/20 to-amber-600/10 px-4 py-2 border-r border-white/10">
+        <Crown className="h-4 w-4 text-amber-400" />
+        <span className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+          Host Privileges
+        </span>
+      </div>
+
+      {/* Animated Tip */}
+      <div className="flex items-center px-4 py-2 min-w-[240px]">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={messageIndex}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.4, ease: "easeInOut" }}
+            className="flex items-center gap-2"
+          >
+            <CurrentIcon className="h-3.5 w-3.5 text-white/60" />
+            <span className="text-xs font-light tracking-wide text-white/70">
+              {tips[messageIndex].text}
+            </span>
+          </motion.div>
+        </AnimatePresence>
+        <div className="ml-3 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// Main Page Component – Perfectly Balanced Premium Lobby
+// ============================================================================
 export default function PvpRoomsPage() {
   const router = useRouter();
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState("");
   const [maxPlayers, setMaxPlayers] = useState<2 | 3 | 4 | 5 | 6>(6);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const { showAlert } = useAlert();
 
   async function createRoom() {
     setIsCreating(true);
     setError(null);
     try {
-      const res = await fetch('/api/pvp/rooms/create', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
+      const res = await fetch("/api/pvp/rooms/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ maxPlayers }),
       });
       const body = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(body?.error ?? 'Failed to create room');
-      router.push(`/pvp/room/${body.code}`);
+      if (!res.ok) throw new Error(body?.error ?? "Failed to create room");
+      await navigator.clipboard.writeText(body.code).catch(() => {});
+showAlert(`The code ${body.code} has been copied successfully! You can share it with your friends.`, "success", { durationMs: 6000 });      router.push(`/pvp/room/${body.code}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setIsCreating(false);
     }
@@ -347,249 +467,239 @@ export default function PvpRoomsPage() {
     router.push(`/pvp/room/${trimmedCode}`);
   }
 
-  const handleCopyDemoCode = () => {
-    // Demo code now uses only letters (8 letters)
-    const demoCode = 'ARENA-CODE';
-    navigator.clipboard.writeText(demoCode);
-    setCode(demoCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Auto-join when code is fully entered (optional)
-  const handleCodeComplete = (fullCode: string) => {
-    // Optional: auto-join after 8 letters
-    // joinRoom();
-  };
+  // const handleCodeComplete = (fullCode: string) => {
+  //   // Optional auto-join
+  // };
 
   return (
     <>
       <style jsx global>{`
         @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
+          0%,
+          100% {
+            transform: translateY(0px);
+          }
+          50% {
+            transform: translateY(-15px);
+          }
         }
         @keyframes borderFlow {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
         }
-        @keyframes fadeSlideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
+        .animate-float {
+          animation: float 6s ease-in-out infinite;
         }
-        .animate-float { animation: float 4s ease-in-out infinite; }
         .border-flow {
-          background: linear-gradient(90deg, #00d4ff, #a78bfa, #f87171, #00d4ff);
+          background: linear-gradient(
+            90deg,
+            #00d4ff,
+            #a78bfa,
+            #fbbf24,
+            #00d4ff
+          );
           background-size: 300% 100%;
-          animation: borderFlow 6s ease infinite;
-        }
-        .fade-slide-up {
-          animation: fadeSlideUp 0.6s ease-out forwards;
+          animation: borderFlow 8s ease infinite;
         }
       `}</style>
 
-      <div className="relative min-h-screen overflow-hidden">
-        {/* Premium Animated Background */}
-        <div className="fixed inset-0 -z-10">
-          <div className="absolute inset-0 bg-gradient-to-br from-[#050814] via-[#0a0f1a] to-[#030614]" />
-          <div className="absolute top-0 left-1/3 h-[600px] w-[600px] rounded-full bg-blue-600/10 blur-[140px] animate-pulse" />
-          <div className="absolute bottom-0 right-1/4 h-[500px] w-[500px] rounded-full bg-purple-600/10 blur-[140px] animate-pulse delay-1000" />
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2280%22%20height%3D%2280%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cdefs%3E%3Cpattern%20id%3D%22grid%22%20width%3D%2280%22%20height%3D%2280%22%20patternUnits%3D%22userSpaceOnUse%22%3E%3Cpath%20d%3D%22M%2080%200%20L%200%200%200%2080%22%20fill%3D%22none%22%20stroke%3D%22rgba%28255%2C255%2C255%2C0.02%29%22%20stroke-width%3D%221%22/%3E%3C/pattern%3E%3C/defs%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22url%28%23grid%29%22/%3E%3C/svg%3E')] opacity-20" />
-          <div className="absolute bottom-20 left-10 h-32 w-32 rounded-full bg-cyan-500/5 blur-[80px]" />
-          <div className="absolute top-40 right-20 h-40 w-40 rounded-full bg-pink-500/5 blur-[100px]" />
-        </div>
-
+      <div className="relative flex min-h-screen flex-col overflow-hidden">
         <Header />
 
-        <main className="relative mx-auto max-w-6xl px-4 pt-[6rem] pb-12 lg:pt-[7rem]">
-          {/* Hero Section */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="mb-12 text-center"
-          >
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 backdrop-blur-sm mb-5">
-              <Sword className="h-3 w-3 text-cyan-400" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Private Arenas · Web3 Ready</span>
-            </div>
-            <h1 className="bg-gradient-to-r from-white via-cyan-100 to-purple-200 bg-clip-text text-5xl font-black tracking-tight text-transparent sm:text-6xl">
-              Create Your Lobby
-            </h1>
-            <p className="mx-auto mt-4 max-w-2xl text-sm text-white/40">
-              Host encrypted, password-protected rooms. Invite friends via a unique code and start a private ranked match with full Web3 security.
-            </p>
-          </motion.div>
+        <main className="relative flex flex-1 items-center justify-center px-[clamp(1rem,5vw,2.5rem)] py-[clamp(2rem,6vw,4rem)]">
+          <div className="w-full max-w-7xl">
+            {/* Hero with Asymmetrical Kinetic Typography */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.8 }}
+              className="mb-[clamp(2.5rem,6vw,4rem)] text-center"
+            >
+              <div className="relative inline-block">
+                <h1 className="text-[clamp(1.8rem,6vw,3.5rem)] sm:text-[clamp(2rem,7vw,4.5rem)] lg:text-[clamp(2.5rem,6vw,5rem)] font-black tracking-tighter leading-[1.15]">
+                  {/* <span className="block bg-gradient-to-r from-white/90 via-cyan-300 to-blue-400 bg-clip-text text-transparent font-sfProDisplay">
+                    CREATE YOUR
+                  </span> */}
+                  <span className="block bg-gradient-to-r from-violet-400 via-purple-300 to-cyan-400 bg-clip-text text-transparent -mt-[clamp(0.1rem,0.5vw,0.3rem)] ml-0 sm:-mt-[clamp(0.2rem,1vw,0.5rem)] sm:ml-[clamp(0.5rem,3vw,1.5rem)] font-sfProDisplay">
+                    PRIVATE LOBBYS
+                  </span>
+                </h1>
+                <HandDrawnSquiggle className="-bottom-3 right-0 w-24 opacity-50" />
+              </div>
 
-          {/* Main Glass Card */}
-          <GlassCard className="fade-slide-up" glowColor="cyan">
-            <div className="p-6 md:p-8">
+              {/* Enhanced Oracle placed under title */}
+              <div className="mt-6 flex justify-center">
+                <AmbientOracle />
+              </div>
+            </motion.div>
+
+            {/* Organic Anti-Grid Layout: Asymmetrical Cards Perfectly Centered */}
+            <div className="relative">
+              <HandDrawnCircle className="-left-6 top-12 hidden lg:block" />
+              <HandDrawnCircle className="-right-4 bottom-20 hidden lg:block" />
+
               {error && (
                 <motion.div
-                  initial={{ opacity: 0, y: -10 }}
+                  initial={{ opacity: 0, y: -20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="relative mb-8 overflow-hidden rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 backdrop-blur-sm"
+                  className="relative mb-[clamp(1.5rem,4vw,2.5rem)] overflow-hidden rounded-2xl border border-red-500/30 bg-red-500/10 px-[clamp(1rem,3vw,1.5rem)] py-[clamp(0.75rem,2vw,1rem)] backdrop-blur-md"
                 >
-                  <div className="absolute inset-0 bg-gradient-to-r from-red-500/5 to-transparent" />
                   <p className="text-sm text-red-300">{error}</p>
                 </motion.div>
               )}
 
-              <div className="grid gap-8 md:grid-cols-2">
-                {/* Create New Lobby Card */}
+              <div className="grid gap-[clamp(1.5rem,4vw,2.5rem)] lg:grid-cols-2">
+                {/* Create Lobby Card */}
                 <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className="group relative rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-transparent p-6 transition-all hover:border-cyan-500/30 hover:shadow-[0_0_30px_-12px_rgba(6,182,212,0.3)]"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    delay: 0.1,
+                    type: "spring",
+                    stiffness: 300,
+                    damping: 24,
+                  }}
+                  className="flex"
                 >
-                  <div className="absolute -right-3 -top-3 h-20 w-20 rounded-full bg-cyan-500/20 blur-3xl transition-all group-hover:bg-cyan-500/30" />
-                  <div className="relative">
-                    <div className="mb-5 flex items-center gap-3">
-                      <div className="rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 p-2.5">
-                        <Sparkles className="h-5 w-5 text-cyan-400" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold uppercase tracking-wider text-cyan-300">Create New Lobby</span>
-                        <p className="text-[10px] text-white/30">Generate a unique arena code</p>
-                      </div>
-                    </div>
+                  <GlassCard
+                    glowColor="cyan"
+                    depth="elevated"
+                    className="h-full w-full"
+                  >
+                    <div className="relative p-[clamp(1.5rem,5vw,2.5rem)]">
+                      <HandDrawnSquiggle className="absolute right-6 top-6 w-20 opacity-30" />
 
-                    <div className="space-y-5">
-                      <div>
-                        <label className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/50">
-                          <Users className="h-3 w-3" />
-                          Max Capacity
-                        </label>
-                        <StyledSelect
-                          value={maxPlayers}
-                          onChange={(val) => setMaxPlayers(val as typeof maxPlayers)}
-                          options={[2, 3, 4, 5, 6]}
-                        />
-                      </div>
-
-                      <PremiumButton
-                        onClick={createRoom}
-                        loading={isCreating}
-                        icon={Zap}
-                        variant="primary"
-                        disabled={isCreating}
-                      >
-                        {isCreating ? 'Generating...' : 'Generate Room'}
-                      </PremiumButton>
-
-                      <div className="mt-4 flex items-center gap-2 rounded-lg border border-white/5 bg-white/5 p-2">
-                        <Shield className="h-3 w-3 text-cyan-400/60" />
-                        <span className="text-[9px] text-white/30">Encrypted room · Auto-expires after 30min</span>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-
-                {/* Join Existing Lobby Card with OTP Code Input */}
-                <motion.div
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="group relative rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-transparent p-6 transition-all hover:border-purple-500/30 hover:shadow-[0_0_30px_-12px_rgba(168,85,247,0.3)]"
-                >
-                  <div className="absolute -left-3 -bottom-3 h-20 w-20 rounded-full bg-purple-500/20 blur-3xl transition-all group-hover:bg-purple-500/30" />
-                  <div className="relative">
-                    <div className="mb-5 flex items-center gap-3">
-                      <div className="rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 p-2.5">
-                        <DoorOpen className="h-5 w-5 text-purple-400" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold uppercase tracking-wider text-purple-300">Join Existing</span>
-                        <p className="text-[10px] text-white/30">Enter the 8‑letter arena passcode</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-5">
-                      <div>
-                        <label className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/50">
-                          <Hash className="h-3 w-3" />
-                          Room Code (letters only)
-                        </label>
-                        <CodeInput
-                          value={code}
-                          onChange={setCode}
-                          onComplete={handleCodeComplete}
-                        />
-                      </div>
-
-                      <PremiumButton
-                        onClick={joinRoom}
-                        loading={isJoining}
-                        icon={ArrowRight}
-                        variant="secondary"
-                        disabled={code.length !== 9} // 8 letters + dash
-                      >
-                        Join Arena
-                      </PremiumButton>
-
-                      {/* Demo Code Helper with Copy Animation */}
-                      <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 p-3 transition-all hover:bg-white/10">
-                        <div className="flex items-center gap-2">
-                          <Globe className="h-3 w-3 text-cyan-400/60" />
-                          <span className="text-[10px] font-mono text-white/40">Demo: ARENA-CODE</span>
+                      <div className="mb-[clamp(1.5rem,4vw,2.25rem)] flex items-center gap-4">
+                        <div className="rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 p-3">
+                          <Sparkles className="h-6 w-6 text-cyan-300" />
                         </div>
-                        <motion.button
-                          onClick={handleCopyDemoCode}
-                          className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2 py-1 text-[10px] font-medium text-cyan-300 transition-all hover:bg-cyan-500/20"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
+                        <div>
+                          <h2 className="text-[clamp(1.25rem,4vw,2rem)] font-bold tracking-tight text-white">
+                            New Lobby
+                          </h2>
+                          <p className="text-[clamp(0.7rem,1.5vw,0.85rem)] text-white/40">
+                            Host a private game session
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-[clamp(1.5rem,4vw,2rem)]">
+                        <div>
+                          <label className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-white/50">
+                            <Users className="h-4 w-4" />
+                            Party Size
+                          </label>
+                          <FluidSelect
+                            value={maxPlayers}
+                            onChange={(val) =>
+                              setMaxPlayers(val as typeof maxPlayers)
+                            }
+                            options={[2, 3, 4, 5, 6]}
+                          />
+                          <p className="mt-2 flex items-center gap-1 text-[11px] text-white/30">
+                            <Wifi className="h-3 w-3" /> Host controls match
+                            start
+                          </p>
+                        </div>
+
+                        <Button
+                          onClick={createRoom}
+                          disabled={isCreating}
+                          className="w-full py-5 btn-main"
                         >
-                          {copied ? (
+                          {isCreating ? (
                             <>
-                              <CheckCircle2 className="h-3 w-3" />
-                              <span>Copied</span>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Generating...
                             </>
                           ) : (
                             <>
-                              <Copy className="h-3 w-3" />
-                              <span>Copy</span>
+                              <Plus className="h-4 w-4" />
+                              Create Room
                             </>
                           )}
-                        </motion.button>
+                        </Button>
                       </div>
                     </div>
-                  </div>
+                  </GlassCard>
+                </motion.div>
+
+                {/* Join Lobby Card */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    delay: 0.2,
+                    type: "spring",
+                    stiffness: 300,
+                    damping: 24,
+                  }}
+                  className="flex"
+                >
+                  <GlassCard
+                    glowColor="purple"
+                    depth="default"
+                    className="h-full w-full"
+                  >
+                    <div className="relative p-[clamp(1.5rem,5vw,2.5rem)]">
+                      <div className="mb-[clamp(1.5rem,4vw,2rem)] flex items-center gap-4">
+                        <div className="rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 p-3">
+                          <DoorOpen className="h-5 w-5 text-purple-300" />
+                        </div>
+                        <div>
+                          <h2 className="text-[clamp(1.25rem,4vw,1.75rem)] font-bold tracking-tight text-white">
+                            Join Friend
+                          </h2>
+                          <p className="text-[clamp(0.65rem,1.5vw,0.8rem)] text-white/40">
+                            Enter the 6‑letter passcode
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-[clamp(1.5rem,4vw,2rem)]">
+                        <div>
+                          <label className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-white/50">
+                            <Hash className="h-4 w-4" />
+                            Room Code
+                          </label>
+                          <CodeInput
+                            value={code}
+                            onChange={setCode}
+                            // onComplete={handleCodeComplete}
+                          />
+                        </div>
+
+                        <Button
+                          onClick={joinRoom}
+                          disabled={code.length !== 7 || isJoining}
+                          className="w-full py-5 btn-purple"
+                        >
+                          {isJoining ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Joining...
+                            </>
+                          ) : (
+                            <>
+                              <ArrowRight className="mr-2 h-4 w-4" />
+                              Join Arena
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </GlassCard>
                 </motion.div>
               </div>
-
-              {/* Arena Protocol & Stats */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="mt-10 rounded-2xl border border-white/5 bg-gradient-to-r from-white/5 to-transparent p-5"
-              >
-                <div className="mb-4 flex items-center gap-2.5">
-                  <div className="rounded-full bg-amber-500/20 p-1.5">
-                    <Trophy className="h-3.5 w-3.5 text-amber-400" />
-                  </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-white/50">Arena Protocol</span>
-                  <div className="h-px flex-1 bg-gradient-to-r from-white/10 to-transparent" />
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <RuleItem icon={Users} text="Private rooms are encrypted and expire after 30 minutes" />
-                  <RuleItem icon={Zap} text="Host can start match when all players are ready" />
-                  <RuleItem icon={Sword} text="Ranked points only awarded in official 1v1 queue" />
-                  <RuleItem icon={LockKeyhole} text="Room host can kick disruptive players" />
-                </div>
-              </motion.div>
-
-              {/* Additional Web3 Badge */}
-              <div className="mt-6 flex justify-center">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 backdrop-blur-sm">
-                  <div className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-                  <span className="text-[9px] font-mono uppercase tracking-wider text-white/40">Secure enclave · On-chain verification ready</span>
-                </div>
-              </div>
             </div>
-          </GlassCard>
+          </div>
         </main>
       </div>
     </>

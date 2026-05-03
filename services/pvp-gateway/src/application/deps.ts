@@ -40,6 +40,7 @@ import type { LocalMatch, PendingInputUpdateBatch } from "../shared/types";
 import type { LocalLock } from "../local-lock";
 import type { IQueueAdapter } from "../matchmaking/queue-adapter";
 import type { MatchStartOrchestrator } from "./match-start-orchestrator";
+import type { RedisDeferredTimerQueue } from "../infrastructure/redis";
 
 // =============================================================================
 // GATEWAY DEPS
@@ -77,6 +78,19 @@ export interface GatewayDeps {
    * call sites.  `null` until assigned in `main()` before the WS server starts.
    */
   matchStartOrchestrator: MatchStartOrchestrator | null;
+  /**
+   * Durable Redis sorted-set queue for disconnect-forfeit timer deadlines.
+   * `null` when Redis is not enabled (`PVP_USE_REDIS=false`).
+   * When present, forfeit deadlines survive gateway crashes; the poller in
+   * `main()` re-fires any overdue entries after a restart.
+   */
+  forfeitQueue: RedisDeferredTimerQueue | null;
+  /**
+   * Durable Redis sorted-set queue for no-show timer deadlines.
+   * `null` when Redis is not enabled (`PVP_USE_REDIS=false`).
+   * Works analogously to `forfeitQueue` for `waiting_for_both` matches.
+   */
+  noshowQueue: RedisDeferredTimerQueue | null;
   /** Internal typed event bus. */
   eventBus: ReturnType<typeof createGatewayEventBus>;
   /** Prometheus / OpenMetrics recorder — `null` when metrics are disabled. */

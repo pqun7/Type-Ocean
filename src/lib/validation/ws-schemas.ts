@@ -320,6 +320,44 @@ export const MatchSyncRequestMessageSchema = withByteLimit(
   "MATCH_SYNC_REQUEST payload is too large"
 );
 
+const LobbyChatMessageBaseSchema = z
+  .object({
+    type: z.literal("LOBBY_CHAT"),
+    requestId: RequestIdSchema.optional(),
+    payload: z
+      .object({
+        roomCode: RoomCodeSchema.optional(),
+        text: z.string().trim().min(1).max(400),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const LobbyChatMessageSchema = withByteLimit(
+  LobbyChatMessageBaseSchema,
+  MAX_MESSAGE_BYTES,
+  "LOBBY_CHAT payload is too large"
+);
+
+const RoomUpdateMessageBaseSchema = z
+  .object({
+    type: z.literal("ROOM_UPDATE"),
+    requestId: RequestIdSchema.optional(),
+    payload: z
+      .object({
+        roomCode: RoomCodeSchema.optional(),
+        maxPlayers: z.number().int().min(2).max(6),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const RoomUpdateMessageSchema = withByteLimit(
+  RoomUpdateMessageBaseSchema,
+  MAX_MESSAGE_BYTES,
+  "ROOM_UPDATE payload is too large"
+);
+
 export const PvpClientMessageSchema = z
   .discriminatedUnion("type", [
     HelloMessageBaseSchema,
@@ -339,6 +377,8 @@ export const PvpClientMessageSchema = z
     RematchResponseMessageBaseSchema,
     PingMessageBaseSchema,
     MatchSyncRequestMessageBaseSchema,
+    LobbyChatMessageBaseSchema,
+    RoomUpdateMessageBaseSchema,
   ])
   .superRefine((value, ctx) => {
     const maxBytes = value.type === "INPUT_UPDATE" ? MAX_INPUT_MESSAGE_BYTES : MAX_MESSAGE_BYTES;

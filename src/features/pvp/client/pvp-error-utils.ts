@@ -120,6 +120,10 @@ export function toSafePvpErrorMessage(error: string | PvpErrorPayload | null | u
     return "This room expired from inactivity. Refresh or create a new room to continue.";
   }
 
+  if (normalized.includes("ready cooldown")) {
+    return "Please wait a moment before changing your ready status again.";
+  }
+
   if (normalized.includes("host only")) {
     return "Only the current room host can do that. Wait for host transfer or ask the host to continue.";
   }

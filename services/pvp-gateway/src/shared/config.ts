@@ -245,6 +245,18 @@ export const ONLINE_KEY_PREFIX = "pvp:online:" as const;
 /** Redis key used to gate concurrent room sweep workers. */
 export const ROOM_SWEEP_LOCK_KEY = "pvp:room:sweep:lock" as const;
 
+/** Redis sorted-set key for durable disconnect-forfeit timer deadlines. */
+export const DISCONNECT_FORFEIT_QUEUE_KEY = "pvp:disconnect:forfeit:tasks" as const;
+
+/** Redis sorted-set key for durable no-show timer deadlines. */
+export const NOSHOW_QUEUE_KEY = "pvp:noshow:tasks" as const;
+
+/** How often (ms) the forfeit-queue Redis poller fires after gateway restart. */
+export const FORFEIT_TIMER_POLL_MS = envMs("PVP_FORFEIT_TIMER_POLL_MS", 1_000);
+
+/** How often (ms) the no-show-queue Redis poller fires after gateway restart. */
+export const NOSHOW_TIMER_POLL_MS = envMs("PVP_NOSHOW_TIMER_POLL_MS", 2_000);
+
 // =============================================================================
 // PROGRESSIVE MATCHMAKING — BOT FALLBACK TIMING
 // =============================================================================

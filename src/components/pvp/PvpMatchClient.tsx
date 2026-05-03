@@ -1,8 +1,9 @@
-"use client";
+ "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Loader2, Swords, Timer } from "lucide-react";
 
 import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
 import type { ClientMessage, ServerMessage } from "@/features/pvp/client/types";
@@ -257,6 +258,9 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
    */
   const syncRequestCountRef = useRef(0);
 
+  const [myWpm, setMyWpm] = useState(0);
+  const [opponentWpm, setOpponentWpm] = useState<number | null>(null);
+
   const [results, setResults] = useState<null | {
     placements: Array<{ position: number; userId: string; username: string; wpm: number; accuracy: number; errors: number; timeMs: number }>;
     ratingChanges: Array<{ userId: string; before: number; after: number; delta: number }>;
@@ -410,6 +414,8 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     countdownPhaseRef.current = "idle";
     pendingInputBufferRef.current = [];
     connectionDroppedAtRef.current = null;
+    setMyWpm(0);
+    setOpponentWpm(null);
   }, []);
 
   // Reset per-match state when active match changes.
@@ -616,6 +622,9 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
         applyMatchStateSnapshot(m.payload);
       }
       if (m.type === "PROGRESS" && m.payload.matchId === currentMatchId) {
+        if (m.payload.userId !== meIdRef.current) {
+          setOpponentWpm(m.payload.wpm);
+        }
         applyProgressSnapshot(m.payload);
       }
       if (m.type === "MATCH_ENDED" && m.payload.matchId === currentMatchId) {
@@ -896,118 +905,149 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
     send({ type: "REMATCH_RESPONSE", payload: { matchId: activeMatchId, accept: false } });
   };
 
+  // ── Render: completely rebuilt UI with zero cards ───────────────────────
   if (matchRecoveryFailed && !results) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="rounded-xl border border-[rgba(160,220,255,0.12)] bg-[rgba(7,18,34,0.5)] p-8 text-center space-y-4">
-          <div className="text-[#E0E7FF] text-xl font-semibold">Match ended unexpectedly</div>
-          <div className="text-[#B5CAE2] text-sm">
-            Your results may have been saved. Return to the queue to play again.
-          </div>
-          <Button onClick={() => router.push("/pvp/1v1")}>Back to queue</Button>
+      <div className="w-full max-w-6xl mx-auto px-4 py-12 text-center space-y-6">
+        <div className="space-y-3">
+          <Swords className="mx-auto h-8 w-8 text-rose-400/50" />
+          <h2 className="text-2xl font-bold tracking-tight text-rose-200">
+            The duel was interrupted
+          </h2>
+          <p className="text-sm text-white/60 max-w-md mx-auto">
+            Fear not — your battle record remains. Return to the arena gate when ready.
+          </p>
         </div>
+        <Button
+          variant="secondary"
+          className="rounded-full px-6"
+          onClick={() => router.push("/pvp/1v1")}
+        >
+          Return to the Arena Gate
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="text-[#E0E7FF] text-xl font-semibold">Match</div>
-          <div className="text-sm text-[#8A8FB5]">
-            {effectiveMatchStatus}
-            {textId ? ` · Text: ${textId}` : ""}
+    <div className="w-full max-w-6xl mx-auto px-4 py-8 space-y-6">
+      {/* ── WPM display ── */}
+      <div className="flex items-center justify-between border-b border-gray-600/30 pb-2 font-mono">
+        <div className="text-gray-400 text-lg">
+          WPM: <span className="font-bold text-white">{myWpm}</span>
+        </div>
+        {opponent && opponentWpm !== null && (
+          <div className="text-gray-400 text-lg">
+            {opponent.username}: <span className="font-bold text-white">{opponentWpm}</span> WPM
           </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => pvpActionsRef.current?.focus()}>
-            Focus
-          </Button>
-        </div>
+        )}
       </div>
 
-      {matchEndingNotice ? <div className="text-sm text-amber-300">{matchEndingNotice}</div> : null}
-
-      {isWaitingForOpponent ? (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-[rgba(125,211,252,0.2)] bg-[rgba(56,189,248,0.08)] px-4 py-3 text-sky-100">
-          <div className="flex items-center gap-3">
-            <Loader2 className="h-4 w-4 animate-spin text-sky-300" />
-            <div>
-              <div className="text-sm font-medium">Opponent is connecting... please wait.</div>
-              <div className="text-xs text-sky-200">Match will be cancelled if they do not connect in time.</div>
-            </div>
-          </div>
-          <div className="rounded-md border border-[rgba(125,211,252,0.2)] px-2 py-1 text-xs text-sky-200">{waitingRemainingSec}s</div>
+      {/* ── Notice without any card ── */}
+      {matchEndingNotice && (
+        <div className="flex items-center gap-2 text-sm text-amber-300/90 font-medium">
+          <Timer className="h-4 w-4" />
+          {matchEndingNotice}
         </div>
-      ) : (
-        <TypingTest
-          key={textId ?? activeMatchId}
-          {...pvpTypingTestProps}
-          inputDisabled={inputLocked}
-          fontSize="text-2xl"
-          lineHeight="leading-10"
-          font="font-mono"
-          optimizePerformance
-          caretHeight="h-7"
-          caretColorClassName={slotToColor(byId.get(user?.userId ?? "")?.slot ?? 0)}
-        >
-          {/* Countdown / GO overlay */}
-          {showCountdownOverlay || showGoOverlay ? (
-            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl border border-[rgba(125,211,252,0.22)] bg-black/40 backdrop-blur-sm">
-              {showGoOverlay ? (
-                <div key="go" className="text-center select-none animate-countdown-pop">
-                  <div className="text-9xl font-bold leading-none text-emerald-400 drop-shadow-[0_0_48px_rgba(52,211,153,0.7)]">
-                    GO!
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center select-none">
-                  {/* NC2 fix: hide label at 0 to avoid jarring "Match starts in 0" */}
-                  {countdownSeconds !== null && countdownSeconds > 0 ? (
-                    <div className="text-xs uppercase tracking-[0.24em] text-sky-300 font-medium">Match starts in</div>
-                  ) : null}
-                  <div
-                    key={countdownSeconds ?? "syncing"}
-                    className="mt-2 text-9xl font-bold leading-none text-white drop-shadow-[0_0_32px_rgba(125,211,252,0.5)] animate-countdown-pop"
-                  >
-                    {/* NC3 fix: don't show "GO!" at 0 in the white overlay — the
-                        green showGoOverlay already handles the transition, so showing
-                        "GO!" here would cause a double-flash. */}
-                    {countdownSeconds !== null && countdownSeconds > 0
-                      ? countdownSeconds
-                      : countdownSeconds === null
-                        ? <span className="text-5xl animate-pulse text-sky-200">Get ready</span>
-                        : null}
-                  </div>
-                  <div className="mt-3 text-xs uppercase tracking-wider text-sky-400">Keyboard locked</div>
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {/* Remote player carets */}
-          {remoteCarets.map((c) => (
-            <Caret
-              key={c.userId}
-              caretPosition={c.pos}
-              caretHeight="h-7"
-              colorClassName={slotToColor(c.slot)}
-              className="opacity-90"
-            />
-          ))}
-        </TypingTest>
       )}
 
+      {/* ── Opponent waiting: clean text row, no container ── */}
+      {isWaitingForOpponent ? (
+        <div className="flex items-center justify-between gap-4 py-2">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-4 w-4 animate-spin text-sky-300" />
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium text-sky-100">
+                Rival approaching the arena…
+              </p>
+              <p className="text-xs text-sky-200/80">
+                Gates close if they tarry too long.
+              </p>
+            </div>
+          </div>
+          <span className="text-xs tabular-nums text-sky-200">
+            {waitingRemainingSec}s
+          </span>
+        </div>
+      ) : (
+        // ── Main game area (no extra wrappers) ──
+        <div className="relative">
+          <TypingTest
+            key={textId ?? activeMatchId}
+            {...pvpTypingTestProps}
+            inputDisabled={inputLocked}
+            fontSize="text-2xl"
+            lineHeight="leading-10"
+            font="font-mono"
+            optimizePerformance
+            caretHeight="h-7"
+            caretColorClassName={slotToColor(byId.get(user?.userId ?? "")?.slot ?? 0)}
+            onWpmChange={setMyWpm}
+          >
+            {remoteCarets.map((c) => (
+              <Caret
+                key={c.userId}
+                caretPosition={c.pos}
+                caretHeight="h-7"
+                colorClassName={slotToColor(c.slot)}
+                className="opacity-90"
+              />
+            ))}
+          </TypingTest>
+
+          {/* ── Countdown overlay: pure centered text, no border/shadow ── */}
+          <AnimatePresence>
+            {showCountdownOverlay || showGoOverlay ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/30 backdrop-blur-[2px]"
+              >
+                {showGoOverlay ? (
+                  <div key="go" className="text-center select-none">
+                    <div className="text-9xl font-black leading-none text-emerald-400 drop-shadow-[0_0_48px_rgba(52,211,153,0.7)]">
+                      CHARGE!
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center select-none">
+                    {countdownSeconds !== null && countdownSeconds > 0 ? (
+                      <div className="text-xs uppercase tracking-[0.24em] text-sky-300 font-medium">
+                        Clash begins in
+                      </div>
+                    ) : null}
+                    <div
+                      key={countdownSeconds ?? "syncing"}
+                      className="mt-2 text-9xl font-black leading-none text-white drop-shadow-[0_0_32px_rgba(125,211,252,0.5)] animate-countdown-pop"
+                    >
+                      {countdownSeconds !== null && countdownSeconds > 0
+                        ? countdownSeconds
+                        : countdownSeconds === null
+                          ? <span className="text-5xl animate-pulse text-sky-200">Brace yourself</span>
+                          : null}
+                    </div>
+                    <div className="mt-3 text-xs uppercase tracking-wider text-sky-400">
+                      Weapons locked
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* ── Results overlay: now uses immersive, card‑free design ── */}
       {results ? (
         <PvpResultsOverlay
           open
-          primaryActionLabel={roomCode ? "Play Again" : "Find new opponent"}
+          primaryActionLabel={roomCode ? "Duel Again" : "Seek a New Challenger"}
           placements={results.placements}
           ratingChanges={results.ratingChanges}
           chartData={chartData}
           meUserId={meId}
-          opponentName={opponent?.username ?? "Opponent"}
+          opponentName={opponent?.username ?? "Rival"}
           canRematch={canRematch}
           rematchOfferFromUserId={rematchOfferFromUserId}
           rematchAcceptedUserIds={rematchAcceptedUserIds}

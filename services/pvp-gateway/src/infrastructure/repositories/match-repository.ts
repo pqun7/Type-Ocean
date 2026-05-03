@@ -215,6 +215,77 @@ export class MatchRepository {
     };
   }
 
+  /**
+   * Load all non-terminal matches for startup recovery.
+   *
+   * Returns up to `limit` rows where status is PENDING, COUNTDOWN, or RUNNING,
+   * with an optional `updatedAt` age filter.  Each row includes the associated
+   * room code (null for ranked matches).
+   */
+  async loadAllActive(params: {
+    maxAgeMs?: number;
+    limit?: number;
+  } = {}): Promise<Array<{
+    id: string;
+    status: string;
+    revision: number;
+    instanceId: string | null;
+    liveState: MatchLiveState | null;
+    textSnapshot: string;
+    textId: string | null;
+    inputNonce: string | null;
+    serverStartAt: Date | null;
+    updatedAt: Date;
+    roomCode: string | null;
+  }>> {
+    const limit = params.limit ?? 200;
+    const cutoff = params.maxAgeMs != null
+      ? new Date(Date.now() - params.maxAgeMs)
+      : null;
+
+    const result = await this.db.execute(
+      cutoff != null
+        ? sql`
+            SELECT m.id, m.status, m.revision, m."instanceId", m."liveState",
+                   m."textSnapshot", m."textId", m."inputNonce", m."serverStartAt",
+                   m."updatedAt", r.code AS "roomCode"
+            FROM "pvp_match" m
+            LEFT JOIN "pvp_room" r ON m."roomId" = r.id
+            WHERE m.status IN ('PENDING','COUNTDOWN','RUNNING')
+              AND m."updatedAt" >= ${cutoff}
+            ORDER BY m."updatedAt" ASC
+            LIMIT ${limit}
+          `
+        : sql`
+            SELECT m.id, m.status, m.revision, m."instanceId", m."liveState",
+                   m."textSnapshot", m."textId", m."inputNonce", m."serverStartAt",
+                   m."updatedAt", r.code AS "roomCode"
+            FROM "pvp_match" m
+            LEFT JOIN "pvp_room" r ON m."roomId" = r.id
+            WHERE m.status IN ('PENDING','COUNTDOWN','RUNNING')
+            ORDER BY m."updatedAt" ASC
+            LIMIT ${limit}
+          `
+    );
+
+    return (result.rows as Array<{
+      id: string;
+      status: string;
+      revision: number;
+      instanceId: string | null;
+      liveState: unknown;
+      textSnapshot: string;
+      textId: string | null;
+      inputNonce: string | null;
+      serverStartAt: Date | null;
+      updatedAt: Date;
+      roomCode: string | null;
+    }>).map((row) => ({
+      ...row,
+      liveState: (row.liveState as MatchLiveState | null) ?? null,
+    }));
+  }
+
   async withTransaction<T>(run: (tx: GatewayTx) => Promise<T>) {
     return runGatewayTransaction(this.db, run);
   }

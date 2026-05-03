@@ -21,7 +21,7 @@ import { safeParseClientMessage } from "../protocol";
 import { routeMessage } from "./ws-router";
 import { send } from "./ws-sender";
 import { buildRoomReconnectKey } from "../rooms/lifecycle";
-import { transferRoomHostIfNeeded, broadcastRoomState } from "../application/room-helpers";
+import { transferRoomHostIfNeeded, broadcastRoomState, deleteRoomIfEmpty } from "../application/room-helpers";
 import {
   shouldScheduleDisconnectForfeit,
   getDisconnectForfeitPolicy,
@@ -425,7 +425,10 @@ export function setupWssConnectionHandler(
           }
 
           await transferRoomHostIfNeeded(deps.db, room.id);
-          await broadcastRoomState(deps.db, code, deps);
+          const deleted = await deleteRoomIfEmpty(deps.db, room.id, deps.redisBus);
+          if (!deleted) {
+            await broadcastRoomState(deps.db, code, deps);
+          }
         })().catch((err: unknown) => {
           gatewayLogError("Room post-leave handler failed", err, { code });
         });

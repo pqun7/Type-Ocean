@@ -67,76 +67,105 @@ export async function POST(req: NextRequest) {
 
   const isWin = changeRows[0].delta > 0;
 
-  // Run the streak update inside a transaction so concurrent requests are safe.
-  const result = await db.transaction(async (tx) => {
-    // Ensure the rating row exists (upsert default) and lock it for update.
-    // Drizzle neon-http does not support SELECT FOR UPDATE, so we use
-    // onConflictDoNothing + a subsequent update — a safe pattern for low contention.
-    await tx
-      .insert(pvpRatings)
-      .values({ userId })
-      .onConflictDoNothing({ target: pvpRatings.userId });
+  // neon-http does not support transactions, so we run sequential queries with
+  // an atomic conditional UPDATE (WHERE lastStreakMatchId IS DISTINCT FROM matchId)
+  // as the idempotency guard — safe for the low-contention single-user-per-match case.
 
-    const rows = await tx
-      .select({
-        rating: pvpRatings.rating,
-        currentStreak: pvpRatings.currentStreak,
-        longestStreak: pvpRatings.longestStreak,
-        lastStreakMatchId: pvpRatings.lastStreakMatchId,
-      })
-      .from(pvpRatings)
-      .where(eq(pvpRatings.userId, userId))
-      .limit(1);
+  // 1. Ensure the rating row exists.
+  await db
+    .insert(pvpRatings)
+    .values({ userId })
+    .onConflictDoNothing({ target: pvpRatings.userId });
 
-    const current = rows[0];
-    if (!current) return null;
+  // 2. Read current state.
+  const rows = await db
+    .select({
+      rating: pvpRatings.rating,
+      currentStreak: pvpRatings.currentStreak,
+      longestStreak: pvpRatings.longestStreak,
+      lastStreakMatchId: pvpRatings.lastStreakMatchId,
+    })
+    .from(pvpRatings)
+    .where(eq(pvpRatings.userId, userId))
+    .limit(1);
 
-    // Idempotency: same matchId was already processed — return current state
-    if (current.lastStreakMatchId === matchId) {
-      return {
+  const current = rows[0];
+  if (!current) {
+    return NextResponse.json({ error: "Rating row not found" }, { status: 500, headers: rateLimit.headers });
+  }
+
+  // 3. Fast-path idempotency: already processed this match.
+  if (current.lastStreakMatchId === matchId) {
+    await invalidateCachedPvpSelf(userId);
+    return NextResponse.json(
+      {
         currentStreak: current.currentStreak,
         longestStreak: current.longestStreak,
         streakBonus: 0,
         newRating: current.rating,
-        idempotent: true,
-      };
-    }
-
-    const newStreak = isWin ? current.currentStreak + 1 : 0;
-    const newLongest = Math.max(current.longestStreak, newStreak);
-    const streakBonus = isWin ? getStreakBonus(newStreak) : 0;
-    const newRating = current.rating + streakBonus;
-
-    // Apply ELO bonus if earned
-    if (streakBonus > 0) {
-      await tx
-        .insert(pvpRatingChanges)
-        .values({
-          matchId,
-          userId,
-          beforeRating: current.rating,
-          afterRating: newRating,
-          delta: streakBonus,
-        });
-    }
-
-    await tx
-      .update(pvpRatings)
-      .set({
-        currentStreak: newStreak,
-        longestStreak: newLongest,
-        lastStreakMatchId: matchId,
-        rating: newRating,
-        updatedAt: sql`now()`,
-      })
-      .where(eq(pvpRatings.userId, userId));
-
-    return { currentStreak: newStreak, longestStreak: newLongest, streakBonus, newRating, idempotent: false };
-  });
-
-  if (!result) {
-    return NextResponse.json({ error: "Rating row not found" }, { status: 500, headers: rateLimit.headers });
+      },
+      { headers: rateLimit.headers },
+    );
   }
+
+  const newStreak = isWin ? current.currentStreak + 1 : 0;
+  const newLongest = Math.max(current.longestStreak, newStreak);
+  const streakBonus = isWin ? getStreakBonus(newStreak) : 0;
+  const newRating = current.rating + streakBonus;
+
+  // 4. Atomic conditional update: only applies when this match has not yet been recorded.
+  //    IS DISTINCT FROM handles the NULL case correctly.
+  const updated = await db
+    .update(pvpRatings)
+    .set({
+      currentStreak: newStreak,
+      longestStreak: newLongest,
+      lastStreakMatchId: matchId,
+      rating: newRating,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(pvpRatings.userId, userId),
+        sql`${pvpRatings.lastStreakMatchId} IS DISTINCT FROM ${matchId}`,
+      ),
+    )
+    .returning({ currentStreak: pvpRatings.currentStreak });
+
+  if (updated.length === 0) {
+    // A concurrent request already processed this matchId — return fresh state.
+    const fresh = await db
+      .select({ rating: pvpRatings.rating, currentStreak: pvpRatings.currentStreak, longestStreak: pvpRatings.longestStreak })
+      .from(pvpRatings)
+      .where(eq(pvpRatings.userId, userId))
+      .limit(1);
+    await invalidateCachedPvpSelf(userId);
+    return NextResponse.json(
+      {
+        currentStreak: fresh[0]?.currentStreak ?? 0,
+        longestStreak: fresh[0]?.longestStreak ?? 0,
+        streakBonus: 0,
+        newRating: fresh[0]?.rating ?? current.rating,
+      },
+      { headers: rateLimit.headers },
+    );
+  }
+
+  // 5. Insert streak bonus rating-change record (onConflictDoNothing for safety).
+  if (streakBonus > 0) {
+    await db
+      .insert(pvpRatingChanges)
+      .values({
+        matchId,
+        userId,
+        beforeRating: current.rating,
+        afterRating: newRating,
+        delta: streakBonus,
+      })
+      .onConflictDoNothing();
+  }
+
+  const result = { currentStreak: newStreak, longestStreak: newLongest, streakBonus, newRating };
 
   // Invalidate the 30-second Redis cache so the next /api/pvp/me fetch is fresh
   await invalidateCachedPvpSelf(userId);

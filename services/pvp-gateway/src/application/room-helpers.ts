@@ -13,6 +13,7 @@ import { and, asc, eq, isNull, lte, or } from "drizzle-orm";
 
 import { pvpRooms, pvpRoomMembers } from "../../../../src/db/schema";
 import { sanitizeAvatarUrl, sanitizeDisplayName } from "../../../../src/lib/sanitize";
+import { getPvpRankInfo } from "../../../../src/features/pvp/rank";
 import { runGatewayTransaction, type GatewayDb } from "../gateway-db";
 import { buildRoomReconnectKey, selectNextRoomHost } from "../rooms/lifecycle";
 import { nextRoomExpiryDate, ONLINE_KEY_PREFIX } from "../shared/config";
@@ -85,6 +86,9 @@ export interface RoomStatePayload {
       avatar: string | null;
       slot: number;
       ready: boolean;
+      rating: number | null;
+      rankTier: string | null;
+      averageWpm: number | null;
       joinedAt: Date;
       leftAt: Date | null;
     }>;
@@ -124,7 +128,10 @@ export async function loadRoomStatePayload(
         with: {
           user: {
             columns: { username: true },
-            with: { profile: { columns: { avatar: true } } },
+            with: {
+              profile: { columns: { avatar: true, longTermStats: true } },
+              pvpRating: { columns: { rating: true } },
+            },
           },
         },
       },
@@ -142,15 +149,23 @@ export async function loadRoomStatePayload(
       maxPlayers: room.maxPlayers,
       hostUserId: room.hostUserId,
       expiresAt: room.expiresAt?.toISOString() ?? null,
-      members: room.members.map((member) => ({
-        userId: member.userId,
-        username: sanitizeDisplayName(member.user.username, 32) || "user",
-        avatar: sanitizeAvatarUrl(member.user.profile?.avatar ?? null),
-        slot: member.colorSlot,
-        ready: !!member.readyAt,
-        joinedAt: member.joinedAt,
-        leftAt: member.leftAt,
-      })),
+      members: room.members.map((member) => {
+        const rawRating = member.user.pvpRating?.rating ?? null;
+        const rankTier = rawRating != null ? getPvpRankInfo(rawRating).tier : null;
+        const longTermStats = member.user.profile?.longTermStats as { averageWpm?: number } | null | undefined;
+        return {
+          userId: member.userId,
+          username: sanitizeDisplayName(member.user.username, 32) || "user",
+          avatar: sanitizeAvatarUrl(member.user.profile?.avatar ?? null),
+          slot: member.colorSlot,
+          ready: !!member.readyAt,
+          rating: rawRating,
+          rankTier,
+          averageWpm: longTermStats?.averageWpm ?? null,
+          joinedAt: member.joinedAt,
+          leftAt: member.leftAt,
+        };
+      }),
     },
   };
 }
@@ -185,6 +200,9 @@ export async function broadcastRoomState(
         avatar: member.avatar,
         slot: member.slot,
         ready: member.ready,
+        rating: member.rating,
+        rankTier: member.rankTier,
+        averageWpm: member.averageWpm,
       })),
     },
   }, deps);
@@ -322,4 +340,42 @@ export async function restoreRoomAfterMatch(
   });
 
   await broadcastRoomState(db, roomCode, deps);
+}
+
+// =============================================================================
+// EMPTY ROOM CLEANUP
+// =============================================================================
+
+/**
+ * Delete a room immediately if no active members remain.
+ * Cleans up Redis reconnect keys for all members before deleting.
+ * Returns `true` if the room was deleted, `false` if members are still active.
+ */
+export async function deleteRoomIfEmpty(
+  db: GatewayDb,
+  roomId: string,
+  redisBus: Pick<GatewayDeps, "redisBus">["redisBus"],
+): Promise<boolean> {
+  const activeMembers = await db
+    .select({ userId: pvpRoomMembers.userId })
+    .from(pvpRoomMembers)
+    .where(and(eq(pvpRoomMembers.roomId, roomId), isNull(pvpRoomMembers.leftAt)));
+
+  if (activeMembers.length > 0) return false;
+
+  if (redisBus?.redis) {
+    const allMembers = await db
+      .select({ userId: pvpRoomMembers.userId })
+      .from(pvpRoomMembers)
+      .where(eq(pvpRoomMembers.roomId, roomId));
+    if (allMembers.length > 0) {
+      const keys = allMembers.map((m) => buildRoomReconnectKey(roomId, m.userId));
+      await redisBus.redis.del(...keys);
+    }
+  }
+
+  await db.delete(pvpRoomMembers).where(eq(pvpRoomMembers.roomId, roomId));
+  await db.delete(pvpRooms).where(eq(pvpRooms.id, roomId));
+
+  return true;
 }

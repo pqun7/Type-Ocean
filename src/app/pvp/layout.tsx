@@ -1,16 +1,26 @@
 'use client';
 
+import { motion } from "framer-motion";
 import { PvpSocketProvider } from "@/features/pvp/client/usePvpSocket";
 
 export default function PvpLayout({ children }: { children: React.ReactNode }) {
   return (
     <PvpSocketProvider>
-      <div className="relative">
-        <div className="fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
-          <div className="absolute inset-0 bg-gradient-to-br from-[#0A0F1A] via-[#0A0F1A] to-[#0A0C14]" />
-          <div className="absolute left-1/4 top-0 h-96 w-96 rounded-full bg-blue-500/5 blur-[120px] animate-pulse" />
-          <div className="absolute bottom-0 right-1/4 h-96 w-96 rounded-full bg-purple-500/5 blur-[120px] animate-pulse delay-1000" />
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cdefs%3E%3Cpattern%20id%3D%22grid%22%20width%3D%2260%22%20height%3D%2260%22%20patternUnits%3D%22userSpaceOnUse%22%3E%3Cpath%20d%3D%22M%2060%200%20L%200%200%200%2060%22%20fill%3D%22none%22%20stroke%3D%22rgba%28255%2C255%2C255%2C0.02%29%22%20stroke-width%3D%221%22/%3E%3C/pattern%3E%3C/defs%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22url%28%23grid%29%22/%3E%3C/svg%3E')] opacity-20" />
+      <div className="relative min-h-screen">
+        {/* Ambient Dynamic Background */}
+        <div className="fixed inset-0 -z-10" aria-hidden="true">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#050814] via-[#0a0f1a] to-[#030614]" />
+          <motion.div
+            className="absolute top-1/4 left-1/4 h-[600px] w-[600px] rounded-full bg-blue-600/10 blur-[140px]"
+            animate={{ x: [0, 30, -20, 0], y: [0, -20, 30, 0] }}
+            transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <motion.div
+            className="absolute bottom-1/4 right-1/4 h-[500px] w-[500px] rounded-full bg-purple-600/10 blur-[140px]"
+            animate={{ x: [0, -30, 20, 0], y: [0, 20, -30, 0] }}
+            transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2280%22%20height%3D%2280%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cdefs%3E%3Cpattern%20id%3D%22grid%22%20width%3D%2280%22%20height%3D%2280%22%20patternUnits%3D%22userSpaceOnUse%22%3E%3Cpath%20d%3D%22M%2080%200%20L%200%200%200%2080%22%20fill%3D%22none%22%20stroke%3D%22rgba%28255%2C255%2C255%2C0.02%29%22%20stroke-width%3D%221%22/%3E%3C/pattern%3E%3C/defs%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22url%28%23grid%29%22/%3E%3C/svg%3E')] opacity-20" />
         </div>
         <div className="relative z-10">{children}</div>
       </div>

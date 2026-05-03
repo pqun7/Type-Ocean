@@ -22,16 +22,6 @@ export async function handleReady(
   deps: GatewayDeps,
   idempotency: Awaited<ReturnType<typeof loadIdempotencyHit>>,
 ): Promise<void> {
-  const roomActionKey = `${ws.user!.userId}:ready`;
-  const now = Date.now();
-  const lastRoomAction = deps.roomActionLastSeen.get(roomActionKey) ?? 0;
-  if (now - lastRoomAction < deps.roomActionCooldownMs) {
-    incrementGatewayMetric("ws_rate_limit_rejected", { reason: "ready_cooldown" });
-    send(ws, "ERROR", { message: "Ready cooldown active" }, deps);
-    return;
-  }
-  deps.roomActionLastSeen.set(roomActionKey, now);
-
   const code = sanitizeRoomCode(msg.payload?.roomCode ?? ws.roomCode ?? "");
   if (!code) {
     send(ws, "ERROR", { message: "No room" }, deps);
@@ -53,9 +43,30 @@ export async function handleReady(
     return;
   }
 
+  const memberRows = await deps.db
+    .select({ readyAt: pvpRoomMembers.readyAt })
+    .from(pvpRoomMembers)
+    .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user!.userId)))
+    .limit(1);
+  const isCurrentlyReady = !!(memberRows[0]?.readyAt);
+
+  // Only apply the cooldown when setting ready (not→ready).
+  // Cancel-ready (ready→not) must always be allowed immediately.
+  if (!isCurrentlyReady) {
+    const roomActionKey = `${ws.user!.userId}:ready`;
+    const now = Date.now();
+    const lastRoomAction = deps.roomActionLastSeen.get(roomActionKey) ?? 0;
+    if (now - lastRoomAction < deps.roomActionCooldownMs) {
+      incrementGatewayMetric("ws_rate_limit_rejected", { reason: "ready_cooldown" });
+      send(ws, "ERROR", { message: "Ready cooldown active" }, deps);
+      return;
+    }
+    deps.roomActionLastSeen.set(roomActionKey, now);
+  }
+
   await deps.db
     .update(pvpRoomMembers)
-    .set({ readyAt: new Date() })
+    .set({ readyAt: isCurrentlyReady ? null : new Date() })
     .where(and(eq(pvpRoomMembers.roomId, room.id), eq(pvpRoomMembers.userId, ws.user!.userId)));
 
   await touchRoomExpiry(deps.db, room.id);

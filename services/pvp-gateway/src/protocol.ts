@@ -35,6 +35,8 @@ export type ServerMessage = {
     | "REMATCH_DECLINED"
     | "COUNTDOWN_TICK"
     | "REMATCH_STATUS"
+    | "LOBBY_CHAT"
+    | "ROOM_UPDATE_ACK"
     | "ERROR"
     | "PONG";
   payload: unknown;

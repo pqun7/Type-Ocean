@@ -14,7 +14,7 @@ export type ServerMessage =
           maxPlayers: number;
           hostUserId?: string | null;
           expiresAt?: string | null;
-          members: Array<{ userId: string; username: string; avatar: string | null; slot: number; ready: boolean }>;
+          members: Array<{ userId: string; username: string; avatar: string | null; slot: number; ready: boolean; rating?: number | null; rankTier?: string | null; averageWpm?: number | null }>;
         };
       };
     }
@@ -115,6 +115,11 @@ export type ServerMessage =
       payload: { matchId: string; acceptedUserIds: string[] };
     }
   | { type: "ERROR"; payload: PvpErrorPayload }
+  | {
+      type: "LOBBY_CHAT";
+      payload: { roomCode: string; userId: string; username: string; text: string; ts: number };
+    }
+  | { type: "ROOM_UPDATE_ACK"; payload: { roomCode: string; maxPlayers: number } }
   | { type: "PONG"; payload?: Record<string, never> };
 
 export type ClientMessage =
@@ -134,4 +139,6 @@ export type ClientMessage =
   | { type: "REMATCH_REQUEST"; payload: { matchId: string }; requestId?: string }
   | { type: "REMATCH_RESPONSE"; payload: { matchId: string; accept: boolean }; requestId?: string }
   | { type: "MATCH_SYNC_REQUEST"; payload: { matchId: string }; requestId?: string }
-  | { type: "PING"; payload?: Record<string, never>; requestId?: string };
+  | { type: "PING"; payload?: Record<string, never>; requestId?: string }
+  | { type: "LOBBY_CHAT"; payload: { roomCode?: string; text: string }; requestId?: string }
+  | { type: "ROOM_UPDATE"; payload: { roomCode?: string; maxPlayers: number }; requestId?: string };

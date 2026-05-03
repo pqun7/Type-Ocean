@@ -351,6 +351,14 @@ export default {
           "@apply font-medium rounded-lg py-5 w-full border-[#69d0ff] hover:bg-[#69d0ff]/20 text-[#60a5fa] hover:text-[#93c5fd] transition-colors duration-300":
             {},
         },
+        ".btn-green": {
+          "@apply font-medium rounded-lg w-full border-2 border-emerald-500/60 hover:border-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a0a1f]/50":
+            {},
+        },
+        ".btn-danger": {
+          "@apply font-medium rounded-lg w-full border-2 border-rose-500/60 hover:border-rose-500 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a0a1f]/50":
+            {},
+        },
       });
 
       addUtilities({

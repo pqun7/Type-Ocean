@@ -8,7 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { pvpRooms, pvpRoomMembers } from "../../../../../src/db/schema";
 import { sanitizeRoomCode } from "../../../../../src/lib/sanitize";
 import { buildRoomReconnectKey } from "../../rooms/lifecycle";
-import { touchRoomExpiry, transferRoomHostIfNeeded, broadcastRoomState } from "../room-helpers";
+import { touchRoomExpiry, transferRoomHostIfNeeded, broadcastRoomState, deleteRoomIfEmpty } from "../room-helpers";
 import { storeIdempotencyHit } from "../match-helpers";
 import { send } from "../../presentation/ws-sender";
 import type { WsConn } from "../../presentation/ws-conn";
@@ -50,8 +50,12 @@ export async function handleRoomLeave(
 
   deps.updateSocketRoomSubscription(ws, undefined);
   await transferRoomHostIfNeeded(deps.db, room.id);
-  await touchRoomExpiry(deps.db, room.id);
-  await broadcastRoomState(deps.db, code, deps);
+
+  const deleted = await deleteRoomIfEmpty(deps.db, room.id, deps.redisBus);
+  if (!deleted) {
+    await touchRoomExpiry(deps.db, room.id);
+    await broadcastRoomState(deps.db, code, deps);
+  }
 
   await storeIdempotencyHit({
     redis: deps.redisBus?.redis ?? null,

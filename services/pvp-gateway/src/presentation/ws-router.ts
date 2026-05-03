@@ -28,6 +28,8 @@ import {
   handleRoomKick,
   handleRoomLeave,
   handleMatchSyncRequest,
+  handleRoomChat,
+  handleRoomUpdate,
 } from "../application/commands/index";
 
 import type { WsConn } from "./ws-conn";
@@ -160,6 +162,12 @@ export async function routeMessage(
       break;
     case "MATCH_SYNC_REQUEST":
       await handleMatchSyncRequest(ws, msg, deps);
+      break;
+    case "LOBBY_CHAT":
+      await handleRoomChat(ws, msg, deps);
+      break;
+    case "ROOM_UPDATE":
+      await handleRoomUpdate(ws, msg, deps, idempotency);
       break;
     default: {
       const _exhaustiveCheck: never = msg;

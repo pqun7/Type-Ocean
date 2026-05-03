@@ -1,11 +1,11 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 export function HolographicCard({
   children,
   className,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
+}: Omit<HTMLMotionProps<"div">, "children"> & { children?: React.ReactNode }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
