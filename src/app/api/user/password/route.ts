@@ -10,6 +10,7 @@ import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { passwordValidation } from "@/features/auth/utils/password-policy";
 import { logging } from "@/log/ServerLogger";
 import { rateLimiter } from "@/lib/rate-limiter";
+import { validateCsrf as validateCSRF } from "@/lib/csrf";
 import {
   isDatabaseAccountHoldError,
   isDatabaseTemporarilyUnavailableError,
@@ -23,16 +24,6 @@ const UpdatePasswordSchema = z
     newPassword: passwordValidation,
   })
   .strict();
-
-function validateCSRF(req: NextRequest): string | null {
-  const origin = req.headers.get("origin") || "";
-  const referer = req.headers.get("referer") || "";
-  const host = new URL(req.url).origin;
-
-  if (origin && origin !== host) return "Invalid origin";
-  if (referer && !referer.startsWith(host)) return "Invalid referer";
-  return null;
-}
 
 export async function PATCH(req: NextRequest) {
   const requestId = uuidv4();

@@ -26,7 +26,7 @@ export type OverallKeyboardPerformanceSnapshot = {
   byLanguage: Record<TypingLanguage, KeyBucket>;
 };
 
-const LANGUAGES: TypingLanguage[] = ["en", "ar", "fr", "es"];
+const LANGUAGES: TypingLanguage[] = ["en", "ar"];
 
 function emptyBucket(): KeyBucket {
   return {};
@@ -44,8 +44,6 @@ export function createEmptyOverallKeyboardSnapshot(
     byLanguage: {
       en: emptyBucket(),
       ar: emptyBucket(),
-      fr: emptyBucket(),
-      es: emptyBucket(),
     },
   };
 }
@@ -93,8 +91,6 @@ export function normalizeOverallKeyboardSnapshot(
     byLanguage: {
       en: normalizeBucket(input.byLanguage?.en),
       ar: normalizeBucket(input.byLanguage?.ar),
-      fr: normalizeBucket(input.byLanguage?.fr),
-      es: normalizeBucket(input.byLanguage?.es),
     },
   };
 }
@@ -133,8 +129,6 @@ export function mergeOverallKeyboardSnapshot(
     byLanguage: {
       en: { ...current.byLanguage.en },
       ar: { ...current.byLanguage.ar },
-      fr: { ...current.byLanguage.fr },
-      es: { ...current.byLanguage.es },
     },
   };
 

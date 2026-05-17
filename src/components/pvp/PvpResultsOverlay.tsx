@@ -171,8 +171,8 @@ export default function PvpResultsOverlay(props: {
 
   const {
     open,
-    title = "Match Results",
-    primaryActionLabel = "Find new opponent",
+    title = "Race Results",
+    primaryActionLabel = "Find a new typer",
     placements,
     ratingChanges,
     chartData,
@@ -253,11 +253,11 @@ export default function PvpResultsOverlay(props: {
                             : "bg-gradient-to-r from-white via-slate-100 to-slate-300"
                         }`}
                       >
-                        {didWin ? "Victory!" : title}
+                        {didWin ? "You Win!" : title}
                       </h2>
                     </div>
                     <p className="text-sm text-white/45">
-                      You vs{" "}
+                      Typing race vs{" "}
                       <span className="font-semibold text-purple-300">{opponentName}</span>
                     </p>
                   </div>
@@ -271,7 +271,7 @@ export default function PvpResultsOverlay(props: {
                     }`}
                   >
                     <Zap className="h-3 w-3" />
-                    {didWin ? "Win" : "Loss"}
+                    {didWin ? "Won" : "Lost"}
                   </div>
                 </div>
               </div>
@@ -295,7 +295,7 @@ export default function PvpResultsOverlay(props: {
                 {/* Rating change */}
                 {myChange && (
                   <div className="flex items-center justify-between gap-2 px-1">
-                    <span className="text-xs text-white/35 uppercase tracking-wider font-medium">Rating</span>
+                    <span className="text-xs text-white/35 uppercase tracking-wider font-medium">Rank Score</span>
                     <RatingDeltaBadge before={myChange.before} after={myChange.after} delta={myChange.delta} />
                   </div>
                 )}
@@ -308,7 +308,7 @@ export default function PvpResultsOverlay(props: {
                     transition={{ delay: 0.2 }}
                     className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3"
                   >
-                    <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold mb-2 px-1">WPM over time</p>
+                    <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold mb-2 px-1">Speed through the race</p>
                     <ChartContainer config={chartConfig} className="h-[160px] w-full">
                       <AreaChart data={chartData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                         <defs>
@@ -346,11 +346,11 @@ export default function PvpResultsOverlay(props: {
                         <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
                           className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 px-4 py-3">
                           <Sparkles className="h-4 w-4 text-amber-400 animate-pulse shrink-0" />
-                          <span className="text-sm text-amber-100 flex-1">Opponent wants a rematch!</span>
+                          <span className="text-sm text-amber-100 flex-1">{opponentName} wants another race!</span>
                           <div className="flex gap-2 shrink-0">
                             <Button onClick={onAcceptRematch} size="sm"
                               className="rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-5">
-                              Accept
+                              Race again
                             </Button>
                             <Button onClick={onDeclineRematch} variant="outline" size="sm"
                               className="rounded-full border-rose-500/40 text-rose-300 hover:bg-rose-500/10 px-5">
@@ -364,12 +364,12 @@ export default function PvpResultsOverlay(props: {
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                           </svg>
-                          Waiting for opponent…
+                          Waiting for the other typer...
                         </div>
                       ) : (
                         <Button onClick={onRequestRematch} variant="secondary"
                           className="w-full rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-200 hover:bg-purple-500/20 hover:text-purple-100 transition-all font-semibold h-11">
-                          <Sword className="h-4 w-4 mr-2" /> Rematch
+                          <Sword className="h-4 w-4 mr-2" /> Race again
                         </Button>
                       )}
                     </>
@@ -381,7 +381,7 @@ export default function PvpResultsOverlay(props: {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      Searching for opponent…
+                      Finding your next typer...
                     </div>
                   ) : (
                     <Button variant="outline" onClick={onFindNewOpponent}

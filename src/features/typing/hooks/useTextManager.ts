@@ -10,14 +10,6 @@ import shortAr from "@/features/typing/data/ar/short.json";
 import mediumAr from "@/features/typing/data/ar/medium.json";
 import longAr from "@/features/typing/data/ar/long.json";
 
-import shortEs from "@/features/typing/data/es/short.json";
-import mediumEs from "@/features/typing/data/es/medium.json";
-import longEs from "@/features/typing/data/es/long.json";
-
-import shortFr from "@/features/typing/data/fr/short.json";
-import mediumFr from "@/features/typing/data/fr/medium.json";
-import longFr from "@/features/typing/data/fr/long.json";
-
 import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 
 type Level = "SHORT" | "MEDIUM" | "LONG";
@@ -37,16 +29,6 @@ const TEXT_BANKS: Record<TypingLanguage, Record<Level, TextItem[]>> = {
     SHORT: shortAr as TextItem[],
     MEDIUM: mediumAr as TextItem[],
     LONG: longAr as TextItem[],
-  },
-  es: {
-    SHORT: shortEs as TextItem[],
-    MEDIUM: mediumEs as TextItem[],
-    LONG: longEs as TextItem[],
-  },
-  fr: {
-    SHORT: shortFr as TextItem[],
-    MEDIUM: mediumFr as TextItem[],
-    LONG: longFr as TextItem[],
   },
 };
 

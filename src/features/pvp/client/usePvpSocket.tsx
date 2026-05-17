@@ -184,7 +184,7 @@ const HEARTBEAT_INTERVAL_MS = 10_000;
  * Number of consecutive unanswered PINGs before the socket is force-closed
  * so the reconnect machinery can kick in.
  */
-const MAX_MISSED_HEARTBEATS = 3;
+const MAX_MISSED_HEARTBEATS = 12;
 
 /* ------------------------------------------------------------------ */
 /*  Provider                                                           */
@@ -306,6 +306,16 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Browsers heavily throttle background tabs; skipping heartbeat avoids
+      // false reconnect loops when timers are delayed while hidden.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        missedHeartbeatsRef.current = 0;
+        return;
+      }
+
+      // Send application-level PING (gateway replies with PONG)
+      ws.send(JSON.stringify({ type: "PING" } satisfies ClientMessage));
+
       missedHeartbeatsRef.current += 1;
 
       if (missedHeartbeatsRef.current > MAX_MISSED_HEARTBEATS) {
@@ -318,8 +328,6 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Send application-level PING (gateway will reply with PONG)
-      ws.send(JSON.stringify({ type: "PING" } satisfies ClientMessage));
       logger.pvp.debug("PvP heartbeat: PING sent", { pendingAcks: missedHeartbeatsRef.current });
     }, HEARTBEAT_INTERVAL_MS);
   }, [stopHeartbeat]);
@@ -492,6 +500,9 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
           const msg = JSON.parse(String(evt.data)) as ServerMessage;
           if (versionRef.current !== capturedVersion) return;
 
+          // Any inbound frame proves liveness, not just PONG.
+          missedHeartbeatsRef.current = 0;
+
           logger.pvp.debug("Received PvP socket message", { type: msg.type });
           setLastMessage(msg);
 
@@ -520,8 +531,6 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
           }
 
           if (msg.type === "PONG") {
-            // Gateway acknowledged our PING — reset missed counter
-            missedHeartbeatsRef.current = 0;
             logger.pvp.debug("PvP heartbeat: PONG received");
           }
 

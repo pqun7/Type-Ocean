@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { authorizeRequest } from "@/app/api/shared.server";
 import { rateLimiter } from "@/lib/rate-limiter";
+import { validateCsrf as validateCSRF } from "@/lib/csrf";
 import { logging } from "@/log/ServerLogger";
 import { addUserXP, getUserProgress } from "@/features/level/server-utils/userCache";
 import {
@@ -26,16 +27,6 @@ const BodySchema = z.object({
   xpDelta:   z.number().int().positive().max(5000),
   bonusMeta: BonusMetaSchema,
 });
-
-function validateCSRF(req: NextRequest): string | null {
-  const origin = req.headers.get("origin") || "";
-  const referer = req.headers.get("referer") || "";
-  const host = new URL(req.url).origin;
-
-  if (origin && origin !== host) return "Invalid origin";
-  if (referer && !referer.startsWith(host)) return "Invalid referer";
-  return null;
-}
 
 export async function GET(req: NextRequest) {
   const requestId = uuidv4();

@@ -19,6 +19,12 @@ import {
 
 import { useSettings } from "@/features/settings/context";
 import type { FontScale } from "@/features/settings/types";
+import {
+  ARABIC_TYPING_FONT_OPTIONS,
+  ENGLISH_TYPING_FONT_OPTIONS,
+  type ArabicTypingFontId,
+  type EnglishTypingFontId,
+} from "@/features/settings/typingFonts";
 import { TYPING_LANGUAGES, type TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +66,58 @@ function SettingRow(props: {
       </div>
       <div className="pt-0.5">{children}</div>
     </div>
+  );
+}
+
+function FontPresetButton<T extends string>(props: {
+  option: {
+    id: T;
+    label: string;
+    description: string;
+    sample: string;
+    cssFamily: string;
+  };
+  selected: boolean;
+  dir: "ltr" | "rtl";
+  lang: string;
+  onSelect: (value: T) => void;
+}) {
+  const { option, selected, dir, lang, onSelect } = props;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(option.id)}
+      className={cn(
+        "group rounded-2xl border p-3 text-left transition-all duration-200",
+        "bg-[rgba(12,28,46,0.72)] backdrop-blur-sm",
+        selected
+          ? "border-cyan-300/60 bg-[rgba(35,88,132,0.35)] shadow-[0_0_0_1px_rgba(125,211,252,0.15)]"
+          : "border-[rgba(160,220,255,0.12)] hover:border-[rgba(160,220,255,0.35)] hover:bg-[rgba(24,54,82,0.5)]"
+      )}
+      aria-pressed={selected}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-[#E0E7FF]">{option.label}</div>
+          <div className="text-[11px] text-[#8A8FB5]">{option.description}</div>
+        </div>
+        {selected ? (
+          <span className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-200">
+            Active
+          </span>
+        ) : null}
+      </div>
+
+      <div
+        className="mt-3 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-sm leading-7 text-white/90"
+        dir={dir}
+        lang={lang}
+        style={{ fontFamily: option.cssFamily }}
+      >
+        {option.sample}
+      </div>
+    </button>
   );
 }
 
@@ -133,7 +191,7 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
         <CardContent className="space-y-4">
           <SettingRow
             title="Show chart after session ends"
-            description="Disabling this hides only the chart and keeps the results screen."
+            description="Disabling this hides the chart or heatmap panel and keeps the results stats visible."
           >
             <Switch
               checked={settings.showSessionChart}
@@ -281,6 +339,44 @@ export function SettingsContent(props: { className?: string; onRequestClose?: ()
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <Separator className="bg-[rgba(160,220,255,0.15)]" />
+
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm text-[#E0E7FF]">
+                {settings.typingLanguage === "ar" ? "Arabic typing font" : "English typing font"}
+              </Label>
+              <div className="mt-1 text-xs text-[#8A8FB5]">
+                {settings.typingLanguage === "ar"
+                  ? "Applied to Arabic typing surfaces, previews, and user text entry."
+                  : "Applied to English typing surfaces, previews, and user text entry."}
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {settings.typingLanguage === "ar"
+                ? ARABIC_TYPING_FONT_OPTIONS.map((option) => (
+                    <FontPresetButton<ArabicTypingFontId>
+                      key={option.id}
+                      option={option}
+                      selected={settings.arabicTypingFont === option.id}
+                      dir="rtl"
+                      lang="ar"
+                      onSelect={(value) => updateSettings({ arabicTypingFont: value })}
+                    />
+                  ))
+                : ENGLISH_TYPING_FONT_OPTIONS.map((option) => (
+                    <FontPresetButton<EnglishTypingFontId>
+                      key={option.id}
+                      option={option}
+                      selected={settings.englishTypingFont === option.id}
+                      dir="ltr"
+                      lang="en"
+                      onSelect={(value) => updateSettings({ englishTypingFont: value })}
+                    />
+                  ))}
+            </div>
           </div>
         </CardContent>
       </Card>

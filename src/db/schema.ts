@@ -53,6 +53,7 @@ export const playerProfiles = pgTable("player_profile", {
 	ratingUpdatedAt: timestamp("ratingUpdatedAt", { withTimezone: false, mode: "date" }),
 	achievements: jsonb("achievements").notNull().default(sql`'[]'::jsonb`),
 	longTermStats: jsonb("longTermStats"),
+	appSettings: jsonb("appSettings"),
 	avatar: text("avatar"),
 	hideFromLeaderboard: boolean("hideFromLeaderboard").notNull().default(false),
 	createdAt: timestamp("createdAt", { withTimezone: false, mode: "date" }).notNull().defaultNow(),

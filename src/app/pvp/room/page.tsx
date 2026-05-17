@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect, ClipboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -24,70 +32,19 @@ import Header from "@/components/layout/Header/Header";
 import { Button } from "@/components/ui/button";
 import { useAlert } from "@/contexts/alert-context";
 
-// ============================================================================
-// Living Design System Tokens (Premium Gaming Lobby Edition)
-// ============================================================================
-const designTokens = {
-  glass: {
-    base: "bg-black/30 backdrop-blur-2xl",
-    border: "border-white/10",
-    hoverBorder: "hover:border-white/20",
-    shadow: "shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5)]",
-    tactile:
-      "shadow-[inset_0_1px_1px_rgba(255,255,255,0.06),0_12px_24px_-12px_rgba(0,0,0,0.8)]",
-  },
-  accents: {
-    cyan: "from-cyan-400/20 to-blue-500/5",
-    purple: "from-purple-400/20 to-pink-500/5",
-    amber: "from-amber-400/20 to-orange-500/5",
-  },
-  handDrawn: {
-    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))",
-    stroke: "stroke-white/40 stroke-[1.5] fill-none",
-  },
-};
+const glassGlowMap = {
+  cyan: "from-cyan-500/5 via-cyan-400/5 to-transparent",
+  purple: "from-purple-500/5 via-purple-400/5 to-transparent",
+  amber: "from-amber-500/5 via-amber-400/5 to-transparent",
+} as const;
 
-// ============================================================================
-// Hand-Drawn Accent Components (Proof of Personhood Aesthetic)
-// ============================================================================
-const HandDrawnSquiggle = ({ className = "" }: { className?: string }) => (
-  <svg
-    className={`pointer-events-none absolute ${className}`}
-    width="120"
-    height="30"
-    viewBox="0 0 120 30"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    style={{ filter: designTokens.handDrawn.filter }}
-  >
-    <path
-      d="M5,15 Q20,5 35,15 T65,15 T95,15 T115,12"
-      className={designTokens.handDrawn.stroke}
-      strokeLinecap="round"
-      strokeDasharray="3 2"
-    />
-  </svg>
-);
-
-const HandDrawnCircle = ({ className = "" }: { className?: string }) => (
-  <svg
-    className={`pointer-events-none absolute ${className}`}
-    width="40"
-    height="40"
-    viewBox="0 0 40 40"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    style={{ filter: designTokens.handDrawn.filter }}
-  >
-    <circle
-      cx="20"
-      cy="20"
-      r="16"
-      className={designTokens.handDrawn.stroke}
-      strokeDasharray="4 3"
-    />
-  </svg>
-);
+const ambientOracleTips = [
+  { icon: Sword, text: "Host decides when the battle begins." },
+  { icon: ShieldCheck, text: "Kick players or lock the lobby anytime." },
+  { icon: Eye, text: "Spectate matches while you wait." },
+  { icon: Wifi, text: "Low‑latency dedicated servers." },
+  { icon: Trophy, text: "Wins here don’t affect public rank." },
+];
 
 // ============================================================================
 // Premium Glass Card 3.0 – Whisper‑light Elegance for 2027
@@ -101,17 +58,11 @@ const GlassCard = ({
   glowColor = "cyan",
   depth = "default",
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
   glowColor?: "cyan" | "purple" | "amber";
   depth?: "default" | "elevated";
 }) => {
-  const glowMap = {
-    cyan: "from-cyan-500/5 via-cyan-400/5 to-transparent",
-    purple: "from-purple-500/5 via-purple-400/5 to-transparent",
-    amber: "from-amber-500/5 via-amber-400/5 to-transparent",
-  };
-
   const depthClass =
     depth === "elevated"
       ? "shadow-[0_20px_40px_-12px_rgba(0,0,0,0.4),0_8px_20px_-8px_rgba(0,0,0,0.3)]"
@@ -134,7 +85,7 @@ const GlassCard = ({
         <div
           className={`
             absolute inset-0 z-0
-            bg-gradient-to-r ${glowMap[glowColor]}
+            bg-gradient-to-r ${glassGlowMap[glowColor]}
             opacity-0 blur-2xl transition-opacity duration-1000
             group-hover:opacity-100
           `}
@@ -214,7 +165,6 @@ const FluidSelect = ({
                 </motion.button>
               ))}
             </div>
-            <HandDrawnSquiggle className="-bottom-2 left-2 opacity-60" />
           </motion.div>
         )}
       </AnimatePresence>
@@ -223,7 +173,7 @@ const FluidSelect = ({
 };
 
 // ============================================================================
-// OTP Code Input – 8-Character Single Row (4 + — + 4)
+// OTP Code Input – 6-Character Single Row (3 + — + 3)
 // ============================================================================
 interface CodeInputProps {
   value: string;
@@ -231,82 +181,83 @@ interface CodeInputProps {
   onComplete?: (code: string) => void;
 }
 const CodeInput = ({ value, onChange, onComplete }: CodeInputProps) => {
-  const [digits, setDigits] = useState<string[]>(() => {
-    const clean = value.replace("-", "");
-    const arr = clean.split("").slice(0, 8);
-    while (arr.length < 8) arr.push("");
-    return arr;
-  });
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>(Array(6).fill(null));
 
-  useEffect(() => {
+  const digits = useMemo(() => {
     const clean = value.replace("-", "");
-    const newDigits = clean.split("").slice(0, 6);
-    while (newDigits.length < 6) newDigits.push("");
-    setDigits(newDigits);
+    const arr = clean.split("").slice(0, 6);
+    while (arr.length < 6) arr.push("");
+    return arr;
   }, [value]);
 
-  const updateFullCode = (newDigits: string[]) => {
+  const setInputRef = useCallback(
+    (index: number) => (element: HTMLInputElement | null) => {
+      inputRefs.current[index] = element;
+    },
+    [],
+  );
+
+  const updateFullCode = useCallback(
+    (newDigits: string[]) => {
     const firstPart = newDigits.slice(0, 3).join("");
     const secondPart = newDigits.slice(3, 6).join("");
     const formatted = `${firstPart}-${secondPart}`;
     onChange(formatted);
-    if (newDigits.every((d) => d.match(/[A-Z0-9]/)) && newDigits.length === 6) {
+    if (newDigits.every((digit) => /^[A-Z0-9]$/.test(digit))) {
       onComplete?.(formatted);
     }
-  };
+    },
+    [onChange, onComplete],
+  );
 
-  const handleChange = (index: number, val: string) => {
+  const handleChange = useCallback((index: number, val: string) => {
     // السماح بالأرقام والحروف (A-Z, a-z, 0-9) وتحويل الحروف إلى uppercase
     let upperVal = val.toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (upperVal.length > 1) upperVal = upperVal.slice(0, 1);
     const newDigits = [...digits];
     newDigits[index] = upperVal;
-    setDigits(newDigits);
     updateFullCode(newDigits);
     if (upperVal && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
-  };
+  }, [digits, updateFullCode]);
 
-  const handleKeyDown = (
-    index: number,
-    e: React.KeyboardEvent<HTMLInputElement>,
-  ) => {
-    if (e.key === "Backspace") {
+  const handleKeyDown = useCallback(
+    (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Backspace") {
       if (digits[index] === "") {
         if (index > 0) inputRefs.current[index - 1]?.focus();
       } else {
         const newDigits = [...digits];
         newDigits[index] = "";
-        setDigits(newDigits);
         updateFullCode(newDigits);
       }
-    } else if (e.key === "ArrowLeft" && index > 0) {
+      } else if (event.key === "ArrowLeft" && index > 0) {
       inputRefs.current[index - 1]?.focus();
-    } else if (e.key === "ArrowRight" && index < 5) {
+      } else if (event.key === "ArrowRight" && index < 5) {
       inputRefs.current[index + 1]?.focus();
-    }
-  };
+      }
+    },
+    [digits, updateFullCode],
+  );
 
-  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    const pasted = e.clipboardData
+  const handlePaste = useCallback((event: ClipboardEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    const pasted = event.clipboardData
       .getData("text")
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, "");
     const pastedArr = pasted.split("").slice(0, 6);
     const newDigits = [...digits];
-    for (let i = 0; i < pastedArr.length; i++) {
-      if (i < 6) newDigits[i] = pastedArr[i];
+    for (let index = 0; index < pastedArr.length; index += 1) {
+      newDigits[index] = pastedArr[index];
     }
-    setDigits(newDigits);
     updateFullCode(newDigits);
-    const lastFilledIndex = newDigits.findLastIndex((d) => d !== "");
+    const lastFilledIndex = newDigits.findLastIndex((digit) => digit !== "");
     const focusIndex =
       lastFilledIndex === -1 ? 0 : Math.min(lastFilledIndex + 1, 5);
     inputRefs.current[focusIndex]?.focus();
-  };
+  }, [digits, updateFullCode]);
 
   // تصميم الحقول (بدون أي أنيميشن مزعج)
   const inputClassName = `
@@ -329,11 +280,9 @@ const CodeInput = ({ value, onChange, onComplete }: CodeInputProps) => {
   return (
     <div className="flex items-center justify-center gap-[clamp(0.375rem,2vw,0.625rem)]">
       {digits.slice(0, 3).map((digit, idx) => (
-        <motion.input
+        <input
           key={idx}
-          ref={(el) => {
-            inputRefs.current[idx] = el;
-          }}
+          ref={setInputRef(idx)}
           type="text"
           inputMode="text"
           maxLength={1}
@@ -353,11 +302,9 @@ const CodeInput = ({ value, onChange, onComplete }: CodeInputProps) => {
       {digits.slice(3, 6).map((digit, idx) => {
         const globalIdx = idx + 3;
         return (
-          <motion.input
+          <input
             key={globalIdx}
-            ref={(el) => {
-              inputRefs.current[globalIdx] = el;
-            }}
+            ref={setInputRef(globalIdx)}
             type="text"
             inputMode="text"
             maxLength={1}
@@ -378,22 +325,15 @@ const CodeInput = ({ value, onChange, onComplete }: CodeInputProps) => {
 // ============================================================================
 const AmbientOracle = () => {
   const [messageIndex, setMessageIndex] = useState(0);
-  const tips = [
-    { icon: Sword, text: "Host decides when the battle begins." },
-    { icon: ShieldCheck, text: "Kick players or lock the lobby anytime." },
-    { icon: Eye, text: "Spectate matches while you wait." },
-    { icon: Wifi, text: "Low‑latency dedicated servers." },
-    { icon: Trophy, text: "Wins here don’t affect public rank." },
-  ];
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setMessageIndex((prev) => (prev + 1) % tips.length);
+      setMessageIndex((prev) => (prev + 1) % ambientOracleTips.length);
     }, 6000);
     return () => clearInterval(interval);
-  }, [tips.length]);
+  }, []);
 
-  const CurrentIcon = tips[messageIndex].icon;
+  const CurrentIcon = ambientOracleTips[messageIndex].icon;
 
   return (
     <div className="inline-flex items-stretch rounded-2xl border border-white/10 bg-black/20 backdrop-blur-md overflow-hidden">
@@ -418,7 +358,7 @@ const AmbientOracle = () => {
           >
             <CurrentIcon className="h-3.5 w-3.5 text-white/60" />
             <span className="text-xs font-light tracking-wide text-white/70">
-              {tips[messageIndex].text}
+              {ambientOracleTips[messageIndex].text}
             </span>
           </motion.div>
         </AnimatePresence>
@@ -440,6 +380,27 @@ export default function PvpRoomsPage() {
   const [isJoining, setIsJoining] = useState(false);
   const { showAlert } = useAlert();
 
+  // Show error messages forwarded via ?error= from the room/[code] server redirect.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const errorCode = params.get("error");
+    if (!errorCode) return;
+    const errorMessages: Record<string, string> = {
+      not_found: "Room not found. The code may be wrong or the room was closed.",
+      expired: "This room has expired.",
+      room_closed: "This room is no longer open.",
+      invalid_code: "Invalid room code format.",
+    };
+    const msg = errorMessages[errorCode];
+    if (msg) {
+      setError(msg);
+      // Remove the param from the address bar without triggering navigation.
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete("error");
+      window.history.replaceState({}, "", clean.toString());
+    }
+  }, []);
+
   async function createRoom() {
     setIsCreating(true);
     setError(null);
@@ -452,7 +413,12 @@ export default function PvpRoomsPage() {
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? "Failed to create room");
       await navigator.clipboard.writeText(body.code).catch(() => {});
-showAlert(`The code ${body.code} has been copied successfully! You can share it with your friends.`, "success", { durationMs: 6000 });      router.push(`/pvp/room/${body.code}`);
+      showAlert(
+        `The code ${body.code} has been copied successfully! You can share it with your friends.`,
+        "success",
+        { durationMs: 6000 },
+      );
+      router.push(`/pvp/room/${body.code}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -531,7 +497,6 @@ showAlert(`The code ${body.code} has been copied successfully! You can share it 
                     PRIVATE LOBBYS
                   </span>
                 </h1>
-                <HandDrawnSquiggle className="-bottom-3 right-0 w-24 opacity-50" />
               </div>
 
               {/* Enhanced Oracle placed under title */}
@@ -542,9 +507,6 @@ showAlert(`The code ${body.code} has been copied successfully! You can share it 
 
             {/* Organic Anti-Grid Layout: Asymmetrical Cards Perfectly Centered */}
             <div className="relative">
-              <HandDrawnCircle className="-left-6 top-12 hidden lg:block" />
-              <HandDrawnCircle className="-right-4 bottom-20 hidden lg:block" />
-
               {error && (
                 <motion.div
                   initial={{ opacity: 0, y: -20 }}
@@ -574,8 +536,6 @@ showAlert(`The code ${body.code} has been copied successfully! You can share it 
                     className="h-full w-full"
                   >
                     <div className="relative p-[clamp(1.5rem,5vw,2.5rem)]">
-                      <HandDrawnSquiggle className="absolute right-6 top-6 w-20 opacity-30" />
-
                       <div className="mb-[clamp(1.5rem,4vw,2.25rem)] flex items-center gap-4">
                         <div className="rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 p-3">
                           <Sparkles className="h-6 w-6 text-cyan-300" />

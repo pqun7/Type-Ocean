@@ -1,4 +1,4 @@
-export type TypingLanguage = "en" | "ar" | "es" | "fr";
+export type TypingLanguage = "en" | "ar";
 
 export type TypingDirection = "ltr" | "rtl";
 
@@ -8,8 +8,6 @@ export const TYPING_LANGUAGES: Record<
 > = {
   en: { label: "English", dir: "ltr", locale: "en" },
   ar: { label: "Arabic", dir: "rtl", locale: "ar" },
-  es: { label: "Spanish", dir: "ltr", locale: "es" },
-  fr: { label: "French", dir: "ltr", locale: "fr" },
 };
 
 export function getTypingDir(language: TypingLanguage): TypingDirection {

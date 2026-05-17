@@ -27,9 +27,12 @@ type WsTokenUserRecord = {
   pvpWsTokensValidAfter: Date;
 };
 
-let hasPvpWsTokenVersionColumns: boolean | null = null;
+// Serializes the DB schema probe so concurrent requests don't race to test
+// for the pvpWsTokenVersion / pvpWsTokensValidAfter columns on a fresh process.
+type WsTokenColumnsCheckState = { hasColumns: boolean; checkedAt: number };
+let _wsTokenColumnsState: WsTokenColumnsCheckState | null = null;
+let _wsTokenColumnsInflight: Promise<boolean> | null = null;
 let hasLoggedMissingPvpWsTokenColumnsWarning = false;
-let wsTokenColumnsLastCheckedAt = 0;
 const WS_TOKEN_COLUMNS_RETRY_MS = 60_000;
 const PVP_INSECURE_LOCALHOST = process.env.PVP_INSECURE_LOCALHOST === "1";
 
@@ -39,6 +42,18 @@ function createRequestId() {
 
 function createUserLogRef(userId: string) {
   return crypto.createHash("sha256").update(userId).digest("hex").slice(0, 12);
+}
+
+function extractClientIp(req: NextRequest) {
+  const xForwardedFor = req.headers.get("x-forwarded-for");
+  const cfConnectingIp = req.headers.get("cf-connecting-ip");
+  const xRealIp = req.headers.get("x-real-ip");
+
+  if (cfConnectingIp) return cfConnectingIp.trim();
+  if (xRealIp) return xRealIp.trim();
+  if (xForwardedFor) return xForwardedFor.split(",")[0]?.trim() || "anonymous";
+
+  return "anonymous";
 }
 
 function isLocalhostHost(hostname: string) {
@@ -75,65 +90,46 @@ function isMissingPvpWsTokenColumns(error: unknown) {
   );
 }
 
-async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null> {
-  if (hasPvpWsTokenVersionColumns === false && Date.now() - wsTokenColumnsLastCheckedAt < WS_TOKEN_COLUMNS_RETRY_MS) {
-    const fallbackUser = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-      columns: {
-        username: true,
-      },
-      with: {
-        profile: {
-          columns: {
-            avatar: true,
-          },
-        },
-      },
-    });
-
-    if (!fallbackUser) return null;
-
-    return {
-      username: fallbackUser.username,
-      profile: fallbackUser.profile,
-      pvpWsTokenVersion: 0,
-      pvpWsTokensValidAfter: new Date(),
-    };
-  }
-
+// Probes whether the new columns exist by running a minimal query.
+// PostgreSQL raises error 42703 (undefined_column) at the plan phase, before
+// any rows are scanned, so even a query that returns no rows will detect the
+// missing column correctly.
+async function probeWsTokenColumns(userId: string): Promise<boolean> {
   try {
-    const user = await db.query.users.findFirst({
+    await db.query.users.findFirst({
       where: eq(users.id, userId),
-      columns: {
-        username: true,
-        pvpWsTokenVersion: true,
-        pvpWsTokensValidAfter: true,
-      },
-      with: {
-        profile: {
-          columns: {
-            avatar: true,
-          },
-        },
-      },
+      columns: { pvpWsTokenVersion: true, pvpWsTokensValidAfter: true },
     });
-
-    hasPvpWsTokenVersionColumns = true;
-    wsTokenColumnsLastCheckedAt = Date.now();
-
-    if (!user) return null;
-
-    return {
-      username: user.username,
-      profile: user.profile,
-      pvpWsTokenVersion: user.pvpWsTokenVersion ?? 0,
-      pvpWsTokensValidAfter: user.pvpWsTokensValidAfter ?? new Date(),
-    };
+    return true;
   } catch (error) {
-    if (!isMissingPvpWsTokenColumns(error)) {
-      throw error;
-    }
+    if (isMissingPvpWsTokenColumns(error)) return false;
+    throw error;
+  }
+}
 
+// All concurrent callers share the same in-flight promise so the DB is probed
+// only once per process per WS_TOKEN_COLUMNS_RETRY_MS window.
+async function resolveWsTokenColumns(userId: string): Promise<boolean> {
+  const now = Date.now();
+  if (_wsTokenColumnsState !== null && now - _wsTokenColumnsState.checkedAt < WS_TOKEN_COLUMNS_RETRY_MS) {
+    return _wsTokenColumnsState.hasColumns;
+  }
+  if (!_wsTokenColumnsInflight) {
+    _wsTokenColumnsInflight = probeWsTokenColumns(userId)
+      .then((hasColumns) => {
+        _wsTokenColumnsState = { hasColumns, checkedAt: Date.now() };
+        return hasColumns;
+      })
+      .catch((err) => { throw err; })
+      .finally(() => { _wsTokenColumnsInflight = null; });
+  }
+  return _wsTokenColumnsInflight;
+}
+
+async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null> {
+  const hasColumns = await resolveWsTokenColumns(userId);
+
+  if (!hasColumns) {
     if (!hasLoggedMissingPvpWsTokenColumnsWarning) {
       hasLoggedMissingPvpWsTokenColumnsWarning = true;
       logging.warn("PvP WS token route is using compatibility fallback because DB columns are missing", {
@@ -143,9 +139,6 @@ async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null
       });
     }
 
-    hasPvpWsTokenVersionColumns = false;
-  wsTokenColumnsLastCheckedAt = Date.now();
-
     const fallbackUser = await db.query.users.findFirst({
       where: eq(users.id, userId),
       columns: {
@@ -169,10 +162,43 @@ async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null
       pvpWsTokensValidAfter: new Date(),
     };
   }
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: {
+      username: true,
+      pvpWsTokenVersion: true,
+      pvpWsTokensValidAfter: true,
+    },
+    with: {
+      profile: {
+        columns: {
+          avatar: true,
+        },
+      },
+    },
+  });
+
+  if (!user) return null;
+
+  return {
+    username: user.username,
+    profile: user.profile,
+    pvpWsTokenVersion: user.pvpWsTokenVersion ?? 0,
+    pvpWsTokensValidAfter: user.pvpWsTokensValidAfter ?? new Date(),
+  };
 }
 
 export async function GET(req: NextRequest) {
   const requestId = createRequestId();
+
+  // Guard: PVP_INSECURE_LOCALHOST must never be enabled in production.
+  if (PVP_INSECURE_LOCALHOST && process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      { error: "PVP_INSECURE_LOCALHOST=1 is not allowed in production" },
+      { status: 500 }
+    );
+  }
 
   try {
     logging.info("PvP WS token request started", {
@@ -181,21 +207,25 @@ export async function GET(req: NextRequest) {
       operation: "request_start",
     });
 
-    const rateLimit = await rateLimiter.applyRateLimit(req, "/api/pvp/ws-token:GET");
-    if (!rateLimit.allowed) {
-      incrementSecurityMetric("api_rate_limit_rejected", { route: "/api/pvp/ws-token", method: "GET" });
-      logging.warn("PvP WS token request rate limited", {
-        requestId,
-        route: "/api/pvp/ws-token",
-      });
-      return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: rateLimit.headers });
-    }
-
     const userId = await authorizeRequest(req);
     if (!userId) {
       incrementSecurityMetric("api_auth_rejected", { route: "/api/pvp/ws-token", method: "GET" });
       logging.warn("PvP WS token request unauthorized", { requestId, route: "/api/pvp/ws-token" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Use a user-scoped key (plus client IP) so localhost/proxy-shared IPs do not
+    // cross-throttle authenticated users during reconnect bursts.
+    const rateLimitIdentifier = `pvp-ws-token:${userId}:${extractClientIp(req)}`;
+    const rateLimit = await rateLimiter.applyRateLimit(rateLimitIdentifier, "/api/pvp/ws-token:GET");
+    if (!rateLimit.allowed) {
+      incrementSecurityMetric("api_rate_limit_rejected", { route: "/api/pvp/ws-token", method: "GET" });
+      logging.warn("PvP WS token request rate limited", {
+        requestId,
+        route: "/api/pvp/ws-token",
+        userRef: createUserLogRef(userId),
+      });
+      return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: rateLimit.headers });
     }
 
     const clientSecretResult = PvpClientSecretHeaderSchema.safeParse(req.headers.get("x-pvp-client-secret") ?? "");
@@ -233,6 +263,20 @@ export async function GET(req: NextRequest) {
 
     const user = await loadWsTokenUser(userId);
 
+    // Reject accounts without a username (registration incomplete).
+    if (!user?.username) {
+      incrementSecurityMetric("api_validation_failed", { route: "/api/pvp/ws-token", reason: "incomplete_profile" });
+      logging.warn("PvP WS token request rejected: user missing or has no username", {
+        requestId,
+        route: "/api/pvp/ws-token",
+        userRef: createUserLogRef(userId),
+      });
+      return NextResponse.json(
+        { error: "PvP requires a complete profile" },
+        { status: 400, headers: rateLimit.headers }
+      );
+    }
+
     await db.insert(pvpRatings).values({ userId }).onConflictDoNothing({ target: pvpRatings.userId });
 
     const pvpRatingRows = await db
@@ -253,13 +297,13 @@ export async function GET(req: NextRequest) {
     const { token, expiresAt } = await mintPvpWsToken(
       {
         sub: userId,
-        username: user?.username ?? "user",
-        avatar: user?.profile?.avatar ?? null,
+        username: user.username,
+        avatar: user.profile?.avatar ?? null,
         pvpRating: pvpRating.rating,
         pvpDeviation: pvpRating.deviation,
         fingerprint,
-        tokenVersion: user?.pvpWsTokenVersion ?? 0,
-        tokensValidAfter: user?.pvpWsTokensValidAfter ?? new Date(),
+        tokenVersion: user.pvpWsTokenVersion ?? 0,
+        tokensValidAfter: user.pvpWsTokensValidAfter ?? new Date(),
       },
       ttlSeconds
     );

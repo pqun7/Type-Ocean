@@ -123,19 +123,20 @@ return [localStreak, setLocalStreak];
 
 // ─── VS Visualization with Micro-interactions ───────────────────────────────
 
-function AnimatedVS() {
-const [isHovered, setIsHovered] = useState(false);
+type AnimatedVSProps = {
+active: boolean;
+};
+
+function AnimatedVS({ active }: AnimatedVSProps) {
 return (
   <div
     className="relative flex flex-col items-center justify-center"
-    onMouseEnter={() => setIsHovered(true)}
-    onMouseLeave={() => setIsHovered(false)}
   >
     <div
       className="absolute inset-0 rounded-full blur-2xl transition-all duration-500"
       style={{
-        background: isHovered ? "radial-gradient(circle, rgba(255,80,80,0.3) 0%, transparent 70%)" : "transparent",
-        scale: isHovered ? 1.5 : 1,
+        background: active ? "radial-gradient(circle, rgba(255,80,80,0.3) 0%, transparent 70%)" : "transparent",
+        scale: active ? 1.5 : 1,
       }}
     />
     <div className="h-4 w-px" style={{ background: "linear-gradient(180deg, transparent, rgba(255,255,255,0.2), transparent)" }} />
@@ -143,15 +144,15 @@ return (
       <span
         className="select-none text-[8px] font-black tracking-[0.24em] transition-all duration-300"
         style={{
-          color: isHovered ? "#FF6B6B" : "rgba(255,255,255,0.25)",
-          textShadow: isHovered ? "0 0 8px rgba(255,107,107,0.6)" : "none",
+          color: active ? "#FF6B6B" : "rgba(255,255,255,0.25)",
+          textShadow: active ? "0 0 8px rgba(255,107,107,0.6)" : "none",
           writingMode: "vertical-rl",
-          transform: isHovered ? "scale(1.05)" : "scale(1)",
+          transform: active ? "scale(1.05)" : "scale(1)",
         }}
       >
         VS
       </span>
-      {isHovered && (
+      {active && (
         <div className="absolute inset-0 animate-ping rounded-full" style={{ background: "rgba(255,107,107,0.3)" }} />
       )}
     </div>
@@ -696,7 +697,7 @@ return (
           streak={currentStreak}
           level={pvpMeData?.level ?? 1}
         />
-        <AnimatedVS />
+        <AnimatedVS active={matchPhase === "searching"} />
         <div
           key={rightVariant}
           className="h-full"

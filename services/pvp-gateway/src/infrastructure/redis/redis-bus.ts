@@ -20,14 +20,30 @@ export async function createRedisBus(redisUrl: string): Promise<RedisBus> {
   const pub = new Redis(redisUrl, {
     maxRetriesPerRequest: 2,
     enableReadyCheck: true,
-    lazyConnect: false,
+    lazyConnect: true,
   });
 
   const sub = new Redis(redisUrl, {
     maxRetriesPerRequest: 2,
     enableReadyCheck: true,
-    lazyConnect: false,
+    lazyConnect: true,
   });
+
+  let lastConnectionError: unknown = null;
+  const captureConnectionError = (error: unknown) => {
+    lastConnectionError = error;
+  };
+
+  pub.on("error", captureConnectionError);
+  sub.on("error", captureConnectionError);
+
+  try {
+    await Promise.all([pub.connect(), sub.connect()]);
+    await Promise.all([pub.ping(), sub.ping()]);
+  } catch (error) {
+    await Promise.allSettled([pub.quit(), sub.quit()]);
+    throw (lastConnectionError ?? error);
+  }
 
   let handler: ((channel: string, msg: BusMessage) => void) | null = null;
 

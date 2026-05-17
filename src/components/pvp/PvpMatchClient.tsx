@@ -9,6 +9,8 @@ import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
 import type { ClientMessage, ServerMessage } from "@/features/pvp/client/types";
 import { Button } from "@/components/ui/button";
 import { useLevel } from "@/features/level/hooks/useLevel";
+import { useSettings } from "@/features/settings/context";
+import { getTypingFontClass } from "@/features/settings/typingFonts";
 
 import TypingTest from "@/components/TypingTest/TypingTest";
 import Caret from "@/components/TypingTest/Caret";
@@ -196,8 +198,11 @@ function buildProgressApplication(params: {
   };
 }
 
+// Must match MATCH_NO_SHOW_TIMEOUT_MS in the gateway config (services/pvp-gateway/src/shared/config.ts).
+const WAITING_TIMEOUT_MS = 40_000;
+
 export default function PvpMatchClient({ matchId }: { matchId: string }) {
-  const WAITING_TIMEOUT_MS = 40_000;
+  const { settings } = useSettings();
   const router = useRouter();
   const { status, user, send, addListener, getLatestMatchSnapshot, connectionPhase } = usePvpSocket();
   const { addXPMessage } = useLevel();
@@ -978,7 +983,7 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
             inputDisabled={inputLocked}
             fontSize="text-2xl"
             lineHeight="leading-10"
-            font="font-mono"
+            font={getTypingFontClass(settings.typingLanguage)}
             optimizePerformance
             caretHeight="h-7"
             caretColorClassName={slotToColor(byId.get(user?.userId ?? "")?.slot ?? 0)}
@@ -1042,12 +1047,12 @@ export default function PvpMatchClient({ matchId }: { matchId: string }) {
       {results ? (
         <PvpResultsOverlay
           open
-          primaryActionLabel={roomCode ? "Duel Again" : "Seek a New Challenger"}
+          primaryActionLabel={roomCode ? "Race again" : "Find a new typer"}
           placements={results.placements}
           ratingChanges={results.ratingChanges}
           chartData={chartData}
           meUserId={meId}
-          opponentName={opponent?.username ?? "Rival"}
+          opponentName={opponent?.username ?? "Opponent"}
           canRematch={canRematch}
           rematchOfferFromUserId={rematchOfferFromUserId}
           rematchAcceptedUserIds={rematchAcceptedUserIds}

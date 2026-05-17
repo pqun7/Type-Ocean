@@ -24,7 +24,7 @@ export interface PerformanceData {
   [keyId: string]: { correct: number; error: number } | undefined;
 }
 
-export type Language = "en" | "ar" | "fr" | "es";
+export type Language = "en" | "ar";
 export type Size = "small" | "medium" | "large";
 
 export interface KeyboardHeatmapProps {
@@ -89,6 +89,7 @@ interface EnhancedKey {
   keyType: KeyType;
   textAlign: "left" | "center" | "right";
   dualSymbolParts: [string, string] | null;
+  defaultColors: { bg: string; text: string };
 }
 
 interface EnhancedRow {
@@ -98,84 +99,177 @@ interface EnhancedRow {
 
 type EnhancedLayout = EnhancedRow[];
 
-const createFiveRowLayout = (spaceLabel: string): EnhancedLayout => {
-  const rawLayout: Layout = [
-    {
-      keys: [
-        { id: "Backtick", label: "` ~", span: 1, keyType: "symbol" },
-        { id: "1", label: "1", span: 1, keyType: "symbol" },
-        { id: "2", label: "2", span: 1, keyType: "symbol" },
-        { id: "3", label: "3", span: 1, keyType: "symbol" },
-        { id: "4", label: "4", span: 1, keyType: "symbol" },
-        { id: "5", label: "5", span: 1, keyType: "symbol" },
-        { id: "6", label: "6", span: 1, keyType: "symbol" },
-        { id: "7", label: "7", span: 1, keyType: "symbol" },
-        { id: "8", label: "8", span: 1, keyType: "symbol" },
-        { id: "9", label: "9", span: 1, keyType: "symbol" },
-        { id: "0", label: "0", span: 1, keyType: "symbol" },
-        { id: "Delete", label: "Delete", span: 2, ariaLabel: "Delete", keyType: "modifier" },
-      ],
-    },
-    {
-      keys: [
-        { id: "Tab", label: "Tab", span: 2, ariaLabel: "Tab", keyType: "modifier" },
-        { id: "q", label: "Q", span: 1, keyType: "letter" },
-        { id: "w", label: "W", span: 1, keyType: "letter" },
-        { id: "e", label: "E", span: 1, keyType: "letter" },
-        { id: "r", label: "R", span: 1, keyType: "letter" },
-        { id: "t", label: "T", span: 1, keyType: "letter" },
-        { id: "y", label: "Y", span: 1, keyType: "letter" },
-        { id: "u", label: "U", span: 1, keyType: "letter" },
-        { id: "i", label: "I", span: 1, keyType: "letter" },
-        { id: "o", label: "O", span: 1, keyType: "letter" },
-        { id: "p", label: "P", span: 1, keyType: "letter" },
-        { id: "BracketLeft", label: "{ [", span: 1, keyType: "symbol" },
-        { id: "BracketRight", label: "} ]", span: 1, keyType: "symbol" },
-        { id: "Backslash", label: "\\ |", span: 1, keyType: "symbol" },
-      ],
-    },
-    {
-      keys: [
-        { id: "CapsLock", label: "Caps Lock", span: 2.5, ariaLabel: "Caps Lock", keyType: "modifier" },
-        { id: "a", label: "A", span: 1, keyType: "letter" },
-        { id: "s", label: "S", span: 1, keyType: "letter" },
-        { id: "d", label: "D", span: 1, keyType: "letter" },
-        { id: "f", label: "F", span: 1, keyType: "letter" },
-        { id: "g", label: "G", span: 1, keyType: "letter" },
-        { id: "h", label: "H", span: 1, keyType: "letter" },
-        { id: "j", label: "J", span: 1, keyType: "letter" },
-        { id: "k", label: "K", span: 1, keyType: "letter" },
-        { id: "l", label: "L", span: 1, keyType: "letter" },
-        { id: "Semicolon", label: ": ;", span: 1, keyType: "symbol" },
-        { id: "Quote", label: '" \'', span: 1, keyType: "symbol" },
-        { id: "Enter", label: "Enter", span: 2, ariaLabel: "Enter", keyType: "modifier" },
-      ],
-    },
-    {
-      keys: [
-        { id: "ShiftLeft", label: "Shift", span: 3, ariaLabel: "Shift", keyType: "modifier" },
-        { id: "z", label: "Z", span: 1, keyType: "letter" },
-        { id: "x", label: "X", span: 1, keyType: "letter" },
-        { id: "c", label: "C", span: 1, keyType: "letter" },
-        { id: "v", label: "V", span: 1, keyType: "letter" },
-        { id: "b", label: "B", span: 1, keyType: "letter" },
-        { id: "n", label: "N", span: 1, keyType: "letter" },
-        { id: "m", label: "M", span: 1, keyType: "letter" },
-        { id: "Comma", label: "< ,", span: 1, keyType: "symbol" },
-        { id: "Period", label: "> .", span: 1, keyType: "symbol" },
-        { id: "Slash", label: "/ ?", span: 1, keyType: "symbol" },
-        { id: "ShiftRight", label: "Shift", span: 3, ariaLabel: "Shift", keyType: "modifier" },
-      ],
-    },
-    {
-      keys: [
-        { id: "SpaceLeftPad", label: "", span: 3, ariaLabel: "Spacer", keyType: "modifier" },
-        { id: "Space", label: spaceLabel, span: 10, ariaLabel: "Space", keyType: "space" },
-        { id: "SpaceRightPad", label: "", span: 3, ariaLabel: "Spacer", keyType: "modifier" },
-      ],
-    },
-  ];
+const ENGLISH_LAYOUT: Layout = [
+  {
+    keys: [
+      { id: "Backtick", label: "` ~", span: 1, keyType: "symbol" },
+      { id: "1", label: "1", span: 1, keyType: "symbol" },
+      { id: "2", label: "2", span: 1, keyType: "symbol" },
+      { id: "3", label: "3", span: 1, keyType: "symbol" },
+      { id: "4", label: "4", span: 1, keyType: "symbol" },
+      { id: "5", label: "5", span: 1, keyType: "symbol" },
+      { id: "6", label: "6", span: 1, keyType: "symbol" },
+      { id: "7", label: "7", span: 1, keyType: "symbol" },
+      { id: "8", label: "8", span: 1, keyType: "symbol" },
+      { id: "9", label: "9", span: 1, keyType: "symbol" },
+      { id: "0", label: "0", span: 1, keyType: "symbol" },
+      { id: "Delete", label: "Delete", span: 2, ariaLabel: "Delete", keyType: "modifier" },
+    ],
+  },
+  {
+    keys: [
+      { id: "Tab", label: "Tab", span: 2, ariaLabel: "Tab", keyType: "modifier" },
+      { id: "q", label: "Q", span: 1, keyType: "letter" },
+      { id: "w", label: "W", span: 1, keyType: "letter" },
+      { id: "e", label: "E", span: 1, keyType: "letter" },
+      { id: "r", label: "R", span: 1, keyType: "letter" },
+      { id: "t", label: "T", span: 1, keyType: "letter" },
+      { id: "y", label: "Y", span: 1, keyType: "letter" },
+      { id: "u", label: "U", span: 1, keyType: "letter" },
+      { id: "i", label: "I", span: 1, keyType: "letter" },
+      { id: "o", label: "O", span: 1, keyType: "letter" },
+      { id: "p", label: "P", span: 1, keyType: "letter" },
+      { id: "BracketLeft", label: "{ [", span: 1, keyType: "symbol" },
+      { id: "BracketRight", label: "} ]", span: 1, keyType: "symbol" },
+      { id: "Backslash", label: "\\ |", span: 1, keyType: "symbol" },
+    ],
+  },
+  {
+    keys: [
+      { id: "CapsLock", label: "Caps Lock", span: 2.5, ariaLabel: "Caps Lock", keyType: "modifier" },
+      { id: "a", label: "A", span: 1, keyType: "letter" },
+      { id: "s", label: "S", span: 1, keyType: "letter" },
+      { id: "d", label: "D", span: 1, keyType: "letter" },
+      { id: "f", label: "F", span: 1, keyType: "letter" },
+      { id: "g", label: "G", span: 1, keyType: "letter" },
+      { id: "h", label: "H", span: 1, keyType: "letter" },
+      { id: "j", label: "J", span: 1, keyType: "letter" },
+      { id: "k", label: "K", span: 1, keyType: "letter" },
+      { id: "l", label: "L", span: 1, keyType: "letter" },
+      { id: "Semicolon", label: ": ;", span: 1, keyType: "symbol" },
+      { id: "Quote", label: '" \'', span: 1, keyType: "symbol" },
+      { id: "Enter", label: "Enter", span: 2, ariaLabel: "Enter", keyType: "modifier" },
+    ],
+  },
+  {
+    keys: [
+      { id: "ShiftLeft", label: "Shift", span: 3, ariaLabel: "Shift", keyType: "modifier" },
+      { id: "z", label: "Z", span: 1, keyType: "letter" },
+      { id: "x", label: "X", span: 1, keyType: "letter" },
+      { id: "c", label: "C", span: 1, keyType: "letter" },
+      { id: "v", label: "V", span: 1, keyType: "letter" },
+      { id: "b", label: "B", span: 1, keyType: "letter" },
+      { id: "n", label: "N", span: 1, keyType: "letter" },
+      { id: "m", label: "M", span: 1, keyType: "letter" },
+      { id: "Comma", label: "< ,", span: 1, keyType: "symbol" },
+      { id: "Period", label: "> .", span: 1, keyType: "symbol" },
+      { id: "Slash", label: "/ ?", span: 1, keyType: "symbol" },
+      { id: "ShiftRight", label: "Shift", span: 3, ariaLabel: "Shift", keyType: "modifier" },
+    ],
+  },
+  {
+    keys: [
+      { id: "SpaceLeftPad", label: "", span: 3, ariaLabel: "Spacer", keyType: "modifier" },
+      { id: "Space", label: "space", span: 10, ariaLabel: "Space", keyType: "space" },
+      { id: "SpaceRightPad", label: "", span: 3, ariaLabel: "Spacer", keyType: "modifier" },
+    ],
+  },
+];
 
+const ARABIC_LAYOUT: Layout = [
+  {
+    keys: [
+      { id: "Backtick", label: "ذ", span: 1, keyType: "symbol" },
+      { id: "1", label: "١", span: 1, keyType: "symbol" },
+      { id: "2", label: "٢", span: 1, keyType: "symbol" },
+      { id: "3", label: "٣", span: 1, keyType: "symbol" },
+      { id: "4", label: "٤", span: 1, keyType: "symbol" },
+      { id: "5", label: "٥", span: 1, keyType: "symbol" },
+      { id: "6", label: "٦", span: 1, keyType: "symbol" },
+      { id: "7", label: "٧", span: 1, keyType: "symbol" },
+      { id: "8", label: "٨", span: 1, keyType: "symbol" },
+      { id: "9", label: "٩", span: 1, keyType: "symbol" },
+      { id: "0", label: "٠", span: 1, keyType: "symbol" },
+      { id: "Delete", label: "حذف", span: 2, ariaLabel: "Delete", keyType: "modifier" },
+    ],
+  },
+  {
+    keys: [
+      { id: "Tab", label: "Tab", span: 2, ariaLabel: "Tab", keyType: "modifier" },
+      { id: "q", label: "ض", span: 1, keyType: "letter" },
+      { id: "w", label: "ص", span: 1, keyType: "letter" },
+      { id: "e", label: "ث", span: 1, keyType: "letter" },
+      { id: "r", label: "ق", span: 1, keyType: "letter" },
+      { id: "t", label: "ف", span: 1, keyType: "letter" },
+      { id: "y", label: "غ", span: 1, keyType: "letter" },
+      { id: "u", label: "ع", span: 1, keyType: "letter" },
+      { id: "i", label: "ه", span: 1, keyType: "letter" },
+      { id: "o", label: "خ", span: 1, keyType: "letter" },
+      { id: "p", label: "ح", span: 1, keyType: "letter" },
+      { id: "BracketLeft", label: "ج", span: 1, keyType: "symbol" },
+      { id: "BracketRight", label: "د", span: 1, keyType: "symbol" },
+      { id: "Backslash", label: "\\", span: 1, keyType: "symbol" },
+    ],
+  },
+  {
+    keys: [
+      { id: "CapsLock", label: "Caps Lock", span: 2.5, ariaLabel: "Caps Lock", keyType: "modifier" },
+      { id: "a", label: "ش", span: 1, keyType: "letter" },
+      { id: "s", label: "س", span: 1, keyType: "letter" },
+      { id: "d", label: "ي", span: 1, keyType: "letter" },
+      { id: "f", label: "ب", span: 1, keyType: "letter" },
+      { id: "g", label: "ل", span: 1, keyType: "letter" },
+      { id: "h", label: "ا", span: 1, keyType: "letter" },
+      { id: "j", label: "ت", span: 1, keyType: "letter" },
+      { id: "k", label: "ن", span: 1, keyType: "letter" },
+      { id: "l", label: "م", span: 1, keyType: "letter" },
+      { id: "Semicolon", label: "ك", span: 1, keyType: "symbol" },
+      { id: "Quote", label: "ط", span: 1, keyType: "symbol" },
+      { id: "Enter", label: "إدخال", span: 2, ariaLabel: "Enter", keyType: "modifier" },
+    ],
+  },
+  {
+    keys: [
+      { id: "ShiftLeft", label: "Shift", span: 3, ariaLabel: "Shift", keyType: "modifier" },
+      { id: "z", label: "ئ", span: 1, keyType: "letter" },
+      { id: "x", label: "ء", span: 1, keyType: "letter" },
+      { id: "c", label: "ؤ", span: 1, keyType: "letter" },
+      { id: "v", label: "ر", span: 1, keyType: "letter" },
+      { id: "b", label: "لا", span: 1, keyType: "letter" },
+      { id: "n", label: "ى", span: 1, keyType: "letter" },
+      { id: "m", label: "ة", span: 1, keyType: "letter" },
+      { id: "Comma", label: "و", span: 1, keyType: "symbol" },
+      { id: "Period", label: "ز", span: 1, keyType: "symbol" },
+      { id: "Slash", label: "ظ", span: 1, keyType: "symbol" },
+      { id: "ShiftRight", label: "Shift", span: 3, ariaLabel: "Shift", keyType: "modifier" },
+    ],
+  },
+  {
+    keys: [
+      { id: "SpaceLeftPad", label: "", span: 3, ariaLabel: "Spacer", keyType: "modifier" },
+      { id: "Space", label: "مسافة", span: 10, ariaLabel: "Space", keyType: "space" },
+      { id: "SpaceRightPad", label: "", span: 3, ariaLabel: "Spacer", keyType: "modifier" },
+    ],
+  },
+];
+
+const getDefaultColors = (isSpacer: boolean, keyType: KeyType): { bg: string; text: string } => {
+  if (isSpacer) {
+    return { bg: "transparent", text: TEXT_COLORS.light };
+  }
+
+  if (keyType === "modifier") {
+    return { bg: MODIFIER_COLOR, text: TEXT_COLORS.light };
+  }
+
+  if (keyType === "space") {
+    return { bg: SPACE_COLOR, text: TEXT_COLORS.dark };
+  }
+
+  return { bg: KEY_BASE_COLOR, text: TEXT_COLORS.light };
+};
+
+const createEnhancedLayout = (rawLayout: Layout): EnhancedLayout => {
   return rawLayout.map((row) => {
     let totalUnits = 0;
     const enhancedKeys = row.keys.map((key) => {
@@ -183,6 +277,7 @@ const createFiveRowLayout = (spaceLabel: string): EnhancedLayout => {
       totalUnits += spanUnits;
       const isSpacer = key.id === "SpaceLeftPad" || key.id === "SpaceRightPad";
       const keyType = key.keyType ?? "letter";
+      const defaultColors = getDefaultColors(isSpacer, keyType);
       let textAlign: "left" | "center" | "right" = "center";
       if (keyType === "modifier") {
         if (key.id === "Tab" || key.id === "CapsLock" || key.id.includes("ShiftLeft")) textAlign = "left";
@@ -202,6 +297,7 @@ const createFiveRowLayout = (spaceLabel: string): EnhancedLayout => {
         keyType,
         textAlign,
         dualSymbolParts,
+        defaultColors,
       };
     });
     return { keys: enhancedKeys, totalUnits };
@@ -209,33 +305,27 @@ const createFiveRowLayout = (spaceLabel: string): EnhancedLayout => {
 };
 
 const ENHANCED_LAYOUTS: Record<Language, EnhancedLayout> = {
-  en: createFiveRowLayout("space"),
-  ar: createFiveRowLayout("مسافة"),
-  fr: createFiveRowLayout("espace"),
-  es: createFiveRowLayout("espacio"),
+  en: createEnhancedLayout(ENGLISH_LAYOUT),
+  ar: createEnhancedLayout(ARABIC_LAYOUT),
 };
 
 // ---------- Heatmap Color Map (Memoized, using for...in) ----------
+type HeatmapColors = { bg: string; text: string };
+
 const useHeatmapColorMap = (
   performanceData?: PerformanceData
-): Map<KeyId, { bg: string; text: string }> => {
+): Partial<Record<KeyId, HeatmapColors>> => {
   return useMemo(() => {
-    const colorMap = new Map<KeyId, { bg: string; text: string }>();
+    const colorMap: Partial<Record<KeyId, HeatmapColors>> = Object.create(null);
 
-    if (!performanceData) {
-      // Return a function-like behavior? Actually we want a map that defaults to base colors.
-      // We'll use a sentinel or compute on the fly? Better to keep map and fill for all keys later.
-      // But since we don't know all keys here, we'll just return a map that will be looked up with fallback.
-      // However, for simplicity, we'll handle fallback in the Key component.
-      // To avoid extra work, we'll return an empty map and let the component use base colors.
-      return colorMap;
-    }
+    if (!performanceData) return colorMap;
 
-    const netScores: Record<string, number> = {};
+    const netScores: Record<string, number> = Object.create(null);
     let maxAbs = 0;
 
     // Use for...in to avoid allocations from Object.entries
     for (const keyId in performanceData) {
+      if (!Object.prototype.hasOwnProperty.call(performanceData, keyId)) continue;
       const value = performanceData[keyId];
       if (value) {
         const net = value.correct - value.error;
@@ -250,8 +340,8 @@ const useHeatmapColorMap = (
     const scale = (absNet: number) => Math.sqrt(absNet / maxAbs);
 
     for (const keyId in netScores) {
+      if (!Object.prototype.hasOwnProperty.call(netScores, keyId)) continue;
       const net = netScores[keyId];
-      if (net === undefined) continue;
       const absNet = net < 0 ? -net : net;
       const intensity = scale(absNet);
       const baseLightness = 70;
@@ -265,7 +355,7 @@ const useHeatmapColorMap = (
       } else {
         bg = KEY_BASE_COLOR;
       }
-      colorMap.set(keyId, { bg, text: TEXT_COLORS.light });
+      colorMap[keyId] = { bg, text: TEXT_COLORS.light };
     }
     return colorMap;
   }, [performanceData]);
@@ -360,28 +450,9 @@ export const KeyboardHeatmap: React.FC<KeyboardHeatmapProps> = React.memo(
               }}
             >
               {row.keys.map((enhancedKey) => {
-                const heatmapColors = colorMap.get(enhancedKey.id);
-                let bgColor: string;
-                let textColor: string;
-                if (heatmapColors) {
-                  bgColor = heatmapColors.bg;
-                  textColor = heatmapColors.text;
-                } else {
-                  // Fallback based on key type
-                  if (enhancedKey.isSpacer) {
-                    bgColor = "transparent";
-                    textColor = TEXT_COLORS.light;
-                  } else if (enhancedKey.keyType === "modifier") {
-                    bgColor = MODIFIER_COLOR;
-                    textColor = TEXT_COLORS.light;
-                  } else if (enhancedKey.keyType === "space") {
-                    bgColor = SPACE_COLOR;
-                    textColor = TEXT_COLORS.dark;
-                  } else {
-                    bgColor = KEY_BASE_COLOR;
-                    textColor = TEXT_COLORS.light;
-                  }
-                }
+                const { bg: bgColor, text: textColor } =
+                  colorMap[enhancedKey.id] ?? enhancedKey.defaultColors;
+
                 return (
                   <Key
                     key={enhancedKey.id}

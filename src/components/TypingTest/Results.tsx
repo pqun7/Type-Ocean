@@ -16,6 +16,7 @@ import type { KeyboardPerformanceData } from "@/components/TypingTest/utils/keyb
 import { computeConsistency } from "@/features/typing/utils/consistency";
 
 export const RESULTS_VIEW_MODE = {
+  NONE: "none",
   CHART: "chart",
   KEYBOARD: "keyboard",
 } as const;
@@ -56,16 +57,14 @@ export default function Results({
   const insightPanel =
     viewMode === RESULTS_VIEW_MODE.CHART ? (
       <ResultsChart wpmHistory={wpmHistory} />
-    ) : (
-    //   <div className="rounded-xl border border-[rgba(200,240,255,0.1)] bg-[rgba(20,50,80,0.2)] p-3">
-        <KeyboardHeatmap
-          language={language}
-          performanceData={performanceData}
-          showLegend={false}
-          size="medium"
-        />
-    //   </div>
-    );
+    ) : viewMode === RESULTS_VIEW_MODE.KEYBOARD ? (
+      <KeyboardHeatmap
+        language={language}
+        performanceData={performanceData}
+        showLegend={false}
+        size="medium"
+      />
+    ) : null;
 
   return (
     <AnimatePresence>
@@ -81,7 +80,7 @@ export default function Results({
               </CardHeader>
 
               <CardContent className="p-4">
-                <div className="mb-4">{insightPanel}</div>
+                {insightPanel && <div className="mb-4">{insightPanel}</div>}
 
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
                   <motion.div

@@ -49,7 +49,7 @@ const ENDPOINT_CONFIGS: Record<string, RateLimitConfig> = {
     strategy: "sliding-window",
   },
   "/api/pvp/ws-token:GET": {
-    limit: envNumber("PVP_API_WS_TOKEN_LIMIT", 30),
+    limit: envNumber("PVP_API_WS_TOKEN_LIMIT", 90),
     windowMs: envNumber("PVP_API_WS_TOKEN_WINDOW_MS", 60_000),
     strategy: "fixed-window",
   },
@@ -101,7 +101,7 @@ const DEFAULT_CONFIG: RateLimitConfig = {
 
 const DEFAULT_OPTIONS: RateLimitOptions = {
   namespace: "rate-limit",
-  fallback: "allow",
+  fallback: "deny",
 };
 
 // 4. فئة RateLimiter المحسنة
@@ -391,7 +391,7 @@ export const rateLimiter = new RateLimiter(
       strategy: "fixed-window",
     },
     "/api/pvp/ws-token:GET": {
-      limit: envNumber("PVP_API_WS_TOKEN_LIMIT", 30),
+      limit: envNumber("PVP_API_WS_TOKEN_LIMIT", 90),
       windowMs: envNumber("PVP_API_WS_TOKEN_WINDOW_MS", 60_000),
       strategy: "fixed-window",
     },
@@ -419,7 +419,7 @@ export const rateLimiter = new RateLimiter(
   {
     // استخدام RedisManager الموحد
     redisClient: redisManager.getClient(),
-    fallback: "allow",
+    fallback: "deny",
   }
 );
 

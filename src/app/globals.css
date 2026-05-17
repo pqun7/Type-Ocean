@@ -80,7 +80,7 @@
 
 @font-face {
   font-family: "Inter";
-  src: url("/fonts/es/Inter-VariableFont_opsz,wght.woff2") format("woff2");
+  src: url("/fonts/latin/Inter-VariableFont_opsz,wght.woff2") format("woff2");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -88,7 +88,7 @@
 
 @font-face {
   font-family: "Open Sans";
-  src: url("/fonts/es/OpenSans-VariableFont_wdth,wght.woff2") format("woff2");
+  src: url("/fonts/latin/OpenSans-VariableFont_wdth,wght.woff2") format("woff2");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -96,7 +96,7 @@
 
 @font-face {
   font-family: "Roboto";
-  src: url("/fonts/es/Roboto-VariableFont_wdth,wght.woff2") format("woff2");
+  src: url("/fonts/latin/Roboto-VariableFont_wdth,wght.woff2") format("woff2");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -104,7 +104,7 @@
 
 @font-face {
   font-family: "Source Sans 3";
-  src: url("/fonts/es/SourceSans3-VariableFont_wght.woff2") format("woff2");
+  src: url("/fonts/latin/SourceSans3-VariableFont_wght.woff2") format("woff2");
   font-weight: 200 900;
   font-style: normal;
   font-display: swap;
@@ -341,6 +341,9 @@
 :root {
   --font-fira: "Fira Code", monospace;
   --font-jetbrains: "JetBrains Mono", monospace;
+  --font-user-english: "JetBrains Mono", "Fira Code", "IBM Plex Mono", monospace;
+  --font-user-arabic: "Cairo", "Noto Sans Arabic", "Tajawal", sans-serif;
+  --font-user-content: var(--font-user-english), var(--font-user-arabic), sans-serif;
   color-scheme: dark;
   --color-primary: oklch(0.55 0.22 263);
   --color-background-dark-start: #1E2A44;
@@ -406,6 +409,24 @@
 
 body {
   @apply overscroll-none touch-manipulation;
+}
+
+.font-user-english {
+  font-family: var(--font-user-english);
+}
+
+.font-user-arabic {
+  font-family: var(--font-user-arabic);
+}
+
+.font-user-content {
+  font-family: var(--font-user-content);
+}
+
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+textarea,
+[contenteditable="true"] {
+  font-family: var(--font-user-content);
 }
 
 ::-webkit-scrollbar {

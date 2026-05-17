@@ -125,7 +125,7 @@ export type ServerMessage =
 export type ClientMessage =
   | { type: "HELLO"; payload: { token: string; clientSecret: string }; requestId?: string }
   | { type: "AUTH_REFRESH"; payload: { token: string; clientSecret: string }; requestId?: string }
-  | { type: "QUEUE_JOIN"; payload: { language?: "en" | "ar" | "es" | "fr" }; requestId?: string }
+  | { type: "QUEUE_JOIN"; payload: { language?: "en" | "ar" }; requestId?: string }
   | { type: "QUEUE_LEAVE"; payload: Record<string, never>; requestId?: string }
   | { type: "ROOM_JOIN"; payload: { code: string }; requestId?: string }
   | { type: "READY"; payload?: { roomCode?: string }; requestId?: string }

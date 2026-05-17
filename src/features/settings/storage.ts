@@ -7,11 +7,25 @@ import {
   SETTINGS_STORAGE_KEY,
 } from "./types";
 import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
+import {
+  isArabicTypingFontId,
+  isEnglishTypingFontId,
+  type ArabicTypingFontId,
+  type EnglishTypingFontId,
+} from "./typingFonts";
 
 const FontScaleSchema = z.custom<FontScale>((v) => v === "default" || v === "large" || v === "xlarge");
 
 const TypingLanguageSchema = z.custom<TypingLanguage>(
-  (v) => v === "en" || v === "ar" || v === "es" || v === "fr"
+  (v) => v === "en" || v === "ar"
+);
+
+const EnglishTypingFontSchema = z.custom<EnglishTypingFontId>((v) =>
+  isEnglishTypingFontId(v)
+);
+
+const ArabicTypingFontSchema = z.custom<ArabicTypingFontId>((v) =>
+  isArabicTypingFontId(v)
 );
 
 const AppSettingsSchema = z.object({
@@ -19,10 +33,22 @@ const AppSettingsSchema = z.object({
   reduceMotion: z.boolean().optional(),
   hideXpNotifications: z.boolean().optional(),
   fontScale: FontScaleSchema.optional(),
+  englishTypingFont: EnglishTypingFontSchema.optional(),
+  arabicTypingFont: ArabicTypingFontSchema.optional(),
   soundEffectsMuted: z.boolean().optional(),
   soundEffectsVolume: z.number().min(0).max(100).optional(),
   typingLanguage: TypingLanguageSchema.optional(),
 });
+
+export function parseAppSettings(input: unknown): AppSettings {
+  const parsed = AppSettingsSchema.safeParse(input);
+  if (!parsed.success) return DEFAULT_APP_SETTINGS;
+
+  return {
+    ...DEFAULT_APP_SETTINGS,
+    ...parsed.data,
+  };
+}
 
 export function loadAppSettings(): AppSettings {
   if (typeof window === "undefined") return DEFAULT_APP_SETTINGS;
@@ -32,13 +58,7 @@ export function loadAppSettings(): AppSettings {
     if (!raw) return DEFAULT_APP_SETTINGS;
 
     const json: unknown = JSON.parse(raw);
-    const parsed = AppSettingsSchema.safeParse(json);
-    if (!parsed.success) return DEFAULT_APP_SETTINGS;
-
-    return {
-      ...DEFAULT_APP_SETTINGS,
-      ...parsed.data,
-    };
+    return parseAppSettings(json);
   } catch {
     return DEFAULT_APP_SETTINGS;
   }

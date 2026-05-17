@@ -6,6 +6,23 @@ import { usePvpSocket } from "@/features/pvp/client/usePvpSocket";
 import { useLevel } from "@/features/level/hooks/useLevel";
 import type { ClientMessage } from "@/features/pvp/client/types";
 
+jest.mock("framer-motion", () => {
+  const React = require("react");
+  return {
+    AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    motion: new Proxy(
+      {},
+      {
+        get: (_target: Record<string, unknown>, tag: string) =>
+          React.forwardRef(
+            ({ children, ...props }: React.HTMLProps<HTMLElement>, ref: React.Ref<HTMLElement>) =>
+              React.createElement(tag, { ...props, ref }, children),
+          ),
+      },
+    ),
+  };
+});
+
 jest.mock("next/navigation", () => ({
   useRouter: () => ({
     push: jest.fn(),
@@ -268,7 +285,7 @@ describe("PvpMatchClient", () => {
       }
     });
     expect(screen.getByTestId("typing-input")).toBeDisabled();
-    expect(screen.getByText("Match starts in")).toBeInTheDocument();
+    expect(screen.getByText("Clash begins in")).toBeInTheDocument();
 
     await emitMatchState(buildMatchState({ status: "RUNNING", revision: 2 }));
     expect(screen.getByTestId("typing-input")).not.toBeDisabled();
@@ -278,18 +295,18 @@ describe("PvpMatchClient", () => {
     render(<PvpMatchClient matchId="match-1" />);
 
     await emitMatchState(buildMatchState({ status: "COUNTDOWN", revision: 1 }));
-    expect(screen.queryByText("GO!")).not.toBeInTheDocument();
+    expect(screen.queryByText("CHARGE!")).not.toBeInTheDocument();
 
     await emitMatchState(buildMatchState({ status: "RUNNING", revision: 2 }));
-    expect(screen.getAllByText("GO!")).toHaveLength(1);
+    expect(screen.getAllByText("CHARGE!")).toHaveLength(1);
 
     await act(async () => {
       jest.advanceTimersByTime(750);
     });
-    expect(screen.queryByText("GO!")).not.toBeInTheDocument();
+    expect(screen.queryByText("CHARGE!")).not.toBeInTheDocument();
 
     await emitMatchState(buildMatchState({ status: "RUNNING", revision: 3 }));
-    expect(screen.queryByText("GO!")).not.toBeInTheDocument();
+    expect(screen.queryByText("CHARGE!")).not.toBeInTheDocument();
   });
 
   it("stays locked when reconnecting during countdown until RUNNING arrives", async () => {
@@ -299,7 +316,7 @@ describe("PvpMatchClient", () => {
     await emitMatchState(buildMatchState({ status: "COUNTDOWN", revision: 2 }));
 
     expect(screen.getByTestId("typing-input")).toBeDisabled();
-    expect(screen.queryByText("GO!")).not.toBeInTheDocument();
+    expect(screen.queryByText("CHARGE!")).not.toBeInTheDocument();
   });
 
   it("does not unlock at countdown zero on reconnect until the server sends RUNNING", async () => {
@@ -314,11 +331,11 @@ describe("PvpMatchClient", () => {
     );
 
     expect(screen.getByTestId("typing-input")).toBeDisabled();
-    expect(screen.queryByText("GO!")).not.toBeInTheDocument();
+    expect(screen.queryByText("CHARGE!")).not.toBeInTheDocument();
 
     await emitMatchState(buildMatchState({ status: "RUNNING", revision: 2 }));
     expect(screen.getByTestId("typing-input")).not.toBeDisabled();
-    expect(screen.getAllByText("GO!")).toHaveLength(1);
+    expect(screen.getAllByText("CHARGE!")).toHaveLength(1);
   });
 
   it("does not replay the GO overlay when reconnecting during the active phase", async () => {
@@ -334,7 +351,7 @@ describe("PvpMatchClient", () => {
     await emitMatchState(buildMatchState({ status: "RUNNING", revision: 3, caretIndex: 4 }));
 
     expect(screen.getByTestId("typing-input")).not.toBeDisabled();
-    expect(screen.queryByText("GO!")).not.toBeInTheDocument();
+    expect(screen.queryByText("CHARGE!")).not.toBeInTheDocument();
   });
 
   it("flushes buffered input after the connection returns to ready", async () => {
@@ -392,7 +409,7 @@ describe("PvpMatchClient", () => {
 
     await emitMatchState(buildMatchState({ status: "COUNTDOWN", revision: 1, serverStartAt: "" }));
 
-    expect(screen.getByText("Get ready")).toBeInTheDocument();
+    expect(screen.getByText("Brace yourself")).toBeInTheDocument();
   });
 
   it("drives countdown values locally from serverStartAt via rAF", async () => {
@@ -437,6 +454,6 @@ describe("PvpMatchClient", () => {
       }
     });
 
-    expect(screen.getAllByText("GO!")).toHaveLength(1);
+    expect(screen.getAllByText("CHARGE!")).toHaveLength(1);
   });
 });

@@ -26,8 +26,6 @@ describe("overallKeyboardPerformance", () => {
         byLanguage: {
           en: {},
           ar: { q: { correct: 4, error: 0 } },
-          fr: {},
-          es: {},
         },
       })
     );

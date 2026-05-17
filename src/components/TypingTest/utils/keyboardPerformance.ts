@@ -107,34 +107,6 @@ const ARABIC_TO_KEY_MAP: Record<string, string> = {
   "ْ": "x",
 };
 
-const SPANISH_EXTRA_MAP: Record<string, string> = {
-  ñ: "Semicolon",
-};
-
-const FRENCH_LETTER_TO_KEY_MAP: Record<string, string> = {
-  a: "q",
-  q: "a",
-  z: "w",
-  w: "z",
-  m: "Semicolon",
-};
-
-const FRENCH_SYMBOL_MAP: Record<string, string> = {
-  "&": "1",
-  "é": "2",
-  '"': "3",
-  "'": "4",
-  "(": "5",
-  "-": "6",
-  "è": "7",
-  "_": "8",
-  "ç": "9",
-  "à": "0",
-  ")": "BracketRight",
-  "=": "Backslash",
-  "ù": "Quote",
-};
-
 const SHIFT_SYMBOLS_EN_ES = new Set([
   "~",
   "!",
@@ -155,19 +127,6 @@ const SHIFT_SYMBOLS_EN_ES = new Set([
   "<",
   ">",
   "?",
-]);
-
-const SHIFT_SYMBOLS_FR = new Set([
-  "1",
-  "2",
-  "3",
-  "4",
-  "5",
-  "6",
-  "7",
-  "8",
-  "9",
-  "0",
 ]);
 
 const SHIFT_CHARS_AR = new Set([
@@ -219,7 +178,6 @@ function getUppercaseRunLength(segments: { segment: string }[], index: number): 
 
 function requiresShift(char: string, language: TypingLanguage): boolean {
   if (language === "ar") return SHIFT_CHARS_AR.has(char);
-  if (language === "fr") return SHIFT_SYMBOLS_FR.has(char) || SHIFT_SYMBOLS_EN_ES.has(char);
   return SHIFT_SYMBOLS_EN_ES.has(char);
 }
 
@@ -257,21 +215,6 @@ export function mapCharacterToKeyId(
   if (BASE_SYMBOL_MAP[char]) return BASE_SYMBOL_MAP[char]!;
 
   const latinNormalized = normalizeDiacritics(char);
-
-  if (language === "fr") {
-    if (FRENCH_SYMBOL_MAP[char]) return FRENCH_SYMBOL_MAP[char]!;
-    if (FRENCH_LETTER_TO_KEY_MAP[latinNormalized]) {
-      return FRENCH_LETTER_TO_KEY_MAP[latinNormalized]!;
-    }
-    if (/^[a-z]$/u.test(latinNormalized)) return latinNormalized;
-    return null;
-  }
-
-  if (language === "es") {
-    if (SPANISH_EXTRA_MAP[char]) return SPANISH_EXTRA_MAP[char]!;
-    if (/^[a-z]$/u.test(latinNormalized)) return latinNormalized;
-    return null;
-  }
 
   if (/^[a-z]$/u.test(latinNormalized)) return latinNormalized;
   return null;

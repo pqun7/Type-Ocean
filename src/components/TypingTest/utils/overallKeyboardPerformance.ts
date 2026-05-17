@@ -14,7 +14,7 @@ export type OverallKeyboardPerformanceSnapshot = {
   byLanguage: Record<TypingLanguage, Record<string, KeyPerf>>;
 };
 
-const LANGUAGES: TypingLanguage[] = ["en", "ar", "fr", "es"];
+const LANGUAGES: TypingLanguage[] = ["en", "ar"];
 
 function createEmptyBucket(): Record<string, KeyPerf> {
   return {};
@@ -30,8 +30,6 @@ function createEmptySnapshot(language: TypingLanguage): OverallKeyboardPerforman
     byLanguage: {
       en: createEmptyBucket(),
       ar: createEmptyBucket(),
-      fr: createEmptyBucket(),
-      es: createEmptyBucket(),
     },
   };
 }
@@ -71,8 +69,6 @@ export function parseOverallKeyboardPerformance(raw: string | null): OverallKeyb
       byLanguage: {
         en: ((parsed.byLanguage as Record<string, Record<string, KeyPerf>> | undefined)?.en ?? {}) as Record<string, KeyPerf>,
         ar: ((parsed.byLanguage as Record<string, Record<string, KeyPerf>> | undefined)?.ar ?? {}) as Record<string, KeyPerf>,
-        fr: ((parsed.byLanguage as Record<string, Record<string, KeyPerf>> | undefined)?.fr ?? {}) as Record<string, KeyPerf>,
-        es: ((parsed.byLanguage as Record<string, Record<string, KeyPerf>> | undefined)?.es ?? {}) as Record<string, KeyPerf>,
       },
     };
   } catch {

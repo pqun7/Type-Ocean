@@ -46,3 +46,12 @@ if (!_env.success) {
 }
 
 export const env = _env.data;
+
+// Guard: PVP_INSECURE_LOCALHOST must never be enabled in production.
+if (process.env.PVP_INSECURE_LOCALHOST === "1" && env.NODE_ENV === "production") {
+  console.error(
+    "❌ PVP_INSECURE_LOCALHOST=1 is not allowed in production. " +
+    "Remove this environment variable before deploying."
+  );
+  process.exit(1);
+}

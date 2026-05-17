@@ -7,8 +7,14 @@ import { db } from "@/db";
 import { canOpenPvpMatchPage } from "@/features/pvp/server/match-access";
 import { isDatabaseTemporarilyUnavailableError } from "@/lib/db-error-utils";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default async function Page({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
+
+  if (!UUID_PATTERN.test(matchId)) {
+    redirect("/pvp/1v1");
+  }
 
   const session = await auth();
   if (!session?.user?.id) {

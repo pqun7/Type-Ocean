@@ -2,6 +2,8 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 
+import { and, eq, gt } from "drizzle-orm";
+
 import { db } from "@/db";
 import { pvpRoomMembers, pvpRooms } from "@/db/schema";
 import { authorizeRequest } from "@/app/api/shared.server";
@@ -49,6 +51,26 @@ export async function POST(req: NextRequest) {
   }
 
   const maxPlayers = parsedBody.data.maxPlayers ?? 6;
+
+  // Prevent a single user from accumulating multiple open rooms.
+  const existingActiveRoom = await db
+    .select({ id: pvpRooms.id })
+    .from(pvpRooms)
+    .where(
+      and(
+        eq(pvpRooms.createdByUserId, userId),
+        eq(pvpRooms.status, "OPEN"),
+        gt(pvpRooms.expiresAt, new Date()),
+      )
+    )
+    .limit(1);
+
+  if (existingActiveRoom.length > 0) {
+    return NextResponse.json(
+      { error: "You already have an active room" },
+      { status: 409, headers: rateLimit.headers }
+    );
+  }
 
   // Create a unique room code (retry a few times on collision)
   let code = "";

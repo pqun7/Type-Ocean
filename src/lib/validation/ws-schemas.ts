@@ -23,7 +23,7 @@ function withByteLimit<T extends z.ZodTypeAny>(schema: T, maxBytes: number, mess
   });
 }
 
-export const TypingLanguageSchema = z.enum(["en", "ar", "es", "fr"]);
+export const TypingLanguageSchema = z.enum(["en", "ar"]);
 export const PvpClientSecretSchema = z.string().trim().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/);
 export const PvpWsTokenSchema = z.string().min(32).max(4096);
 export const RoomCodeSchema = z.string().trim().min(4).max(10).regex(/^[a-zA-Z0-9]+$/);

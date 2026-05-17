@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { memo, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -157,6 +157,49 @@ const FluidSelect = ({
   );
 };
 
+// ──────────────────────────────────────────────────────────────────────────────
+// 5. Ambient Oracle (نصائح متحركة)
+// ──────────────────────────────────────────────────────────────────────────────
+
+const AmbientOracle = () => {
+  const [messageIndex, setMessageIndex] = useState(0);
+  const tips = [
+    { icon: Sword, text: "Host decides when the battle begins." },
+    { icon: Shield, text: "Kick players or lock the lobby anytime." },
+    { icon: Eye, text: "Spectate matches while you wait." },
+    { icon: Wifi, text: "Low‑latency dedicated servers." },
+    { icon: Trophy, text: "Wins here don’t affect public rank." },
+  ];
+  useEffect(() => {
+    const interval = setInterval(() => setMessageIndex((prev) => (prev + 1) % tips.length), 6000);
+    return () => clearInterval(interval);
+  }, [tips.length]);
+  const CurrentIcon = tips[messageIndex].icon;
+  return (
+    <div className="inline-flex items-stretch rounded-2xl border border-white/10 bg-black/20 backdrop-blur-md overflow-hidden">
+      <div className="flex items-center gap-2 bg-gradient-to-r from-amber-500/20 to-amber-600/10 px-4 py-2 border-r border-white/10">
+        <Crown className="h-4 w-4 text-amber-400" />
+        <span className="text-xs font-semibold uppercase tracking-wider text-amber-300">Host Privileges</span>
+      </div>
+      <div className="flex items-center px-4 py-2 min-w-[240px]">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={messageIndex}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.4 }}
+            className="flex items-center gap-2"
+          >
+            <CurrentIcon className="h-3.5 w-3.5 text-white/60" />
+            <span className="text-xs font-light tracking-wide text-white/70">{tips[messageIndex].text}</span>
+          </motion.div>
+        </AnimatePresence>
+        <div className="ml-3 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      </div>
+    </div>
+  );
+};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // 6. Settings Modal (زجاجي ومتطور)
@@ -239,6 +282,17 @@ const avatarGradient = (userId: string) => {
   return AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length];
 };
 
+const MEMBER_SKELETON_KEYS = [0, 1, 2];
+const MAX_CHAT_MESSAGES = 100;
+
+const appendChatMessage = (messages: ChatMsg[], message: ChatMsg): ChatMsg[] => {
+  if (messages.length < MAX_CHAT_MESSAGES) {
+    return [...messages, message];
+  }
+
+  return [...messages.slice(1), message];
+};
+
 interface MemberCardProps {
   member: RoomMember;
   isHost: boolean;
@@ -248,14 +302,15 @@ interface MemberCardProps {
   justReady: boolean;
 }
 
-const MemberCard = ({ member, isHost, currentUserId, onKick, canKick, justReady }: MemberCardProps) => {
+const MemberCard = memo(({ member, isHost, currentUserId, onKick, canKick, justReady }: MemberCardProps) => {
   const isCurrentUser = member.userId === currentUserId;
   const [confirmKick, setConfirmKick] = useState(false);
   const rankStyle = member.rankTier ? RANK_COLORS[member.rankTier] ?? "text-white/40 border-white/20" : null;
+  const gradientClass = useMemo(() => avatarGradient(member.userId), [member.userId]);
 
   return (
     <motion.div
-      layout
+      layout="position"
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9 }}
@@ -271,7 +326,7 @@ const MemberCard = ({ member, isHost, currentUserId, onKick, canKick, justReady 
         <div className="flex min-w-0 items-center gap-3">
           <div className="relative shrink-0">
             <div className={`flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br text-sm font-bold text-white ring-2 ${
-              avatarGradient(member.userId)
+              gradientClass
             } ${member.ready ? "ring-emerald-500/50" : "ring-white/10"}`}>
               {member.username?.charAt(0).toUpperCase() ?? "?"}
             </div>
@@ -323,7 +378,25 @@ const MemberCard = ({ member, isHost, currentUserId, onKick, canKick, justReady 
       </div>
     </motion.div>
   );
-};
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.isHost === nextProps.isHost &&
+    prevProps.currentUserId === nextProps.currentUserId &&
+    prevProps.canKick === nextProps.canKick &&
+    prevProps.justReady === nextProps.justReady &&
+    prevProps.onKick === nextProps.onKick &&
+    prevProps.member.userId === nextProps.member.userId &&
+    prevProps.member.username === nextProps.member.username &&
+    prevProps.member.avatar === nextProps.member.avatar &&
+    prevProps.member.slot === nextProps.member.slot &&
+    prevProps.member.ready === nextProps.member.ready &&
+    prevProps.member.rating === nextProps.member.rating &&
+    prevProps.member.rankTier === nextProps.member.rankTier &&
+    prevProps.member.averageWpm === nextProps.member.averageWpm
+  );
+});
+
+MemberCard.displayName = "MemberCard";
 
 const MemberSkeleton = () => (
   <div className="animate-pulse rounded-xl border border-white/10 bg-white/5 p-3">
@@ -369,6 +442,11 @@ function useLobbyAudio() {
     }
     return ctxRef.current;
   }, []);
+  const resumeAudio = useCallback(() => {
+    const audioContext = getCtx();
+    if (!audioContext || audioContext.state !== "suspended") return;
+    void audioContext.resume();
+  }, [getCtx]);
   const playJoin = useCallback(() => {
     const ac = getCtx(); if (!ac) return;
     const osc = ac.createOscillator(); const gain = ac.createGain();
@@ -399,7 +477,13 @@ function useLobbyAudio() {
     gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.05);
     osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.05);
   }, [getCtx]);
-  return { playJoin, playReady, playTick };
+  useEffect(() => {
+    return () => {
+      void ctxRef.current?.close();
+      ctxRef.current = null;
+    };
+  }, []);
+  return { playJoin, playReady, playTick, resumeAudio };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -410,7 +494,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   const router = useRouter();
   const { status, error, user, send, addListener } = usePvpSocket();
   usePvpErrorAlert(error);
-  const { playJoin, playReady, playTick } = useLobbyAudio();
+  const { playJoin, playReady, playTick, resumeAudio } = useLobbyAudio();
 
   const [room, setRoom] = useState<{
     code: string;
@@ -422,7 +506,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
     members: RoomMember[];
   } | null>(null);
   const [pendingMatch, setPendingMatch] = useState<{ matchId: string; serverStartAt: string } | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [matchCountdown, setMatchCountdown] = useState<number | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [roomLoading, setRoomLoading] = useState(true);
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
@@ -434,11 +518,10 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   const prevReadyIdsRef = useRef<Set<string>>(new Set());
   const justReadyTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const matchCountdownRef = useRef<number | null>(null);
   const lastTickRef = useRef<number | null>(null);
-  const lastReadySentRef = useRef<number>(0);
-  const isPendingReadyRef = useRef(false);
-  const READY_DEBOUNCE_MS = 1000;
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestChatInputRef = useRef(chatInput);
 
   // ── Socket listeners ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -473,7 +556,6 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
           });
         }
         prevReadyIdsRef.current = new Set(nextRoom.members.filter((m: RoomMember) => m.ready).map((m) => m.userId));
-        isPendingReadyRef.current = false;
         setRoom(nextRoom);
         setRoomLoading(false);
       }
@@ -482,28 +564,69 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
       }
       if (message.type === "LOBBY_CHAT") {
         const p = message.payload;
-        setChatMessages((prev) => [
-          ...prev.slice(-99),
-          { id: `${p.userId}-${p.ts}`, userId: p.userId, username: p.username, text: p.text, ts: p.ts },
-        ]);
+        setChatMessages((prev) => appendChatMessage(prev, {
+          id: `${p.userId}-${p.ts}`,
+          userId: p.userId,
+          username: p.username,
+          text: p.text,
+          ts: p.ts,
+        }));
       }
     });
   }, [addListener, playJoin, playReady]);
 
   useEffect(() => {
-    const el = chatContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [chatMessages]);
+    const clearTimers = () => {
+      justReadyTimers.current.forEach((timer) => clearTimeout(timer));
+      justReadyTimers.current.clear();
+      if (copyResetTimerRef.current) {
+        clearTimeout(copyResetTimerRef.current);
+        copyResetTimerRef.current = null;
+      }
+    };
+
+    return clearTimers;
+  }, []);
+
+  useEffect(() => {
+    const handleUserGesture = () => {
+      resumeAudio();
+    };
+
+    window.addEventListener("pointerdown", handleUserGesture, { passive: true });
+    window.addEventListener("keydown", handleUserGesture);
+
+    return () => {
+      window.removeEventListener("pointerdown", handleUserGesture);
+      window.removeEventListener("keydown", handleUserGesture);
+    };
+  }, [resumeAudio]);
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
   useEffect(() => { if (status === "ready") send({ type: "ROOM_JOIN", payload: { code } }); }, [status, send, code]);
   useEffect(() => {
-    if (!pendingMatch) return;
-    const id = setInterval(() => setNowMs(Date.now()), 100);
+    if (!pendingMatch) {
+      matchCountdownRef.current = null;
+      setMatchCountdown(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const diffMs = new Date(pendingMatch.serverStartAt).getTime() - Date.now();
+      const nextCountdown = Math.max(0, Math.ceil(diffMs / 1000));
+
+      if (nextCountdown === matchCountdownRef.current) {
+        return;
+      }
+
+      matchCountdownRef.current = nextCountdown;
+      setMatchCountdown(nextCountdown);
+    };
+
+    updateCountdown();
+    const id = setInterval(updateCountdown, 1000);
     return () => clearInterval(id);
   }, [pendingMatch]);
-
-  const matchCountdown = pendingMatch
-    ? Math.max(0, Math.ceil((new Date(pendingMatch.serverStartAt).getTime() - nowMs) / 1000))
-    : null;
 
   useEffect(() => {
     if (matchCountdown == null || matchCountdown > 10 || matchCountdown <= 0) return;
@@ -526,9 +649,10 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   const memberCount = members.length;
   const hostUserId = room?.hostUserId ?? null;
   const isHost = user?.userId != null && user.userId === hostUserId;
+  const minimumPlayers = room?.minPlayers ?? 2;
   const currentMember = useMemo(() => members.find((m) => m.userId === user?.userId), [members, user]);
   const isReady = currentMember?.ready ?? false;
-  const canStart = isHost && status === "ready" && !pendingMatch && readyCount === memberCount && memberCount >= 2;
+  const canStart = isHost && status === "ready" && !pendingMatch && readyCount === memberCount && readyCount >= minimumPlayers;
   const expiresInMinutes = useMemo(() => {
     if (!room?.expiresAt) return null;
     return Math.max(0, Math.ceil((new Date(room.expiresAt).getTime() - Date.now()) / 60_000));
@@ -541,25 +665,45 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   const handleKick = useCallback((userId: string) => send({ type: "ROOM_KICK", payload: { roomCode: code, userId } }), [send, code]);
   const handleRoomUpdate = useCallback((maxPlayers: number) => send({ type: "ROOM_UPDATE", payload: { roomCode: code, maxPlayers } }), [send, code]);
   const copyRoomCode = useCallback(() => {
+    resumeAudio();
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
-  }, [code]);
+    if (copyResetTimerRef.current) {
+      clearTimeout(copyResetTimerRef.current);
+    }
+    copyResetTimerRef.current = setTimeout(() => {
+      setCopiedCode(false);
+      copyResetTimerRef.current = null;
+    }, 2000);
+  }, [code, resumeAudio]);
   const sendChat = useCallback(() => {
-    const text = chatInput.trim();
+    const text = latestChatInputRef.current.trim();
     if (!text || status !== "ready") return;
     send({ type: "LOBBY_CHAT", payload: { roomCode: code, text } });
     setChatInput("");
-  }, [chatInput, status, send, code]);
-
-  const handleToggleReady = useCallback(() => {
-    if (isPendingReadyRef.current) return;
-    const now = Date.now();
-    if (now - lastReadySentRef.current < READY_DEBOUNCE_MS) return;
-    lastReadySentRef.current = now;
-    isPendingReadyRef.current = true;
+    latestChatInputRef.current = "";
+  }, [status, send, code]);
+  const handleChatInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = event.target.value;
+    latestChatInputRef.current = nextValue;
+    setChatInput(nextValue);
+  }, []);
+  const handleChatInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return;
+    sendChat();
+  }, [sendChat]);
+  const handleReadyClick = useCallback(() => {
+    resumeAudio();
     send({ type: "READY", payload: { roomCode: code } });
-  }, [send, code]);
+  }, [code, resumeAudio, send]);
+  const handleStartClick = useCallback(() => {
+    resumeAudio();
+    send({ type: "ROOM_START", payload: { roomCode: code } });
+  }, [code, resumeAudio, send]);
+  const handleRejoinClick = useCallback(() => {
+    resumeAudio();
+    send({ type: "ROOM_JOIN", payload: { code } });
+  }, [code, resumeAudio, send]);
 
   return (
     <>
@@ -588,7 +732,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
         {status !== "ready" && status !== "idle" && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-4 flex items-center justify-between rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-300 backdrop-blur-sm">
             <div className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /><span>{status === "error" ? "Connection lost." : "Reconnecting…"}</span></div>
-            {status === "error" && <button onClick={() => send({ type: "ROOM_JOIN", payload: { code } })} className="rounded-lg bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-200 hover:bg-amber-500/30">Rejoin</button>}
+            {status === "error" && <button onClick={handleRejoinClick} className="rounded-lg bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-200 hover:bg-amber-500/30">Rejoin</button>}
           </motion.div>
         )}
 
@@ -619,7 +763,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
         </div>
 
         {/* Ambient Oracle */}
-        {/* <div className="mb-6 flex justify-center"><AmbientOracle /></div> */}
+        <div className="mb-6 flex justify-center"><AmbientOracle /></div>
 
         {/* Status Cards (Glass) */}
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
@@ -627,7 +771,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
             <div className="p-4"><div className="flex items-center gap-3"><Users className="h-5 w-5 text-cyan-400" /><div><div className="text-[10px] font-bold uppercase tracking-wider text-white/40">Players</div><div className="text-2xl font-bold text-white">{memberCount} / {room?.maxPlayers ?? "—"}</div><div className="text-[10px] text-emerald-400">{readyCount} ready</div></div></div></div>
           </GlassCard>
           <GlassCard glowColor="purple">
-          <div className="p-4"><div className="flex items-center gap-3"><Shield className="h-5 w-5 text-purple-400" /><div><div className="text-[10px] font-bold uppercase tracking-wider text-white/40">Status</div><div className="text-xl font-bold capitalize text-white">{room?.status === "OPEN" ? "Waiting for Players" : room?.status === "IN_PROGRESS" ? "Match Started" : room?.status === "CLOSED" ? "Room Closed" : room ? room.status : "Loading…"}</div><div className={`text-[10px] ${status === "ready" ? "text-emerald-400" : "text-amber-400"}`}>{status === "ready" ? "Connected to Arena" : status === "connecting" ? "Connecting…" : status === "error" ? "Connection Lost" : "Idle"}</div></div></div></div>
+            <div className="p-4"><div className="flex items-center gap-3"><Shield className="h-5 w-5 text-purple-400" /><div><div className="text-[10px] font-bold uppercase tracking-wider text-white/40">Status</div><div className="text-xl font-bold capitalize text-white">{room?.status ?? "Loading"}</div><div className="text-[10px] text-white/40">Socket: {status}</div></div></div></div>
           </GlassCard>
           <GlassCard glowColor="amber">
             <div className="p-4"><div className="flex items-center gap-3"><Clock3 className="h-5 w-5 text-amber-400" /><div><div className="text-[10px] font-bold uppercase tracking-wider text-white/40">Timer</div><div className="text-xl font-bold text-white">{pendingMatch ? `${matchCountdown ?? 0}s` : `${expiresInMinutes ?? 0}m`}</div><div className="text-[10px] text-white/40">{pendingMatch ? "Match starting" : expiresInMinutes != null ? "Expires soon" : "Active"}</div></div></div></div>
@@ -652,7 +796,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
             <div className="p-5">
               <div className="mb-4 flex items-center gap-2"><Users className="h-5 w-5 text-cyan-400" /><h2 className="text-xl font-bold text-white">Players</h2><span className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-xs font-normal text-white/60">{memberCount}</span></div>
               {roomLoading ? (
-                <div className="grid gap-3 sm:grid-cols-2">{Array(3).fill(0).map((_,i) => <MemberSkeleton key={i} />)}</div>
+                <div className="grid gap-3 sm:grid-cols-2">{MEMBER_SKELETON_KEYS.map((key) => <MemberSkeleton key={key} />)}</div>
               ) : members.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center"><div className="mb-3 rounded-full bg-white/5 p-4"><Users className="h-8 w-8 text-white/20" /></div><p className="text-sm text-white/30">Waiting for players to join…</p><p className="text-xs text-white/20">Share the room code to invite friends.</p></div>
               ) : (
@@ -668,7 +812,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
             {/* Action buttons inside Players card footer */}
             <div className="hidden sm:flex items-center gap-3 border-t border-white/[0.06] px-5 py-4">
               <Button
-                onClick={handleToggleReady}
+                onClick={handleReadyClick}
                 disabled={status !== "ready" || !!pendingMatch}
                 variant="default"
                 size="lg"
@@ -678,14 +822,14 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
               </Button>
               {isHost && (
                 <Button
-                  onClick={() => send({ type: "ROOM_START", payload: { roomCode: code } })}
+                  onClick={handleStartClick}
                   disabled={!canStart}
                   size="lg"
                   className={`flex-1 rounded-full font-semibold ${canStart ? "btn-main" : ""}`}
                   variant={canStart ? "default" : "outline"}
                 >
                   <Sword className="h-4 w-4" />
-                  {memberCount < 2 ? "Need 1 more" : readyCount !== memberCount ? "Waiting for all" : "Start Match"}
+                  {readyCount < minimumPlayers ? `Need ${minimumPlayers - readyCount} more` : readyCount !== memberCount ? "Waiting for all" : "Start Match"}
                 </Button>
               )}
             </div>
@@ -695,30 +839,30 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
           <GlassCard glowColor="purple" className="flex flex-col overflow-hidden">
             <div className="p-4 flex-1 flex flex-col">
               <div className="mb-3 flex items-center gap-2"><MessageCircle className="h-4 w-4 text-purple-400" /><h3 className="font-bold text-white">Lobby Chat</h3></div>
-              <div ref={chatContainerRef} className="max-h-[320px] min-h-[200px] flex-1 space-y-2 overflow-y-auto pr-1">
+              <div className="max-h-[320px] min-h-[200px] flex-1 space-y-2 overflow-y-auto pr-1">
                 {chatMessages.length === 0 ? <p className="py-8 text-center text-xs text-white/20">No messages yet.</p> : chatMessages.map((msg) => (
                   <div key={msg.id} className={`flex flex-col ${msg.userId === user?.userId ? "items-end" : "items-start"}`}>
                     <span className="mb-0.5 text-[9px] font-semibold text-white/40">{msg.username}</span>
-                    <div className={`max-w-[90%] rounded-xl px-3 py-1.5 text-xs text-white/90 ${msg.userId === user?.userId ? "rounded-tr-none bg-cyan-500/20" : "rounded-tl-none bg-white/10"}`}>{msg.text}</div>
+                    <div className={`font-user-content max-w-[90%] rounded-xl px-3 py-1.5 text-xs text-white/90 ${msg.userId === user?.userId ? "rounded-tr-none bg-cyan-500/20" : "rounded-tl-none bg-white/10"}`}>{msg.text}</div>
                   </div>
                 ))}
                 <div ref={chatEndRef} />
               </div>
               <div className="mt-3 flex gap-2">
-                <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendChat()} maxLength={400} placeholder="Type a message…" disabled={status !== "ready"} className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/20 outline-none focus:border-cyan-500/50 disabled:opacity-40" />
+                                <input type="text" value={chatInput} onChange={handleChatInputChange} onKeyDown={handleChatInputKeyDown} maxLength={400} placeholder="Type a message…" disabled={status !== "ready"} className="font-user-content flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/20 outline-none focus:border-cyan-500/50 disabled:opacity-40" />
                 <button onClick={sendChat} disabled={status !== "ready" || !chatInput.trim()} className="rounded-lg bg-cyan-500/20 p-2 text-cyan-400 hover:bg-cyan-500/30 disabled:opacity-30"><Send className="h-4 w-4" /></button>
               </div>
             </div>
           </GlassCard>
         </div>
 
-        {error && <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300 backdrop-blur-sm">{error}</div>}
+        {error && <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300 backdrop-blur-sm">Connection issue: {error || "Please try reconnecting"}</div>}
       </motion.div>
 
       {/* Mobile sticky bar */}
       <div className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-3 border-t border-white/10 bg-[#0a0f1a]/95 px-4 py-3 backdrop-blur-lg sm:hidden">
         <Button
-          onClick={handleToggleReady}
+          onClick={handleReadyClick}
           disabled={status !== "ready" || !!pendingMatch}
           variant="default"
           size="lg"
@@ -729,7 +873,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
         </Button>
         {isHost && (
           <Button
-            onClick={() => send({ type: "ROOM_START", payload: { roomCode: code } })}
+            onClick={handleStartClick}
             disabled={!canStart}
             size="lg"
             variant={canStart ? "default" : "outline"}

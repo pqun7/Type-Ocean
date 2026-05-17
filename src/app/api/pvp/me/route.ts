@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { and, count, eq, gt, or } from "drizzle-orm";
+import { eq, sql as rawSql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { playerProfiles, pvpRatings } from "@/db/schema";
@@ -56,29 +56,25 @@ export async function GET(req: NextRequest) {
   let classified = false;
   if (rating.gamesPlayed > 0) {
     try {
-      const totalRankedRows = await db
-        .select({ value: count() })
-        .from(pvpRatings)
-        .where(gt(pvpRatings.gamesPlayed, 0));
+      // Single query replacing two separate COUNT(*) queries: computes total
+      // ranked players and players ranked better than us simultaneously.
+      const rankingRows = await db.execute(rawSql`
+        SELECT
+          COUNT(*) FILTER (WHERE games_played > 0)::int AS total_ranked,
+          COUNT(*) FILTER (
+            WHERE games_played > 0
+              AND (
+                rating > ${rating.rating}
+                OR (rating = ${rating.rating} AND updated_at > ${rating.updatedAt})
+              )
+          )::int AS better_count
+        FROM pvp_ratings
+      `);
 
-      const totalRanked = Number(totalRankedRows[0]?.value ?? 0);
-
+      const row = rankingRows.rows?.[0] as { total_ranked: number; better_count: number } | undefined;
+      const totalRanked = Number(row?.total_ranked ?? 0);
+      const betterCount = Number(row?.better_count ?? 0);
       const cutoff = Math.max(1, Math.ceil(totalRanked * 0.01));
-
-      const betterCountRows = await db
-        .select({ value: count() })
-        .from(pvpRatings)
-        .where(
-          and(
-            gt(pvpRatings.gamesPlayed, 0),
-            or(
-              gt(pvpRatings.rating, rating.rating),
-              and(eq(pvpRatings.rating, rating.rating), gt(pvpRatings.updatedAt, rating.updatedAt)),
-            ),
-          ),
-        );
-
-      const betterCount = Number(betterCountRows[0]?.value ?? 0);
 
       classified = betterCount + 1 <= cutoff;
     } catch {

@@ -8,9 +8,7 @@ export async function GET() {
     await db.execute(sql`select 1`);
 
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "database_unreachable";
-
-    return NextResponse.json({ ok: false, error: message }, { status: 503 });
+  } catch {
+    return NextResponse.json({ ok: false }, { status: 503 });
   }
 }

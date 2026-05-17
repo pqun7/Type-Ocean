@@ -63,7 +63,7 @@ export const env = createEnv({
 
     EMAIL_DAILY_LIMIT: z.coerce.number().optional(),
 
-    EMAIL_OTP_PEPPER: z.string().optional(),
+    EMAIL_OTP_PEPPER: z.string().min(16).optional(),
 
     BLOB_READ_WRITE_TOKEN: z.string().optional(),
   },

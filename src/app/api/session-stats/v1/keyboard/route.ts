@@ -13,7 +13,7 @@ import { incrementSecurityMetric } from "@/lib/security-metrics";
 import { parseJsonBodyWithSchema } from "@/lib/validation/request-body";
 
 const BodySchema = z.object({
-  language: z.enum(["en", "ar", "fr", "es"]),
+  language: z.enum(["en", "ar"]),
   performanceData: z.record(
     z.string(),
     z

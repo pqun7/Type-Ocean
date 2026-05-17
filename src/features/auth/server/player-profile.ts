@@ -18,6 +18,7 @@ type PlayerProfileCreateOverrides = Partial<
     | "ratingUpdatedAt"
     | "achievements"
     | "longTermStats"
+    | "appSettings"
     | "avatar"
     | "hideFromLeaderboard"
   >
@@ -34,6 +35,7 @@ type PlayerProfileUpdateInput = Partial<
     | "ratingUpdatedAt"
     | "achievements"
     | "longTermStats"
+    | "appSettings"
     | "avatar"
     | "hideFromLeaderboard"
   >
@@ -71,6 +73,9 @@ function createPlayerProfileDefaults(
       : {}),
     ...(overrides?.longTermStats !== undefined
       ? { longTermStats: overrides.longTermStats }
+      : {}),
+    ...(overrides?.appSettings !== undefined
+      ? { appSettings: overrides.appSettings }
       : {}),
     ...(overrides?.hideFromLeaderboard !== undefined
       ? { hideFromLeaderboard: overrides.hideFromLeaderboard }

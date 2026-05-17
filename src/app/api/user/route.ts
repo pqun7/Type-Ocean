@@ -16,6 +16,9 @@ import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboar
 import { ensurePlayerProfile, syncPlayerProfile } from "@/features/auth/server/player-profile";
 import { clearAuthSessionCookies } from "@/features/auth/server/session-cookies";
 import { isDatabaseAccountHoldError } from "@/lib/db-error-utils";
+import { validateCsrf as validateCSRF } from "@/lib/csrf";
+import { parseAppSettings } from "@/features/settings/storage";
+import type { AppSettings } from "@/features/settings/types";
 
 const OTP_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -36,6 +39,7 @@ type UserProfileRow = {
   level: number | null;
   xp: number | null;
   achievements: unknown;
+  appSettings: unknown;
   avatar: string | null;
   hideFromLeaderboard: boolean | null;
 };
@@ -91,21 +95,11 @@ const UpdateUserSchema = z.object({
         ])
         .optional(),
       hideFromLeaderboard: z.boolean().optional(),
+      appSettings: z.custom<AppSettings>().optional(),
     })
     .optional(),
 });
 
-
-// Minimal CSRF validation for unsafe methods
-function validateCSRF(req: NextRequest): string | null {
-  const origin = req.headers.get("origin") || "";
-  const referer = req.headers.get("referer") || "";
-  const host = new URL(req.url).origin;
-
-  if (origin && origin !== host) return "Invalid origin";
-  if (referer && !referer.startsWith(host)) return "Invalid referer";
-  return null;
-}
 
 
 // Safe logging utilities for user operations
@@ -175,6 +169,7 @@ export async function GET(req: NextRequest) {
         p."level",
         p."xp",
         p."achievements",
+        p."appSettings",
         p."avatar",
         p."hideFromLeaderboard"
       FROM "User" u
@@ -200,6 +195,7 @@ export async function GET(req: NextRequest) {
                 level: row.level ?? 1,
                 xp: row.xp ?? 0,
                 achievements: row.achievements ?? [],
+                appSettings: parseAppSettings(row.appSettings),
                 avatar: row.avatar,
                 hideFromLeaderboard: row.hideFromLeaderboard ?? false,
               }
@@ -240,6 +236,7 @@ export async function GET(req: NextRequest) {
           level: true,
           xp: true,
           achievements: true,
+          appSettings: true,
           avatar: true,
           hideFromLeaderboard: true,
         },
@@ -358,6 +355,11 @@ export async function PATCH(req: NextRequest) {
     const hideFromLeaderboardPatch =
       profileData && typeof profileData.hideFromLeaderboard === "boolean"
         ? profileData.hideFromLeaderboard
+        : undefined;
+
+    const appSettingsPatch =
+      profileData && "appSettings" in profileData
+        ? parseAppSettings(profileData.appSettings)
         : undefined;
 
     // Safe debug logging for update attempt
@@ -517,7 +519,11 @@ export async function PATCH(req: NextRequest) {
 
       if (!emailChange) {
       const otp = String(randomInt(0, 1_000_000)).padStart(6, "0");
-      const pepper = process.env.EMAIL_OTP_PEPPER?.trim() || "";
+      const pepper = process.env.EMAIL_OTP_PEPPER?.trim();
+      if (!pepper) {
+        logging.error("EMAIL_OTP_PEPPER is not configured — refusing to send OTP", { requestId, service: SERVICE_TYPE });
+        return NextResponse.json({ error: "Email change is currently unavailable" }, { status: 503 });
+      }
       const hashedOtp = createHash("sha256")
         .update(`${session.user.id}:${otp}:${pepper}`)
         .digest("hex");
@@ -632,6 +638,7 @@ export async function PATCH(req: NextRequest) {
           ...(hideFromLeaderboardPatch !== undefined && {
             hideFromLeaderboard: hideFromLeaderboardPatch,
           }),
+          ...(appSettingsPatch !== undefined && { appSettings: appSettingsPatch }),
         },
         create: {
           username: nextProfileUsername || updatedUser.username,
@@ -639,6 +646,7 @@ export async function PATCH(req: NextRequest) {
           ...(hideFromLeaderboardPatch !== undefined && {
             hideFromLeaderboard: hideFromLeaderboardPatch,
           }),
+          ...(appSettingsPatch !== undefined && { appSettings: appSettingsPatch }),
         },
       });
       void refreshLeaderboardProfileCache(session.user.id).catch(() => {

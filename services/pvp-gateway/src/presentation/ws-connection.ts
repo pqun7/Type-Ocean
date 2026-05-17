@@ -316,12 +316,16 @@ export function setupWssConnectionHandler(
     // =========================================================================
     // CLOSE / DISCONNECT HANDLER
     // =========================================================================
-    ws.on("close", () => {
+    ws.on("close", (code, reason) => {
+      const closeReason =
+        reason && reason.length > 0 ? reason.toString("utf8") : null;
       gatewayLogDebug("Websocket connection closed", {
         userId: ws.user?.userId,
         ip: ws.ip ?? "unknown",
         matchId: ws.matchId,
         roomCode: ws.roomCode,
+        closeCode: code,
+        closeReason,
       });
 
       deps.messageBatcher?.drop(ws);

@@ -167,3 +167,6 @@ console.log('💡 Development troubleshooting:');
 console.log('1. Make sure Redis is installed: sudo apt install redis-server');
 console.log('2. Start Redis: sudo service redis-server start');
 console.log('3. Check status: sudo service redis-server status');
+
+$env:PATH = [System.Environment]::GetEnvironmentVariable('PATH','User') + ';' + [System.Environment]::GetEnvironmentVariable('PATH','Machine')
+.\scripts\local-prod.ps1

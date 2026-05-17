@@ -37,6 +37,18 @@ export function sanitizeDisplayName(value: string, maxLength = 32) {
   return sanitizeTextField(value, maxLength);
 }
 
+// RFC-1918 / link-local / loopback hostnames that must never be fetched as
+// avatar URLs — guards against Server-Side Request Forgery (SSRF).
+const SSRF_BLOCKLIST_RE =
+  /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|fd[0-9a-f]{2}:)/i;
+
+// Known cloud metadata service hostnames.
+const METADATA_BLOCKLIST = new Set([
+  "169.254.169.254", // AWS / GCP / Azure IMDS
+  "metadata.google.internal",
+  "metadata.internal",
+]);
+
 export function sanitizeAvatarUrl(value: string | null | undefined, maxLength = 2048) {
   if (typeof value !== "string") return null;
 
@@ -46,6 +58,10 @@ export function sanitizeAvatarUrl(value: string | null | undefined, maxLength = 
   try {
     const parsed = new URL(normalized);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+
+    const host = parsed.hostname.toLowerCase();
+    if (SSRF_BLOCKLIST_RE.test(host) || METADATA_BLOCKLIST.has(host)) return null;
+
     return parsed.toString().slice(0, maxLength);
   } catch {
     return null;

@@ -9,6 +9,14 @@ import { rateLimiter } from "@/lib/rate-limiter";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function normalizeUserId(rawUserId: string): string {
+  try {
+    return decodeURIComponent(rawUserId);
+  } catch {
+    return rawUserId;
+  }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ userId: string }> },
@@ -18,7 +26,12 @@ export async function GET(
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: rateLimit.headers });
   }
 
-  const { userId } = await params;
+  const { userId: rawUserId } = await params;
+  const userId = normalizeUserId(rawUserId);
+
+  if (userId.startsWith("ai:")) {
+    return NextResponse.json({ level: 1, currentStreak: 0 }, { headers: rateLimit.headers });
+  }
 
   if (!UUID_RE.test(userId)) {
     return NextResponse.json({ error: "Invalid userId" }, { status: 400, headers: rateLimit.headers });

@@ -11,20 +11,11 @@ import { userFeedback } from "@/db/schema";
 import { env } from "@/env.mjs";
 import { auth } from "@/lib/auth";
 import { rateLimiter } from "@/lib/rate-limiter";
+import { validateCsrf as validateCSRF } from "@/lib/csrf";
 
 const FeedbackCategorySchema = z.enum(["complaint", "suggestion", "rating", "bug", "other"]);
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
-
-function validateCSRF(req: NextRequest): string | null {
-  const origin = req.headers.get("origin") || "";
-  const referer = req.headers.get("referer") || "";
-  const host = new URL(req.url).origin;
-
-  if (origin && origin !== host) return "Invalid origin";
-  if (referer && !referer.startsWith(host)) return "Invalid referer";
-  return null;
-}
 
 function extFromMime(mime: string): "png" | "jpg" | "webp" {
   if (mime === "image/png") return "png";

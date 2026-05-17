@@ -10,6 +10,7 @@ import { auth } from "@/lib/auth";
 import { syncPlayerProfile } from "@/features/auth/server/player-profile";
 import { refreshLeaderboardProfileCache } from "@/features/pvp/server/leaderboard-cache";
 import { rateLimiter } from "@/lib/rate-limiter";
+import { validateCsrf as validateCSRF } from "@/lib/csrf";
 import {
   isDatabaseAccountHoldError,
   isDatabaseTemporarilyUnavailableError,
@@ -23,16 +24,6 @@ const ALLOWED_MIME = new Set(["image/webp", "image/jpeg"]);
 
 function extFromMime(mime: string): "webp" | "jpg" {
   return mime === "image/webp" ? "webp" : "jpg";
-}
-
-function validateCSRF(req: NextRequest): string | null {
-  const origin = req.headers.get("origin") || "";
-  const referer = req.headers.get("referer") || "";
-  const host = new URL(req.url).origin;
-
-  if (origin && origin !== host) return "Invalid origin";
-  if (referer && !referer.startsWith(host)) return "Invalid referer";
-  return null;
 }
 
 function isVercelBlobUrl(url: string): boolean {

@@ -5,10 +5,6 @@ import {
 
 describe("keyboardPerformance mapping", () => {
   it("maps core letters and symbols across supported languages", () => {
-    expect(mapCharacterToKeyId("ñ", "es")).toBe("Semicolon");
-    expect(mapCharacterToKeyId("é", "fr")).toBe("2");
-    expect(mapCharacterToKeyId("a", "fr")).toBe("q");
-    expect(mapCharacterToKeyId("q", "fr")).toBe("a");
     expect(mapCharacterToKeyId("ض", "ar")).toBe("q");
     expect(mapCharacterToKeyId("؟", "ar")).toBe("Slash");
     expect(mapCharacterToKeyId("!", "en")).toBe("1");

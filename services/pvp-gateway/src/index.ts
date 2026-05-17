@@ -2264,6 +2264,21 @@ async function main(): Promise<void> {
     matchCache?.addSocket(matchId, ws);
   };
 
+  // =============================================================================
+  // REMATCH STATE
+  // =============================================================================
+
+  const AI_REMATCH_COOLDOWN_MS = envMs("PVP_AI_REMATCH_COOLDOWN_MS", 20 * 60 * 1000);
+  const aiRematchRefuseUntilByHumanId = new Map<string, number>();
+  const rematchAcceptedByMatchId = new Map<string, Set<string>>();
+  const rematchAcceptedTouchedAtByMatchId = new Map<string, number>();
+  const REMATCH_ACCEPTED_TTL_MS = envMs("PVP_REMATCH_ACCEPTED_TTL_MS", 10 * 60 * 1000);
+
+  const clearRematchAccepted = (matchId: string): void => {
+    rematchAcceptedByMatchId.delete(matchId);
+    rematchAcceptedTouchedAtByMatchId.delete(matchId);
+  };
+
   const sweepStaleMatches = async (): Promise<void> => {
     const now = Date.now();
 
@@ -2590,47 +2605,60 @@ async function main(): Promise<void> {
   if (USE_REDIS) {
     if (!REDIS_URL) throw new Error("PVP_USE_REDIS is enabled but PVP_REDIS_URL/REDIS_URL/NEXT_REDIS_URL is missing");
 
-    redisBus = await createRedisBus(REDIS_URL);
-    countdownQueue = createRedisCountdownQueue(redisBus.redis);
-    forfeitQueue = createRedisDeferredTimerQueue(redisBus.redis, DISCONNECT_FORFEIT_QUEUE_KEY);
-    noshowQueue = createRedisDeferredTimerQueue(redisBus.redis, NOSHOW_QUEUE_KEY);
-    matchStartOrchestrator?.wireCountdownQueue(countdownQueue);
-    matchStartOrchestrator?.wireNoshowQueue(noshowQueue);
-    gatewayLogInfo("Redis bus enabled for PvP gateway", {
-      instanceId: INSTANCE_ID,
-      hasRedisUrl: Boolean(REDIS_URL),
-    });
-    await redisBus.psubscribe("pvp:user:*");
-    await redisBus.psubscribe("pvp:match:*");
-    await redisBus.psubscribe("pvp:room:*");
+    try {
+      const connectedRedisBus = await createRedisBus(REDIS_URL);
+      await connectedRedisBus.psubscribe("pvp:user:*");
+      await connectedRedisBus.psubscribe("pvp:match:*");
+      await connectedRedisBus.psubscribe("pvp:room:*");
 
-    redisBus.onMessage((channel, msg) => {
-      if (channel.startsWith("pvp:user:")) {
-        const userId = channel.slice("pvp:user:".length);
-        for (const c of getAuthedSocketsForUser(wss, userId)) send(c, msg.type as ServerMessage["type"], msg.payload);
-        return;
-      }
-      if (channel.startsWith("pvp:match:")) {
-        const matchId = channel.slice("pvp:match:".length);
-        const cachedSockets = matchCache?.getMatchSockets(matchId);
-        if (cachedSockets && cachedSockets.size > 0) {
-          for (const socket of cachedSockets) {
-            send(socket as WsConn, msg.type as ServerMessage["type"], msg.payload);
+      connectedRedisBus.onMessage((channel, msg) => {
+        if (channel.startsWith("pvp:user:")) {
+          const userId = channel.slice("pvp:user:".length);
+          for (const c of getAuthedSocketsForUser(wss, userId)) send(c, msg.type as ServerMessage["type"], msg.payload);
+          return;
+        }
+        if (channel.startsWith("pvp:match:")) {
+          const matchId = channel.slice("pvp:match:".length);
+          const cachedSockets = matchCache?.getMatchSockets(matchId);
+          if (cachedSockets && cachedSockets.size > 0) {
+            for (const socket of cachedSockets) {
+              send(socket as WsConn, msg.type as ServerMessage["type"], msg.payload);
+            }
+          }
+          return;
+        }
+        if (channel.startsWith("pvp:room:")) {
+          const roomCode = channel.slice("pvp:room:".length);
+          const roomSockets = matchCache?.getRoomSockets(roomCode);
+          if (!roomSockets || roomSockets.size === 0) return;
+          for (const socket of roomSockets) {
+            const c = socket as WsConn;
+            if (c.readyState !== WebSocket.OPEN) continue;
+            send(c, msg.type as ServerMessage["type"], msg.payload);
           }
         }
-        return;
-      }
-      if (channel.startsWith("pvp:room:")) {
-        const roomCode = channel.slice("pvp:room:".length);
-        const roomSockets = matchCache?.getRoomSockets(roomCode);
-        if (!roomSockets || roomSockets.size === 0) return;
-        for (const socket of roomSockets) {
-          const c = socket as WsConn;
-          if (c.readyState !== WebSocket.OPEN) continue;
-          send(c, msg.type as ServerMessage["type"], msg.payload);
-        }
-      }
-    });
+      });
+
+      redisBus = connectedRedisBus;
+      countdownQueue = createRedisCountdownQueue(redisBus.redis);
+      forfeitQueue = createRedisDeferredTimerQueue(redisBus.redis, DISCONNECT_FORFEIT_QUEUE_KEY);
+      noshowQueue = createRedisDeferredTimerQueue(redisBus.redis, NOSHOW_QUEUE_KEY);
+      matchStartOrchestrator?.wireCountdownQueue(countdownQueue);
+      matchStartOrchestrator?.wireNoshowQueue(noshowQueue);
+      gatewayLogInfo("Redis bus enabled for PvP gateway", {
+        instanceId: INSTANCE_ID,
+        hasRedisUrl: Boolean(REDIS_URL),
+      });
+    } catch (error) {
+      gatewayLogWarn("Redis unavailable for PvP gateway startup; continuing in local-memory mode", {
+        hasRedisUrl: Boolean(REDIS_URL),
+        instanceId: INSTANCE_ID,
+        error: error instanceof Error ? {
+          name: error.name,
+          message: error.message,
+        } : String(error),
+      });
+    }
   }
 
   const redis = redisBus?.redis ?? null;
@@ -2804,21 +2832,6 @@ return nil
   const queueAdapter = redis
     ? new RedisQueueAdapter({ queueJoin, queueLeave, readQueueMeta, tryMatchQueuedUser })
     : new LocalMemoryQueueAdapter();
-
-  // =============================================================================
-  // REMATCH STATE
-  // =============================================================================
-
-  const AI_REMATCH_COOLDOWN_MS = envMs("PVP_AI_REMATCH_COOLDOWN_MS", 20 * 60 * 1000);
-  const aiRematchRefuseUntilByHumanId = new Map<string, number>();
-  const rematchAcceptedByMatchId = new Map<string, Set<string>>();
-  const rematchAcceptedTouchedAtByMatchId = new Map<string, number>();
-  const REMATCH_ACCEPTED_TTL_MS = envMs("PVP_REMATCH_ACCEPTED_TTL_MS", 10 * 60 * 1000);
-
-  const clearRematchAccepted = (matchId: string): void => {
-    rematchAcceptedByMatchId.delete(matchId);
-    rematchAcceptedTouchedAtByMatchId.delete(matchId);
-  };
 
   // =============================================================================
   // ROOM MATCH START

@@ -8,6 +8,7 @@ import TypingTest from "@/components/TypingTest/TypingTest";
 import { TextType } from "@/features/typing/types/typing";
 import { useSettings } from "@/features/settings/context";
 import { getTypingTypography } from "@/features/settings/typingTypography";
+import { getTypingFontClass } from "@/features/settings/typingFonts";
 import type { KeyboardPerformanceData } from "@/components/TypingTest/utils/keyboardPerformance";
 import { useLevel } from "@/features/level/hooks/useLevel";
 
@@ -112,10 +113,12 @@ const HeaderGame = ({
   const optimizePerformance = HomePage;
 
   const resultsViewMode = HomePage
-    ? RESULTS_VIEW_MODE.KEYBOARD
+    ? settings.showSessionChart
+      ? RESULTS_VIEW_MODE.KEYBOARD
+      : RESULTS_VIEW_MODE.NONE
     : settings.showSessionChart
-    ? RESULTS_VIEW_MODE.CHART
-    : RESULTS_VIEW_MODE.KEYBOARD;
+      ? RESULTS_VIEW_MODE.CHART
+      : RESULTS_VIEW_MODE.NONE;
 
   return (
     <>
@@ -165,7 +168,7 @@ const HeaderGame = ({
             <TypingTest
               className="w-[1200px] mt-4 overflow-hidden"
               caretHeight={typography.caretHeight}
-              font="font-jetbrains"
+              font={getTypingFontClass(settings.typingLanguage)}
               key={textKey}
               texts={texts ? texts : [text || "Loading..."]}
               onStateChange={setGameState}

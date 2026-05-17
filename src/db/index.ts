@@ -10,8 +10,23 @@ import * as schema from "./schema";
 
 const rawDatabaseUrl = process.env.DATABASE_URL?.trim();
 const hasValidDatabaseUrl = !!rawDatabaseUrl && /^postgres(?:ql)?:\/\//i.test(rawDatabaseUrl);
+
+// Append statement_timeout if not already present so runaway queries are
+// killed by PostgreSQL after 8 seconds instead of hanging indefinitely.
+function withStatementTimeout(url: string, ms = 8_000): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.searchParams.has("options")) {
+      parsed.searchParams.set("options", `-c statement_timeout=${ms}`);
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 const databaseUrl = hasValidDatabaseUrl
-  ? rawDatabaseUrl
+  ? withStatementTimeout(rawDatabaseUrl!)
   : "postgresql://user:password@localhost:5432/type_space";
 
 export const isDatabaseConfigured = hasValidDatabaseUrl;

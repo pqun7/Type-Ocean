@@ -94,12 +94,20 @@ class RedisManager {
   }
 
   private getErrorSignature(err: unknown): string {
-    if (err instanceof Error) return `${err.name}:${err.message}`;
+    if (err instanceof Error) return `${err.name}:${this.redactCredentials(err.message)}`;
     try {
-      return typeof err === "string" ? err : JSON.stringify(err);
+      return typeof err === "string"
+        ? this.redactCredentials(err)
+        : this.redactCredentials(JSON.stringify(err));
     } catch {
       return String(err);
     }
+  }
+
+  /** Strip passwords from Redis URLs that may appear in error messages. */
+  private redactCredentials(value: string): string {
+    // Matches redis[s]://[user:]password@host — replaces password with ***
+    return value.replace(/(rediss?:\/\/[^:@/]*:)[^@]+(@)/gi, "$1***$2");
   }
 
   private logConnectionErrorThrottled(err: unknown) {
@@ -114,7 +122,9 @@ class RedisManager {
     this.lastConnErrorSignature = signature;
     this.lastConnErrorLogAt = now;
 
-    logger.error('Redis connection error', err);
+    // Log only the sanitized message — never the raw error object which may
+    // contain the full connection URL including the password.
+    logger.error('Redis connection error', { message: signature });
   }
 
   private setupEventHandlers() {

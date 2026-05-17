@@ -730,7 +730,7 @@ function ProfileClient(props: {
 
   const keyboardLanguageOptions = useMemo(() => {
     if (!deferredOverallKeyboard) return [] as Language[];
-    const candidates: Language[] = ["en", "ar", "fr", "es"];
+    const candidates: Language[] = ["en", "ar"];
     return candidates.filter((lang) => {
       const bucket = deferredOverallKeyboard.byLanguage[lang] ?? {};
       return Object.values(bucket).some((v) => (v?.correct ?? 0) + (v?.error ?? 0) > 0);
