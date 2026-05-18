@@ -192,8 +192,12 @@ async function loadWsTokenUser(userId: string): Promise<WsTokenUserRecord | null
 export async function GET(req: NextRequest) {
   const requestId = createRequestId();
 
-  // Guard: PVP_INSECURE_LOCALHOST must never be enabled in production.
-  if (PVP_INSECURE_LOCALHOST && process.env.NODE_ENV === "production") {
+  // Guard: PVP_INSECURE_LOCALHOST must never be enabled in a real deployed
+  // production environment. Allow it when the ws target is localhost so that
+  // `npm run start` + `npm run pvp:gateway:start` works for local testing.
+  const pvpWsUrlForGuard = process.env.NEXT_PUBLIC_PVP_WS_URL ?? "";
+  const isLocalWsTarget = /^wss?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(pvpWsUrlForGuard);
+  if (PVP_INSECURE_LOCALHOST && process.env.NODE_ENV === "production" && !isLocalWsTarget) {
     return NextResponse.json(
       { error: "PVP_INSECURE_LOCALHOST=1 is not allowed in production" },
       { status: 500 }

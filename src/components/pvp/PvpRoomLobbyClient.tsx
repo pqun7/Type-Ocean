@@ -522,6 +522,8 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   const lastTickRef = useRef<number | null>(null);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestChatInputRef = useRef(chatInput);
+  const skipAutoLeaveRef = useRef(false);
+  const hasSentRoomLeaveRef = useRef(false);
 
   // ── Socket listeners ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -605,6 +607,14 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
   useEffect(() => { if (status === "ready") send({ type: "ROOM_JOIN", payload: { code } }); }, [status, send, code]);
   useEffect(() => {
+    return () => {
+      if (status !== "ready") return;
+      if (skipAutoLeaveRef.current || hasSentRoomLeaveRef.current) return;
+      hasSentRoomLeaveRef.current = true;
+      send({ type: "ROOM_LEAVE", payload: { roomCode: code } });
+    };
+  }, [status, send, code]);
+  useEffect(() => {
     if (!pendingMatch) {
       matchCountdownRef.current = null;
       setMatchCountdown(null);
@@ -639,8 +649,15 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   useEffect(() => {
     if (!pendingMatch) return;
     const delayMs = new Date(pendingMatch.serverStartAt).getTime() - Date.now();
-    if (delayMs <= 0) { router.push(`/pvp/match/${pendingMatch.matchId}`); return; }
-    const id = setTimeout(() => router.push(`/pvp/match/${pendingMatch.matchId}`), delayMs);
+    if (delayMs <= 0) {
+      skipAutoLeaveRef.current = true;
+      router.push(`/pvp/match/${pendingMatch.matchId}`);
+      return;
+    }
+    const id = setTimeout(() => {
+      skipAutoLeaveRef.current = true;
+      router.push(`/pvp/match/${pendingMatch.matchId}`);
+    }, delayMs);
     return () => clearTimeout(id);
   }, [pendingMatch, router]);
 
@@ -659,6 +676,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   }, [room?.expiresAt]);
 
   const leaveRoom = useCallback(() => {
+    hasSentRoomLeaveRef.current = true;
     send({ type: "ROOM_LEAVE", payload: { roomCode: code } });
     router.push("/pvp/room");
   }, [send, code, router]);

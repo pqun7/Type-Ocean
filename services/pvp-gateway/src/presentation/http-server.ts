@@ -52,6 +52,31 @@ function hasOnlyLocalOrigins(): boolean {
   return Array.from(allowedOrigins).every(isLocalOrigin);
 }
 
+function isLocalHostHeader(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+
+  const trimmed = hostHeader.trim();
+  if (!trimmed) return false;
+
+  const normalizedHost = trimmed.startsWith("[")
+    ? trimmed.slice(1, trimmed.indexOf("]"))
+    : trimmed.split(":")[0] ?? trimmed;
+
+  return isLocalhostHost(normalizedHost);
+}
+
+function isLocalGatewayRequest(req: http.IncomingMessage): boolean {
+  if (isLoopbackAddress(req.socket.remoteAddress)) {
+    return true;
+  }
+
+  if (isLocalHostHeader(req.headers.host)) {
+    return true;
+  }
+
+  return typeof req.headers.origin === "string" && isLocalOrigin(req.headers.origin);
+}
+
 export function isLoopbackAddress(remoteAddress: string | undefined): boolean {
   if (!remoteAddress) return false;
   const normalized = remoteAddress.trim().toLowerCase();
@@ -79,7 +104,7 @@ export function isSecureGatewayRequest(
 ): boolean {
   if (!IS_PROD) return true;
 
-  if (INSECURE_LOCALHOST && isLoopbackAddress(req.socket.remoteAddress)) {
+  if (INSECURE_LOCALHOST && isLocalGatewayRequest(req)) {
     return true;
   }
 
