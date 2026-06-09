@@ -7,7 +7,12 @@
  * return the ground-truth value regardless of edit history.
  */
 
-import { computeWpmFromCorrectChars, recomputeParticipantStats } from "../domain/match/participant-stats";
++import {
+  computePvpAccuracyFromMistakes,
+  computeWpmFromCorrectChars,
+  recomputeParticipantStats,
+  recomputePvpParticipantStats,
+} from "../domain/match/participant-stats";
 
 // Fixed reference time: 60 seconds of elapsed typing at each test assertion.
 const START_MS = 1_000_000;
@@ -45,6 +50,20 @@ describe("computeWpmFromCorrectChars", () => {
     const wpm = computeWpmFromCorrectChars(50, START_MS, START_MS);
     expect(wpm).toBeGreaterThanOrEqual(0);
     expect(wpm).toBeLessThanOrEqual(500);
+  });
+});
+
+describe("computePvpAccuracyFromMistakes", () => {
+  it("returns 100 for a clean start", () => {
+    expect(computePvpAccuracyFromMistakes(0, 0)).toBe(100);
+  });
+
+  it("counts corrected mistakes against PvP accuracy", () => {
+    expect(computePvpAccuracyFromMistakes(11, 2)).toBe(Number(((11 / 13) * 100).toFixed(1)));
+  });
+
+  it("clamps negative inputs to zero", () => {
+    expect(computePvpAccuracyFromMistakes(-5, -3)).toBe(100);
   });
 });
 
@@ -196,5 +215,37 @@ describe("recomputeParticipantStats — P12 persistence invariant", () => {
       expect(stats.accuracy).toBeGreaterThanOrEqual(0);
       expect(stats.accuracy).toBeLessThanOrEqual(100);
     }
+  });
+});
+
+describe("recomputePvpParticipantStats", () => {
+  const TEXT = "hello";
+
+  it("keeps corrected mistakes in PvP accuracy", () => {
+    const stats = recomputePvpParticipantStats({
+      input: TEXT,
+      textSnapshot: TEXT,
+      startedAtMs: START_MS,
+      nowMs: NOW_60S,
+      totalMistakes: 2,
+    });
+
+    expect(stats.correctChars).toBe(TEXT.length);
+    expect(stats.errors).toBe(2);
+    expect(stats.accuracy).toBe(Number(((TEXT.length / (TEXT.length + 2)) * 100).toFixed(1)));
+  });
+
+  it("falls back to final-input stats when no historical mistakes exist", () => {
+    const stats = recomputePvpParticipantStats({
+      input: "hel",
+      textSnapshot: TEXT,
+      startedAtMs: START_MS,
+      nowMs: NOW_60S,
+      totalMistakes: 0,
+    });
+
+    expect(stats.correctChars).toBe(3);
+    expect(stats.errors).toBe(0);
+    expect(stats.accuracy).toBe(100);
   });
 });

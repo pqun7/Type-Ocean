@@ -6,7 +6,7 @@
  * state, enqueues the DB batch write, and broadcasts PROGRESS.
  */
 
-import { recomputeParticipantStats } from "../../domain/match/participant-stats";
+import { recomputePvpParticipantStats } from "../../domain/match/participant-stats";
 import { validateReplayProtectedInput, registerAcceptedReplaySeq } from "../../anti-cheat/replay";
 import { shouldAcceptInputUpdate } from "../../input-update";
 import { observeGatewayHistogram, incrementGatewayMetric } from "../../metrics";
@@ -148,16 +148,22 @@ export async function handleInputUpdate(
     }
 
     const nextInput = next.slice(0, match.textSnapshot.length);
-    const inputStats = recomputeParticipantStats(
-      nextInput,
-      match.textSnapshot,
-      match.serverStartAtMs,
-      nowMs,
+    const totalMistakes = Math.max(
+      participant.totalMistakes ?? 0,
+      msg.payload.totalMistakes ?? 0,
     );
+    const inputStats = recomputePvpParticipantStats({
+      input: nextInput,
+      textSnapshot: match.textSnapshot,
+      startedAtMs: match.serverStartAtMs,
+      nowMs,
+      totalMistakes,
+    });
     participant.input = nextInput;
     participant.errors = inputStats.errors;
     participant.accuracy = inputStats.accuracy;
     participant.wpm = inputStats.wpm;
+    participant.totalMistakes = totalMistakes;
     participant.seq = msg.payload.seq;
     participant.inputEvents = participant.inputEvents ?? [];
     participant.inputEvents.push({

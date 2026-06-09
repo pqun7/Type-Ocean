@@ -39,8 +39,8 @@ import { MatchCache } from "./match-cache";
 import { MatchRepository } from "./match-repository";
 import { createInitialLiveState, type MatchLiveState } from "./match-live-state";
 import { UserCache } from "./user-cache";
-import { gatewayDb, isGatewayDbConfigured, runGatewayTransaction, type GatewayDb } from "./gateway-db";
-import { recomputeParticipantStats } from "./domain/match/participant-stats";
+import { gatewayDb, isGatewayDbConfigured, runGatewayTransaction, withDbRetry, type GatewayDb } from "./gateway-db";
+import { recomputePvpParticipantStats } from "./domain/match/participant-stats";
 import { MatchLockRegistry } from "./domain/match/match-lock";
 import { MatchCleanupService } from "./domain/match/match-cleanup";
 import { MatchAggregate } from "./domain/match/match-aggregate";
@@ -222,6 +222,7 @@ interface LocalParticipant {
   errors: number;
   wpm: number;
   accuracy: number;
+  totalMistakes?: number;
   finishedAt: number | null;
   lastInputAtMs?: number;
   lastInputLen?: number;
@@ -380,7 +381,7 @@ function getDisconnectForfeitKey(matchId: string, userId: string): string {
 // clearMatchMetricAccumulators / getOrInitParticipantAccumulator /
 // updateParticipantMetricsIncremental — all deleted.
 //
-// Stats are now computed via recomputeParticipantStats() on every keystroke.
+// Stats are now computed via recomputePvpParticipantStats() on every keystroke.
 // This is O(n ≤ 1000) per event, always correct after backspace, and requires
 // no external Map — eliminating both the backspace bug and the memory leak.
 // ---------------------------------------------------------------------------
@@ -395,12 +396,13 @@ function buildLiveStateFromLocalMatch(match: LocalMatch): MatchLiveState {
   for (const participant of match.participants.values()) {
     // Full recompute: O(n ≤ 1000). Eliminates the external accumulator Map and the
     // backspace-bug that plagued the previous incremental approach (P5 fix).
-    const stats = recomputeParticipantStats(
-      participant.input,
-      match.textSnapshot,
-      match.serverStartAtMs,
-      Date.now(),
-    );
+    const stats = recomputePvpParticipantStats({
+      input: participant.input,
+      textSnapshot: match.textSnapshot,
+      startedAtMs: match.serverStartAtMs,
+      nowMs: Date.now(),
+      totalMistakes: participant.totalMistakes ?? participant.errors,
+    });
     participants[participant.userId] = {
       userId: participant.userId,
       username: participant.username,
@@ -415,6 +417,7 @@ function buildLiveStateFromLocalMatch(match: LocalMatch): MatchLiveState {
       lastInputAtMs: participant.lastInputAtMs ?? null,
       // correctChars is persisted in JSONB so it survives gateway restarts (P12 fix).
       correctChars: stats.correctChars,
+      totalMistakes: participant.totalMistakes ?? stats.errors,
       inputEvents: participant.inputEvents ?? [],
     };
   }
@@ -2436,7 +2439,7 @@ async function main(): Promise<void> {
   };
 
   const staleMatchSweepInterval = setInterval(() => {
-    void sweepStaleMatches().catch((error: unknown) => {
+    void withDbRetry(() => sweepStaleMatches()).catch((error: unknown) => {
       gatewayLogError("Failed to sweep stale matches", error);
     });
   }, MATCH_SWEEP_INTERVAL_MS);
@@ -2560,7 +2563,7 @@ async function main(): Promise<void> {
   let roomLifecycleSweepInterval: NodeJS.Timeout | null = null;
   if (isGatewayDbConfigured) {
     roomLifecycleSweepInterval = setInterval(() => {
-      void sweepRoomLifecycle(db, wss).catch((error: unknown) => {
+      void withDbRetry(() => sweepRoomLifecycle(db, wss)).catch((error: unknown) => {
         gatewayLogError("Failed to sweep room lifecycle", error);
       });
     }, ROOM_SWEEP_INTERVAL_MS);

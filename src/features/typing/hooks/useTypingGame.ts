@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import useTextManager from "@/features/typing/hooks/useTextManager";
 import useTypingLogic from "@/features/typing/hooks/useTypingLogic";
 import useCaret from "./useCaret";
+import type { ValidatedTypingStats } from "@/components/TypingTest/TypingTest";
 
 import { getTypingDir, type TypingLanguage } from "@/features/typing/i18n/typingLanguages";
 import type { TypingMode } from "@/features/typing/core/typingTypes";
@@ -16,7 +17,12 @@ export default function useTypingGame(
     /** Provide a fixed text string; bypasses useTextManager selection. */
     externalText?: string;
     /** Forwarded to useTypingLogic — fires on every validated keystroke. */
-    onInputValidated?: (input: string, graphemesTyped: number, isComplete: boolean) => void;
+    onInputValidated?: (
+      input: string,
+      graphemesTyped: number,
+      isComplete: boolean,
+      stats: ValidatedTypingStats,
+    ) => void;
     /** Forwarded to useTypingLogic — skips XP/stats on session end. */
     skipSessionTracking?: boolean;
     /** Forwarded to useTypingLogic — "strict" locks cursor at first mismatch (PvP/MonkeyType). */

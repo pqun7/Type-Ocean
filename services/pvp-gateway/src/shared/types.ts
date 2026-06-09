@@ -159,6 +159,8 @@ export interface LocalParticipant {
   wpm: number;
   /** Current accuracy (0–100) — recomputed from `input` on every keystroke. */
   accuracy: number;
+  /** Cumulative strict-mode mistakes reported by the PvP client. */
+  totalMistakes?: number;
   /** Wall-clock timestamp (ms) when the participant finished, or `null`. */
   finishedAt: number | null;
   /** Timestamp (ms) of the most recent INPUT_UPDATE, for rate-limit checks. */

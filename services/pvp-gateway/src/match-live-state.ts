@@ -28,6 +28,8 @@ export type MatchLiveParticipantState = {
    * written by older gateway versions. Do not write this field from new code.
    */
   mismatchChars?: number;
+  /** Historical PvP mistakes, including corrected ones. */
+  totalMistakes?: number;
   inputEvents?: Array<{
     atMs: number;
     inputLength: number;
@@ -125,6 +127,7 @@ export function createInitialLiveState(params: {
       lastInputAtMs: null,
       correctChars: 0,
       mismatchChars: 0,
+      totalMistakes: 0,
       inputEvents: [],
     };
   }

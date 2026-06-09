@@ -117,6 +117,7 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
 
   const stopSimulation = () => {
     params.state.clearAiInterval(params.matchId);
+    params.state.clearAiInterval(`${params.matchId}:force-finish`);
     params.matchCache?.clearAiTickState(params.matchId);
     aiLogDebug("Stopped adaptive AI simulation", {
       matchId: params.matchId,
@@ -302,6 +303,7 @@ export async function startAiSimulationAdaptive(params: AdaptiveAiParams) {
         if (typeof forceTimeout.unref === "function") {
           forceTimeout.unref();
         }
+        params.state.aiIntervals.set(`${params.matchId}:force-finish`, forceTimeout);
       }
     }
 

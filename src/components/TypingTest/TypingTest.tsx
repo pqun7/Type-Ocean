@@ -1,5 +1,5 @@
 "use client";
-import { type MutableRefObject, type ReactNode, useEffect } from "react";
+import { memo, type MutableRefObject, type ReactNode, useEffect } from "react";
 import TextDisplay from "./TextDisplay";
 import TypingInput from "./TypingInput";
 import Caret from "./Caret";
@@ -26,6 +26,12 @@ export interface TypingTestActions {
   /** Returns the ref object whose current[] array maps each char to its span. */
   getTextRefs: () => MutableRefObject<(HTMLSpanElement | null)[]>;
 }
+
+export type ValidatedTypingStats = {
+  totalMistakes: number;
+  totalCorrections: number;
+  mismatches: number;
+};
 
 interface TypingTestProps {
   /** @deprecated Not used; texts come from useTextManager or `controlledText`. */
@@ -57,7 +63,12 @@ interface TypingTestProps {
    * number of graphemes typed, and whether the text is now complete.
    * Use this in PvP to send INPUT_UPDATE / FINISH.
    */
-  onInputValidated?: (input: string, graphemesTyped: number, isComplete: boolean) => void;
+  onInputValidated?: (
+    input: string,
+    graphemesTyped: number,
+    isComplete: boolean,
+    stats: ValidatedTypingStats,
+  ) => void;
   /** Disable the hidden typing input (e.g. during countdown or after a match ends). */
   inputDisabled?: boolean;
   /** Skip XP / stats recording at session end (use for PvP). */
@@ -72,7 +83,7 @@ interface TypingTestProps {
   children?: ReactNode;
 }
 
-export default function TypingTest({
+const TypingTest = memo(function TypingTest({
   fontSize = "text-xl",
   lineHeight = "leading-8",
   font = "font-mono",
@@ -247,4 +258,8 @@ export default function TypingTest({
       {children}
     </div>
   );
-}
+});
+
+TypingTest.displayName = "TypingTest";
+
+export default TypingTest;

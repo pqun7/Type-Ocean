@@ -32,6 +32,7 @@ export type MatchParticipantState = {
   errors: number;
   wpm: number;
   accuracy: number;
+  totalMistakes?: number;
   finishedAt: number | null; // ms epoch
 
   // Internal anti-cheat fields (not persisted)
@@ -200,6 +201,7 @@ export class InMemoryState implements IState {
         errors: 0,
         wpm: 0,
         accuracy: 100,
+        totalMistakes: 0,
         finishedAt: null,
 
         lastInputAtMs: 0,

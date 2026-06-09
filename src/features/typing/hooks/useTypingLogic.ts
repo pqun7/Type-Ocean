@@ -8,6 +8,7 @@ import { MythicClaimMeta, SessionData } from "@/features/level/types/level";
 import { logger } from "@/log/clientLogger";
 import { computeConsistency } from "@/features/typing/utils/consistency";
 import type { TypingLanguage } from "@/features/typing/i18n/typingLanguages";
+import type { ValidatedTypingStats } from "@/components/TypingTest/TypingTest";
 import {
   createEngineConfig,
   createInitialState,
@@ -42,7 +43,12 @@ export default function useTypingLogic(
     /** Called on every validated keystroke with the clean (capped) input string,
      *  the number of graphemes typed, and whether the text is now complete.
      *  Use this in PvP to send INPUT_UPDATE / FINISH without a separate onChange. */
-    onInputValidated?: (input: string, graphemesTyped: number, isComplete: boolean) => void;
+    onInputValidated?: (
+      input: string,
+      graphemesTyped: number,
+      isComplete: boolean,
+      stats: ValidatedTypingStats,
+    ) => void;
     /** When true, skip XP / stats / daily-challenge recording at session end.
      *  Set this for PvP where the server owns all match results. */
     skipSessionTracking?: boolean;
@@ -489,7 +495,11 @@ export default function useTypingLogic(
 
     // Notify any external listener (e.g. PvP socket bridge) about each
     // validated keystroke AND the completion event.
-    options?.onInputValidated?.(input, typedGraphemes, isComplete);
+    options?.onInputValidated?.(input, typedGraphemes, isComplete, {
+      totalMistakes: nextMistakes,
+      totalCorrections: nextCorrections,
+      mismatches,
+    });
 
     if (isComplete && state !== "end") {
       handleSessionEnd({

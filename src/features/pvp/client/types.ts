@@ -134,7 +134,11 @@ export type ClientMessage =
   | { type: "ROOM_KICK"; payload: { roomCode?: string; userId: string }; requestId?: string }
   | { type: "MATCH_JOIN"; payload: { matchId: string; lastSeenRevision?: number }; requestId?: string }
   | { type: "MATCH_LEAVE"; payload: { matchId: string }; requestId?: string }
-  | { type: "INPUT_UPDATE"; payload: { matchId: string; input: string; seq: number; clientTs?: number; inputNonce?: string }; requestId?: string }
+  | {
+      type: "INPUT_UPDATE";
+      payload: { matchId: string; input: string; seq: number; clientTs?: number; inputNonce?: string; totalMistakes?: number };
+      requestId?: string;
+    }
   | { type: "FINISH"; payload: { matchId: string; clientTs?: number }; requestId?: string }
   | { type: "REMATCH_REQUEST"; payload: { matchId: string }; requestId?: string }
   | { type: "REMATCH_RESPONSE"; payload: { matchId: string; accept: boolean }; requestId?: string }

@@ -229,6 +229,7 @@ const InputUpdateMessageBaseSchema = z
         seq: z.number().int().min(1).max(1_000_000),
         clientTs: z.number().int().min(0).max(9_999_999_999_999).optional(),
         inputNonce: InputNonceSchema.optional(),
+        totalMistakes: z.number().int().min(0).max(1_000_000).optional(),
       })
       .strict(),
   })

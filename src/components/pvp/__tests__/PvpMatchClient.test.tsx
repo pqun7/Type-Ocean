@@ -7,17 +7,19 @@ import { useLevel } from "@/features/level/hooks/useLevel";
 import type { ClientMessage } from "@/features/pvp/client/types";
 
 jest.mock("framer-motion", () => {
-  const React = require("react");
   return {
     AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     motion: new Proxy(
       {},
       {
-        get: (_target: Record<string, unknown>, tag: string) =>
-          React.forwardRef(
+        get: (_target: Record<string, unknown>, tag: string) => {
+          const MockMotion = React.forwardRef(
             ({ children, ...props }: React.HTMLProps<HTMLElement>, ref: React.Ref<HTMLElement>) =>
               React.createElement(tag, { ...props, ref }, children),
-          ),
+          );
+          MockMotion.displayName = `MockMotion(${tag})`;
+          return MockMotion;
+        },
       },
     ),
   };
@@ -41,7 +43,7 @@ const stableActionsRef = {
 
 jest.mock("@/features/pvp/client/usePvpTyping", () => ({
   __esModule: true,
-  default: (params: { controlledText: string; onInputValidated: (input: string, graphemesTyped: number, isComplete: boolean) => void }) => {
+  default: (params: { controlledText: string; onInputValidated: (input: string, graphemesTyped: number, isComplete: boolean, stats: { totalMistakes: number; totalCorrections: number; mismatches: number }) => void }) => {
     return {
       actionsRef: stableActionsRef,
       typingTestProps: {
@@ -57,13 +59,13 @@ jest.mock("@/features/pvp/client/usePvpTyping", () => ({
 
 jest.mock("@/components/TypingTest/TypingTest", () => ({
   __esModule: true,
-  default: (props: React.PropsWithChildren<{ inputDisabled?: boolean; onInputValidated?: (input: string, graphemesTyped: number, isComplete: boolean) => void }>) => (
+  default: (props: React.PropsWithChildren<{ inputDisabled?: boolean; onInputValidated?: (input: string, graphemesTyped: number, isComplete: boolean, stats: { totalMistakes: number; totalCorrections: number; mismatches: number }) => void }>) => (
     <div data-testid="typing-test">
       <button
         data-testid="typing-input"
         disabled={Boolean(props.inputDisabled)}
         type="button"
-        onClick={() => props.onInputValidated?.("abc", 3, false)}
+        onClick={() => props.onInputValidated?.("abc", 3, false, { totalMistakes: 1, totalCorrections: 0, mismatches: 0 })}
       >
         typing input
       </button>
@@ -92,6 +94,15 @@ jest.mock("@/features/pvp/client/usePvpSocket", () => ({
 
 jest.mock("@/features/level/hooks/useLevel", () => ({
   useLevel: jest.fn(),
+}));
+
+jest.mock("@/features/settings/context", () => ({
+  useSettings: () => ({
+    settings: {
+      typingLanguage: "en",
+      showSessionChart: true,
+    },
+  }),
 }));
 
 type Listener = (message: Record<string, unknown>) => void;

@@ -15,7 +15,7 @@
  */
 
 import { transitionMatchState, matchStateToLegacyStatus, type MatchLifecycleState } from "../match-fsm";
-import { recomputeParticipantStats } from "../domain/match/participant-stats";
+import { recomputePvpParticipantStats } from "../domain/match/participant-stats";
 import { type createGatewayEventBus } from "../events";
 import { type InMemoryState } from "../state";
 import { MATCH_DELTA_BUFFER_LIMIT } from "../shared/config";
@@ -37,12 +37,13 @@ export function buildLiveStateFromLocalMatch(match: LocalMatch): MatchLiveState 
   const participants: MatchLiveState["participants"] = {};
 
   for (const participant of match.participants.values()) {
-    const stats = recomputeParticipantStats(
-      participant.input,
-      match.textSnapshot,
-      match.serverStartAtMs,
-      Date.now(),
-    );
+    const stats = recomputePvpParticipantStats({
+      input: participant.input,
+      textSnapshot: match.textSnapshot,
+      startedAtMs: match.serverStartAtMs,
+      nowMs: Date.now(),
+      totalMistakes: participant.totalMistakes ?? participant.errors,
+    });
     participants[participant.userId] = {
       userId: participant.userId,
       username: participant.username,
@@ -57,6 +58,7 @@ export function buildLiveStateFromLocalMatch(match: LocalMatch): MatchLiveState 
       lastInputAtMs: participant.lastInputAtMs ?? null,
       // correctChars is persisted in JSONB so it survives gateway restarts (P12).
       correctChars: stats.correctChars,
+      totalMistakes: participant.totalMistakes ?? stats.errors,
       inputEvents: participant.inputEvents ?? [],
     };
   }

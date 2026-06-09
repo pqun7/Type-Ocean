@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { MutableRefObject } from "react";
-import type { TypingTestActions } from "@/components/TypingTest/TypingTest";
+import type { TypingTestActions, ValidatedTypingStats } from "@/components/TypingTest/TypingTest";
 
 /**
  * Thin adapter hook for PvP typing.
@@ -12,12 +12,22 @@ import type { TypingTestActions } from "@/components/TypingTest/TypingTest";
  */
 export default function usePvpTyping(params: {
   controlledText: string;
-  onInputValidated: (input: string, graphemesTyped: number, isComplete: boolean) => void;
+  onInputValidated: (
+    input: string,
+    graphemesTyped: number,
+    isComplete: boolean,
+    stats: ValidatedTypingStats,
+  ) => void;
 }): {
   actionsRef: MutableRefObject<TypingTestActions | null>;
   typingTestProps: {
     controlledText: string;
-    onInputValidated: (input: string, graphemesTyped: number, isComplete: boolean) => void;
+    onInputValidated: (
+      input: string,
+      graphemesTyped: number,
+      isComplete: boolean,
+      stats: ValidatedTypingStats,
+    ) => void;
     mode: "strict";
     skipSessionTracking: true;
     actionsRef: MutableRefObject<TypingTestActions | null>;

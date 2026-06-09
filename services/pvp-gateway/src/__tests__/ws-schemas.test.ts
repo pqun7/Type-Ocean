@@ -87,6 +87,7 @@ describe("PvpClientMessageSchema", () => {
         seq: 3,
         clientTs: 1_710_000_000_000,
         inputNonce: "0123456789abcdef0123456789abcdef",
+        totalMistakes: 2,
       },
     });
 

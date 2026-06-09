@@ -11,6 +11,7 @@ import { and, eq } from "drizzle-orm";
 import { pvpParticipants, users, playerProfiles } from "../../../../../src/db/schema";
 import { sanitizeDisplayName, sanitizeAvatarUrl } from "../../../../../src/lib/sanitize";
 import { canJoinPvpMatchSocket } from "../../../../../src/features/pvp/server/match-access";
+import { PVP_ERROR_CODES } from "../../../../../src/features/pvp/shared/error-codes";
 import { buildMatchStatePayload } from "../../match-sync";
 import { matchStateFromDbStatus, matchStateToLegacyStatus } from "../../match-fsm";
 import { createInitialLiveState } from "../../match-live-state";
@@ -180,7 +181,7 @@ export async function handleMatchJoin(
           matchId: msg.payload.matchId,
           reason: joinSnapshot.error,
         });
-        send(ws, "ERROR", { message: joinSnapshot.error }, deps);
+        send(ws, "ERROR", { message: joinSnapshot.error, code: PVP_ERROR_CODES.MATCH_JOIN_REJECTED }, deps);
         return;
       }
 
@@ -230,6 +231,7 @@ export async function handleMatchJoin(
               errors: liveParticipant?.errors ?? 0,
               wpm: liveParticipant?.wpm ?? 0,
               accuracy: liveParticipant?.accuracy ?? 100,
+              totalMistakes: liveParticipant?.totalMistakes ?? liveParticipant?.errors ?? 0,
               finishedAt: liveParticipant?.finishedAt ?? null,
               lastInputAtMs: liveParticipant?.lastInputAtMs ?? undefined,
               inputEvents: liveParticipant?.inputEvents ?? [],

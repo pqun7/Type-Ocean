@@ -495,6 +495,7 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   const { status, error, user, send, addListener } = usePvpSocket();
   usePvpErrorAlert(error);
   const { playJoin, playReady, playTick, resumeAudio } = useLobbyAudio();
+  const roomExitModeRef = useRef<"idle" | "left" | "match">("idle");
 
   const [room, setRoom] = useState<{
     code: string;
@@ -522,8 +523,6 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   const lastTickRef = useRef<number | null>(null);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestChatInputRef = useRef(chatInput);
-  const skipAutoLeaveRef = useRef(false);
-  const hasSentRoomLeaveRef = useRef(false);
 
   // ── Socket listeners ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -606,14 +605,40 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
   useEffect(() => { if (status === "ready") send({ type: "ROOM_JOIN", payload: { code } }); }, [status, send, code]);
+  const sendRoomLeaveIfNeeded = useCallback(() => {
+    if (roomExitModeRef.current !== "idle" || status !== "ready") {
+      return;
+    }
+
+    roomExitModeRef.current = "left";
+    send({ type: "ROOM_LEAVE", payload: { roomCode: code } });
+  }, [code, send, status]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      if (roomExitModeRef.current === "match") {
+        return;
+      }
+
+      sendRoomLeaveIfNeeded();
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [sendRoomLeaveIfNeeded]);
+
   useEffect(() => {
     return () => {
-      if (status !== "ready") return;
-      if (skipAutoLeaveRef.current || hasSentRoomLeaveRef.current) return;
-      hasSentRoomLeaveRef.current = true;
-      send({ type: "ROOM_LEAVE", payload: { roomCode: code } });
+      if (roomExitModeRef.current === "match") {
+        return;
+      }
+
+      sendRoomLeaveIfNeeded();
     };
-  }, [status, send, code]);
+  }, [sendRoomLeaveIfNeeded]);
+
   useEffect(() => {
     if (!pendingMatch) {
       matchCountdownRef.current = null;
@@ -650,12 +675,13 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
     if (!pendingMatch) return;
     const delayMs = new Date(pendingMatch.serverStartAt).getTime() - Date.now();
     if (delayMs <= 0) {
-      skipAutoLeaveRef.current = true;
+      roomExitModeRef.current = "match";
       router.push(`/pvp/match/${pendingMatch.matchId}`);
       return;
     }
+
     const id = setTimeout(() => {
-      skipAutoLeaveRef.current = true;
+      roomExitModeRef.current = "match";
       router.push(`/pvp/match/${pendingMatch.matchId}`);
     }, delayMs);
     return () => clearTimeout(id);
@@ -676,10 +702,9 @@ export default function PvpRoomLobbyClient({ code }: { code: string }) {
   }, [room?.expiresAt]);
 
   const leaveRoom = useCallback(() => {
-    hasSentRoomLeaveRef.current = true;
-    send({ type: "ROOM_LEAVE", payload: { roomCode: code } });
+    sendRoomLeaveIfNeeded();
     router.push("/pvp/room");
-  }, [send, code, router]);
+  }, [router, sendRoomLeaveIfNeeded]);
   const handleKick = useCallback((userId: string) => send({ type: "ROOM_KICK", payload: { roomCode: code, userId } }), [send, code]);
   const handleRoomUpdate = useCallback((maxPlayers: number) => send({ type: "ROOM_UPDATE", payload: { roomCode: code, maxPlayers } }), [send, code]);
   const copyRoomCode = useCallback(() => {

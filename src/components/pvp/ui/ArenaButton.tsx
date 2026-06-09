@@ -79,9 +79,9 @@ export default function ArenaButton({
         ${sizeClass}
         ${buttonToneClass}
       `}
-      animate={{
-        scale: isPressed ? 0.97 : 1,
-      }}
+      // animate={{
+      //   scale: isPressed ? 0.97 : 1,
+      // }}
       transition={{ type: 'spring', stiffness: 500, damping: 30 }}
     >
       {/* Animated glow ring on hover */}

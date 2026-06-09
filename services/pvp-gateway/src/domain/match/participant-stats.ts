@@ -41,6 +41,14 @@ export type ParticipantStats = {
   readonly wpm: number;
 };
 
+export type PvpParticipantStatsParams = {
+  input: string;
+  textSnapshot: string;
+  startedAtMs: number;
+  nowMs: number;
+  totalMistakes: number;
+};
+
 /**
  * Compute words-per-minute from the number of correctly-typed characters.
  *
@@ -62,6 +70,27 @@ export function computeWpmFromCorrectChars(
   // "5 chars = 1 word" is the industry-standard WPM normalisation.
   const base = correctChars / 5 / Math.max(minutes, 0.016_667);
   return Math.max(0, Math.min(500, Math.round(base)));
+}
+
+/**
+ * PvP accuracy counts every wrong keystroke even if it was corrected later.
+ *
+ * This intentionally differs from the single-player/home accuracy model,
+ * which is based on the current final input only.
+ */
+export function computePvpAccuracyFromMistakes(
+  correctChars: number,
+  totalMistakes: number,
+): number {
+  const sanitizedCorrectChars = Math.max(0, Math.trunc(correctChars));
+  const sanitizedMistakes = Math.max(0, Math.trunc(totalMistakes));
+  const attempts = sanitizedCorrectChars + sanitizedMistakes;
+
+  if (attempts === 0) {
+    return 100;
+  }
+
+  return Number(((sanitizedCorrectChars / attempts) * 100).toFixed(1));
 }
 
 /**
@@ -119,4 +148,30 @@ export function recomputeParticipantStats(
   const wpm = computeWpmFromCorrectChars(correctChars, startedAtMs, nowMs);
 
   return { correctChars, errors, accuracy, wpm } satisfies ParticipantStats;
+}
+
+/**
+ * Recompute the PvP-facing stats model.
+ *
+ * Unlike the home/session accuracy metric, PvP accuracy is derived from the
+ * authoritative cumulative mistake count reported by the strict typing engine.
+ * This preserves historical mistakes even after the player corrects them.
+ */
+export function recomputePvpParticipantStats(
+  params: PvpParticipantStatsParams,
+): ParticipantStats {
+  const baseStats = recomputeParticipantStats(
+    params.input,
+    params.textSnapshot,
+    params.startedAtMs,
+    params.nowMs,
+  );
+  const totalMistakes = Math.max(0, Math.trunc(params.totalMistakes));
+
+  return {
+    correctChars: baseStats.correctChars,
+    errors: totalMistakes,
+    accuracy: computePvpAccuracyFromMistakes(baseStats.correctChars, totalMistakes),
+    wpm: baseStats.wpm,
+  } satisfies ParticipantStats;
 }
