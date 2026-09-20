@@ -547,6 +547,8 @@ const bannerMsg = getConnectionBannerMessage(connectionPhase);
 // already recovered but HELLO_OK is still in-flight.
 const effectiveBannerMsg = bannerMsg;
 const effectiveBannerIsReconnecting = connectionPhase.kind === "reconnecting";
+const requiresAuth =
+  connectionPhase.kind === "permanent_failure" && connectionPhase.reason === "auth_failed";
 
 const canQueue =
   connectionPhase.kind === "ready" &&
@@ -637,7 +639,7 @@ return (
           style={{ color: isConnected ? "#4ADE80" : "rgba(255,255,255,0.4)" }}
         >
           <span className={`h-1 w-1 shrink-0 rounded-full ${isConnected ? "live-dot" : ""}`} style={{ background: isConnected ? "#4ADE80" : "rgba(255,255,255,0.2)" }} />
-          {isConnected ? "LIVE" : status}
+          {isConnected ? "LIVE" : requiresAuth ? "SIGN IN" : status}
         </div>
       </div>
 
@@ -648,7 +650,19 @@ return (
           No signal — reconnecting when you&apos;re back online.
         </div>
       ) : effectiveBannerMsg ? (
-        effectiveBannerIsReconnecting ? (
+        requiresAuth ? (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-cyan-500/20 bg-cyan-500/10 px-2 py-1.5 backdrop-blur-sm">
+            <div className="text-[10px] text-cyan-100/90">{effectiveBannerMsg}</div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => router.push("/auth")}
+              className="h-6 shrink-0 border-cyan-500/40 bg-transparent px-2 text-[9px] text-cyan-200 hover:bg-cyan-500/20 hover:text-white"
+            >
+              Sign in
+            </Button>
+          </div>
+        ) : effectiveBannerIsReconnecting ? (
           <div className="mb-3 flex items-center gap-1.5 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-1.5 text-[10px] text-sky-200/90 backdrop-blur-sm">
             <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
             {effectiveBannerMsg}
@@ -806,7 +820,9 @@ return (
                       ? "Step into the arena and prove your skills."
                       : connectionPhase.kind === "connecting" || connectionPhase.kind === "reconnecting"
                         ? "Establishing connection..."
-                        : "Arena unreachable."}
+                        : requiresAuth
+                          ? "Sign in to enter the arena."
+                          : "Arena unreachable."}
                   </p>
                 </div>
                 <ArenaButton

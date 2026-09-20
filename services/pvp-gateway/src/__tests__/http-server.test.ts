@@ -36,9 +36,11 @@ describe("http-server localhost transport checks", () => {
   }
 
   it("allows localhost websocket requests in production when insecure localhost is enabled", async () => {
-    process.env.NODE_ENV = "production";
-    process.env.PVP_INSECURE_LOCALHOST = "1";
-    process.env.PVP_ALLOWED_ORIGINS = "http://localhost:3000";
+    Object.assign(process.env, {
+      NODE_ENV: "production",
+      PVP_INSECURE_LOCALHOST: "1",
+      PVP_ALLOWED_ORIGINS: "http://localhost:3000",
+    });
 
     const { isSecureGatewayRequest } = await import("../presentation/http-server");
 
@@ -46,9 +48,11 @@ describe("http-server localhost transport checks", () => {
   });
 
   it("rejects non-local websocket requests in production insecure localhost mode", async () => {
-    process.env.NODE_ENV = "production";
-    process.env.PVP_INSECURE_LOCALHOST = "1";
-    process.env.PVP_ALLOWED_ORIGINS = "http://localhost:3000";
+    Object.assign(process.env, {
+      NODE_ENV: "production",
+      PVP_INSECURE_LOCALHOST: "1",
+      PVP_ALLOWED_ORIGINS: "http://localhost:3000",
+    });
 
     const { isSecureGatewayRequest } = await import("../presentation/http-server");
 

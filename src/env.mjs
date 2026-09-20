@@ -33,7 +33,6 @@ export const env = createEnv({
     REDIS_TLS: z.enum(["true", "false"]).optional(),
 
     // Secret Rotation (Current + Previous)
-    AUTH_SECRET: z.string().min(32),
     AUTH_SECRET_PREVIOUS: z.string().min(32).optional(),
     
     // PvP Gateway Settings

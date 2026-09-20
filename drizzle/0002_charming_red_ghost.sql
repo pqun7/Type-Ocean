@@ -1,0 +1,1 @@
+-- Introspection-only migration; no database changes are required.

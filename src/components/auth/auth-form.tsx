@@ -118,7 +118,9 @@ export function AuthForm() {
           const rawError = result?.error || "An error occurred during signup";
           // Never surface this message to users; treat as a normal failure.
           const safeMessage =
-            rawError === "User created but email not sent"
+            rawError === "DATABASE_UNAVAILABLE"
+              ? "Registration is temporarily unavailable. Please start the database and try again."
+              : rawError === "User created but email not sent"
               ? "Signup failed. Please try again later."
               : rawError;
 
@@ -213,9 +215,18 @@ export function AuthForm() {
     setIsGoogleLoading(true);
     try {
       redirectingRef.current = true;
-      await signIn("google", {
+      const result = await signIn("google", {
+        redirect: false,
         callbackUrl: "/home?auth=success&provider=google",
       });
+
+      if (result?.error || !result?.url) {
+        showAlert(result?.error || "Google sign in is not configured.", "error");
+        redirectingRef.current = false;
+        return;
+      }
+
+      window.location.assign(result.url);
     } catch (error) {
       console.error("Google sign in error:", error);
       showAlert("Google sign in failed. Please try again.", "error");

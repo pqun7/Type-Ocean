@@ -1,172 +1,98 @@
-# Type Space
+# Type Ocean
 
-Next.js (App Router) typing app with Drizzle ORM + Postgres, NextAuth, and optional Redis-backed rate limiting.
+**A gamified typing platform with real-time performance feedback, progression systems, and competitive multiplayer races.**
 
-## Prerequisites
-- Node.js 18+ (recommended: 20)
-- PostgreSQL (local) OR Docker
-- Redis (optional but recommended for rate limiting / caching)
+> **Project status — Portfolio side project.** Type Ocean began as my first major full-stack application. I regret not being able to complete every idea I planned; its scope eventually became too large for one developer. Still, building it became a valuable, hands-on education in architecture, real-time systems, testing, debugging, and production-minded development.
 
-## Environment variables
-Create `.env.local` (recommended) using `.env.example`.
+## Overview
 
-Minimum required:
-- `AUTH_SECRET` (32+ chars)
-- `DATABASE_URL`
+Type Ocean explores how focused practice, clear feedback, and game mechanics can make typing improvement more engaging. It combines a responsive typing experience with accounts, progression, challenges, rankings, and an authoritative WebSocket-based PvP system.
 
-Optional (OAuth):
-- `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`
-- `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`
+## Highlights
 
-Optional (Redis):
-- `REDIS_URL` OR `REDIS_HOST` + `REDIS_PORT` (+ `REDIS_PASSWORD` if needed)
+- Live WPM, accuracy, error tracking, keyboard insights, and session feedback.
+- XP, levels, achievements, daily challenges, streaks, and rank progression.
+- Ranked 1v1 matchmaking and private rooms for 2–6 players.
+- Server-authoritative PvP flow with reconnect, rematch, anti-cheat, and result persistence.
+- Account management, profiles, leaderboards, admin tools, monitoring, and load-test tooling.
+- Responsive interfaces with motion, clear hierarchy, and immediate visual feedback.
 
-Optional (PvP gateway):
-- `NEXT_PUBLIC_PVP_WS_URL` for the PvP websocket endpoint.
-	- Local gateway dev (`npm run pvp:gateway:dev`): use `ws://localhost:8787`.
-	- Production/public gateway: use `wss://your-gateway-host`.
+## UI / UX
 
-Where to get Redis values:
-- Local (Docker/installed Redis): use `REDIS_HOST=127.0.0.1`, `REDIS_PORT=6379`, and leave `REDIS_PASSWORD` empty.
-- Docker Compose in this repo: use `REDIS_HOST=redis`, `REDIS_PORT=6379` (the service name is `redis`).
-- Hosted (Upstash / Redis Cloud): copy the provided connection string into `REDIS_URL`.
-	- If the URL starts with `rediss://`, TLS is enabled automatically.
-	- If you must use host/port with TLS, set `REDIS_TLS=true`.
+The interface uses a consistent deep-ocean palette, cyan and violet accents, generous spacing, and focused cards to keep complex game states readable. Feedback is designed to feel immediate: typed characters, errors, XP rewards, challenge completion, rank progress, and multiplayer readiness are all surfaced without interrupting the main task.
 
-Optional (Avatar uploads via Vercel Blob):
-- `BLOB_READ_WRITE_TOKEN`
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/typing-rewards.png" alt="Typing session with XP and challenge rewards" width="100%" />
+      <sub><b>Typing & progression</b> — Immediate performance and reward feedback.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/pvp-arena.png" alt="Type Ocean competitive PvP arena" width="100%" />
+      <sub><b>PvP arena</b> — Rank, player state, and matchmaking in one focused view.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/authentication.png" alt="Type Ocean authentication interface" width="100%" />
+      <sub><b>Authentication</b> — A clear entry point with local and OAuth options.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/typing-resume.png" alt="Paused typing session ready to resume" width="100%" />
+      <sub><b>Session continuity</b> — Progress is preserved when focus is interrupted.</sub>
+    </td>
+  </tr>
+</table>
 
-## Local setup (no Docker)
+<p align="center">
+  <img src="docs/screenshots/profile-demo.gif" alt="Animated Type Ocean profile experience" width="760" />
+  <br />
+  <sub><b>Profile experience</b> — Progress, identity, and personal performance presented as one cohesive journey.</sub>
+</p>
+
+## Tech Stack
+
+| Area | Technologies |
+| --- | --- |
+| Web | Next.js 15, React 19, TypeScript, Tailwind CSS, Framer Motion |
+| Data & auth | PostgreSQL, Drizzle ORM, Auth.js, Redis |
+| Real-time | Node.js, WebSockets, JWT, server-authoritative game state |
+| Quality | Jest, Testing Library, Cypress, ESLint, k6 load tests |
+| Operations | Vercel, Prometheus metrics, structured logging, health checks |
+
+## Engineering Focus
+
+- Separation between the Next.js application and the persistent PvP gateway.
+- Transactional match results, idempotent persistence, and failed-write recovery.
+- Authentication, authorization, rate limiting, validation, and secure gateway origins.
+- Reconnect handling, heartbeat monitoring, matchmaking, and multiplayer state recovery.
+- Unit, integration, browser, and WebSocket load-testing foundations.
+
+## Local Setup
+
+Requirements: Node.js 20+, PostgreSQL, and optionally Redis.
+
 ```bash
+git clone https://github.com/pqun7/Type-Ocean.git
+cd Type-Ocean
 npm install
-npm run drizzle:generate
+cp .env.example .env.local
 npm run drizzle:migrate
 npm run dev
 ```
 
-If you want Redis locally:
-- run `npm run redis:start` (tries WSL/bash first, then Docker fallback)
+For PvP development, run `npm run pvp:gateway:dev` in a second terminal. The gateway is deployed separately from the Next.js application because it maintains long-lived WebSocket connections.
 
-## Docker (Postgres + app)
-```bash
-docker compose up --build
-```
+## Verification
 
-Notes:
-- The compose file exposes Postgres on `5432` and the app on `3000`.
-- For first-time DB init inside Docker, you may still need migrations:
-	- either run `npm run drizzle:migrate` locally pointing at the compose Postgres
-	- or exec into the app container and run Drizzle migration commands
+- **Automated tests:** 65 suites and 412 tests passing.
+- **Production build:** Next.js application builds successfully.
+- **PvP gateway:** TypeScript production build succeeds.
 
-## Scripts
-- `npm run dev` - Next.js dev server
-- `npm run build` - production build
-- `npm run start` - start production server
-- `npm run pvp:gateway:build` - build the PvP WebSocket gateway
-- `npm run pvp:gateway:start` - start the built PvP WebSocket gateway
-- `npm run pvp:gateway:dev` - run the PvP WebSocket gateway in development mode
+## Project Status
 
-Gateway startup note:
-- If you see `EADDRINUSE` for port `8787`, another process is already bound to that port.
-- PowerShell override example: `$env:PORT = "8788"; npm run pvp:gateway:start`
-- Cmd override example: `set PORT=8788 && npm run pvp:gateway:start`
+Type Ocean is kept as a portfolio and side project rather than continuously expanding its already ambitious scope. It represents the practical engineering lessons I gained from designing, building, testing, and stabilizing a substantial product independently.
 
-## Load Testing
-Use this flow to run a reproducible PvP websocket load test with k6.
+---
 
-1. Prepare env values in `.env.local` (or inline in your task shell):
-- `PVP_WS_URL=ws://127.0.0.1:8787`
-- `PVP_FIXED_CLIENT_SECRET=<same secret used for token minting>`
-- `PVP_WS_USER_AGENT=k6-ai-stress/1.0`
-- `PVP_WS_ORIGIN=http://localhost:3000`
-- `PVP_WS_TOKENS_FILE=logs/pvp_ws_tokens_load_window.json` (preferred)
-- Optional fallback: `PVP_WS_TOKENS` (comma-separated or JSON array string)
-
-2. Generate fresh websocket tokens with the same `PVP_FIXED_CLIENT_SECRET` used in k6.
-
-3. Start gateway in DEV mode:
-- `npm run pvp:gateway:start`
-- Optional deterministic matchmaking for load windows: set `PVP_TEST_FORCE_BOT_MATCH=true`.
-
-4. Run k6:
-- Use the consolidated websocket test workspace in [load-tests/pvp-websocket/README.md](load-tests/pvp-websocket/README.md).
-- Preferred VS Code tasks:
-	- `pvp websocket prepare`
-	- `pvp websocket verify current`
-	- `pvp websocket verify default`
-	- `pvp websocket verify ai-stress`
-	- `pvp websocket strict`
-
-5. Read success metrics from the latest summary under [load-tests/pvp-websocket/artifacts/latest](load-tests/pvp-websocket/artifacts/latest):
-- `pvp_ws_connect_errors` should remain at zero for verification runs.
-- `pvp_ws_results_rate` should be `>= 0.85` in default mode.
-- `pvp_ws_no_errors_received` should stay high (`>= 0.95`, or `1` in strict mode).
-
-6. Investigate protocol failures quickly:
-- k6 logs websocket `ERROR` payload `code`, `message`, `retryable`, `phase`, `requestId`.
-- Gateway HELLO emits specific auth codes (`PVP_TOKEN_EXPIRED`, `PVP_INVALID_TOKEN`, `PVP_BAD_SECRET`, `PVP_AUTH_FAILED`).
-
-7. Test bypass mode (local/dev only):
-- `PVP_TEST_BYPASS_AUTH=true` allows HELLO/auth-state bypass only outside production.
-- The bypass is guarded by `NODE_ENV !== production`; do not use bypass in production.
-
-- `npm run lint` - lint
-- `npm run test` - jest watch
-- `npm run test:ci` - jest CI run
-- `npm run admin:grant -- --email you@example.com` - grant admin locally through Drizzle-backed scripts
-
-## Local Production-like PvP
-Use this flow when you want `next start` behavior on `localhost` without mixing in the deployed `typeocean.com` domain.
-
-Files:
-- `.env.local` keeps secrets and shared local credentials such as `DATABASE_URL`, `AUTH_SECRET`, and `PVP_GATEWAY_JWT_SECRET`.
-- `.env.production.local` overrides app host/origin values for `next build` and `next start` so Auth.js and PvP stay on `http://localhost:3000`.
-- `.env.gateway.local` overrides gateway origin/TLS behavior for the compiled PvP gateway running locally on `ws://localhost:8787`.
-
-Recommended local production-like values:
-- App: `NEXT_PUBLIC_SITE_URL="http://localhost:3000"`, `NEXTAUTH_URL="http://localhost:3000"`, `NEXT_PUBLIC_PVP_WS_URL="ws://localhost:8787"`
-- Gateway: `PVP_ALLOWED_ORIGINS="http://localhost:3000"`, `PVP_TRUST_PROXY_TLS=0`, `PVP_INSECURE_LOCALHOST=1`
-
-Run order:
-1. Ensure dependencies, database, and Redis are available.
-2. Build the Next.js app: `npm run build`
-3. Build the PvP gateway: `npm run pvp:gateway:build`
-4. Start the Next.js production server: `npm run start`
-5. In a second terminal, start the compiled gateway: `npm run pvp:gateway:start`
-
-Important:
-- Do not point local production-like runs at `https://typeocean.com` or `wss://pvp.typeocean.com`.
-- Do not keep `PVP_TRUST_PROXY_TLS=1` for localhost runs unless you are actually behind a local HTTPS reverse proxy.
-- The PvP gateway does not read `.env.production`; it loads `.env.gateway.local`, `.env.gateway`, `.env.local`, then `.env`.
-
-## Production deployment
-- Deploy the Next.js app to Vercel.
-- Deploy the PvP gateway as a separate service; Vercel should not be used for the long-lived WebSocket gateway in this repo.
-- Set `NEXT_PUBLIC_PVP_WS_URL` in Vercel to your gateway's public `wss://` URL.
-- Set the same `PVP_GATEWAY_JWT_SECRET` value in both Vercel and the gateway service.
-- Set `PVP_ALLOWED_ORIGINS` in the gateway to your Vercel origin(s), such as `https://your-project.vercel.app,https://your-domain.com`.
-- If the gateway host terminates TLS at the edge, set `PVP_TRUST_PROXY_TLS=1` in the gateway and leave `PVP_TLS_KEY_PATH` / `PVP_TLS_CERT_PATH` empty.
-- A starter Fly.io gateway config is available at [fly.toml](fly.toml).
-Gateway notes:
-- Detailed gateway setup and runtime options are documented in [services/pvp-gateway/README.md](services/pvp-gateway/README.md).
-
-## Auth notes
-- Main app auth currently uses Auth.js JWT sessions.
-- Middleware-protected routes under `/api/protected/*` use explicit `jwt` cookie verification plus DB validation.
-- Deleted users and banned users must never be trusted from JWT payload alone.
-- Short auth conventions and invariants are documented in [docs/auth-conventions.md](docs/auth-conventions.md).
-- Admin access is controlled by `User.role === "admin"` in the database. Prefer local one-off role changes over exposing a public admin-promotion endpoint.
-
-## Troubleshooting
-- Database connection errors about `DATABASE_URL`: verify `.env.local` is present and the URL is valid.
-- Redis connection issues in Docker: set `REDIS_HOST=redis` (or `REDIS_URL=redis://redis:6379`).
-
-
-
-console.log('💡 Development troubleshooting:');
-console.log('1. Make sure Redis is installed: sudo apt install redis-server');
-console.log('2. Start Redis: sudo service redis-server start');
-console.log('3. Check status: sudo service redis-server status');
-
-$env:PATH = [System.Environment]::GetEnvironmentVariable('PATH','User') + ';' + [System.Environment]::GetEnvironmentVariable('PATH','Machine')
-.\scripts\local-prod.ps1
+Built independently as a long-term learning project.

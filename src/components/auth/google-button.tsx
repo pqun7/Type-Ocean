@@ -21,7 +21,17 @@ const GoogleAuth = ({ isLogin = true }: GoogleAuthProps) => {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      await signIn("google", { callbackUrl: "/home?auth=success&provider=google" });
+      const result = await signIn("google", {
+        redirect: false,
+        callbackUrl: "/home?auth=success&provider=google",
+      });
+
+      if (result?.error || !result?.url) {
+        showAlert(result?.error || "Google sign in is not configured.", "error");
+        return;
+      }
+
+      window.location.assign(result.url);
     } catch (error) {
       console.error("Google sign in error:", error);
       showAlert("Google sign in failed. Please try again.", "error");

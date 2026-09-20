@@ -1,19 +1,3 @@
-CREATE TABLE "pvp_failed_stats" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"matchId" text NOT NULL,
-	"userId" text NOT NULL,
-	"wpm" integer NOT NULL,
-	"accuracy" double precision NOT NULL,
-	"timeMs" integer NOT NULL,
-	"textLength" integer DEFAULT 0 NOT NULL,
-	"errors" integer DEFAULT 0 NOT NULL,
-	"completedAt" timestamp NOT NULL,
-	"retryCount" integer DEFAULT 0 NOT NULL,
-	"nextRetryAt" timestamp DEFAULT now() NOT NULL,
-	"lastError" text,
-	"createdAt" timestamp DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "User" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"username" text NOT NULL,
@@ -48,7 +32,7 @@ CREATE TABLE "User" (
 	CONSTRAINT "User_emailVerifyToken_unique" UNIQUE("emailVerifyToken")
 );
 --> statement-breakpoint
-ALTER TABLE "user" DISABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE IF EXISTS "user" DISABLE ROW LEVEL SECURITY;--> statement-breakpoint
 DROP TABLE "user" CASCADE;--> statement-breakpoint
 ALTER TABLE "Account" DROP CONSTRAINT "Account_userId_user_id_fk";
 --> statement-breakpoint
@@ -90,8 +74,6 @@ ALTER TABLE "player_profile" ADD COLUMN "appSettings" jsonb;--> statement-breakp
 ALTER TABLE "pvp_rating" ADD COLUMN "currentStreak" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "pvp_rating" ADD COLUMN "longestStreak" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "pvp_rating" ADD COLUMN "lastStreakMatchId" uuid;--> statement-breakpoint
-CREATE INDEX "idx_pvp_failed_stats_drain" ON "pvp_failed_stats" USING btree ("nextRetryAt","retryCount");--> statement-breakpoint
-CREATE INDEX "idx_pvp_failed_stats_match_user" ON "pvp_failed_stats" USING btree ("matchId","userId");--> statement-breakpoint
 ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_User_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "AdminActionLog" ADD CONSTRAINT "AdminActionLog_actorUserId_User_id_fk" FOREIGN KEY ("actorUserId") REFERENCES "public"."User"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "AdminActionLog" ADD CONSTRAINT "AdminActionLog_targetUserId_User_id_fk" FOREIGN KEY ("targetUserId") REFERENCES "public"."User"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint

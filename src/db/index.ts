@@ -1,5 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
+import { Pool } from "pg";
+import { drizzle as drizzleNodePostgres } from "drizzle-orm/node-postgres";
 
 import * as schema from "./schema";
 
@@ -35,8 +37,14 @@ if (!hasValidDatabaseUrl && process.env.NODE_ENV !== "test") {
   console.warn("[db] DATABASE_URL is missing or malformed; using a placeholder connection string during module initialization.");
 }
 
-const sql = neon(databaseUrl);
+const isLocalPostgres = /^postgres(?:ql)?:\/\/(?:[^/@]+(?::[^/@]*)?@)?(?:localhost|127\.0\.0\.1|::1)(?::\d+)?(?:\/|$)/i.test(
+  databaseUrl,
+);
 
-export const db = drizzle({ client: sql, schema });
+const neonDb = drizzle({ client: neon(databaseUrl), schema });
+
+export const db = isLocalPostgres
+  ? (drizzleNodePostgres(new Pool({ connectionString: databaseUrl }), { schema }) as unknown as typeof neonDb)
+  : neonDb;
 
 export { schema };

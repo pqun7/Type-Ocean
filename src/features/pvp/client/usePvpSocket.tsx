@@ -18,6 +18,7 @@ import {
   type ConnectionState,
   CIRCUIT_BREAKER_COOLDOWN_MS,
   idleState,
+  onAuthFailed,
   onDisconnect,
   onReconnectAttemptFailed,
   onHelloOk as smOnHelloOk,
@@ -42,6 +43,16 @@ type WsTokenResponse = {
   refreshAfter: number;
   wsUrl: string;
 };
+
+class PvpTokenRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "PvpTokenRequestError";
+  }
+}
 
 type MatchTransportMetadata = {
   textId: string | null;
@@ -348,7 +359,7 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
         status: res.status,
         error: body?.error ?? "Failed to get token",
       });
-      throw new Error(body?.error ?? "Failed to get token");
+      throw new PvpTokenRequestError(body?.error ?? "Failed to get token", res.status);
     }
 
     const body = (await res.json()) as Omit<WsTokenResponse, "wsUrl"> & { wsUrl: string | null };
@@ -629,6 +640,16 @@ export function PvpSocketProvider({ children }: { children: ReactNode }) {
       };
     })().catch((e: unknown) => {
       if (versionRef.current !== capturedVersion) return;
+
+      if (e instanceof PvpTokenRequestError && (e.status === 401 || e.status === 403)) {
+        logger.pvp.info("PvP connection requires an authenticated account", {
+          status: e.status,
+        });
+        connectPromiseRef.current = null;
+        updateConnectionPhase(onAuthFailed());
+        setSafeError(null);
+        return;
+      }
 
       logger.pvp.error(
         "Failed to initialize PvP websocket",
@@ -938,4 +959,3 @@ export function usePvpSocket() {
     ],
   );
 }
-

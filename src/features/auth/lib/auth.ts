@@ -396,6 +396,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
+  trustHost: process.env.AUTH_TRUST_HOST === "true" || process.env.NODE_ENV === "development",
   secret: process.env.AUTH_SECRET,
   // Auth.js warns loudly when debug is enabled because it can log secrets.
   // Make it opt-in via AUTHJS_DEBUG=true.

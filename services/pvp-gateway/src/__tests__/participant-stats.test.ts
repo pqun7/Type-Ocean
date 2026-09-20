@@ -7,7 +7,7 @@
  * return the ground-truth value regardless of edit history.
  */
 
-+import {
+import {
   computePvpAccuracyFromMistakes,
   computeWpmFromCorrectChars,
   recomputeParticipantStats,

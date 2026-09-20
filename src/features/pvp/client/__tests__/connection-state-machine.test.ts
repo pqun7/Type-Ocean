@@ -357,6 +357,12 @@ describe("getConnectionBannerMessage", () => {
     expect(msg).not.toContain("unavailable");
     expect(msg?.toLowerCase()).toMatch(/tab|session/);
   });
+
+  it("prompts unauthenticated players to sign in", () => {
+    const msg = getConnectionBannerMessage(onAuthFailed());
+    expect(msg).toContain("Sign in");
+    expect(msg).not.toContain("unavailable");
+  });
 });
 
 // ---------------------------------------------------------------------------

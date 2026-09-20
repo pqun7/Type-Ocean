@@ -276,6 +276,9 @@ export function getConnectionBannerMessage(state: ConnectionState): string | nul
       if (state.reason === "session_superseded") {
         return "This session was taken over by another tab. Close the other tab and click Retry.";
       }
+      if (state.reason === "auth_failed") {
+        return "Sign in to access ranked matchmaking and multiplayer races.";
+      }
       return "The match server is currently unavailable. Matchmaking is paused — please try again shortly.";
 
     case "idle":

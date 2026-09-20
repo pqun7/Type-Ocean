@@ -9,20 +9,20 @@ import HeaderGame from "@/components/Typing";
 
 const HeroHeading = () => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const h1Y = useOptimizedScrollTransform(containerRef, [200, -200]);
+  const h1Y = useOptimizedScrollTransform(containerRef, [36, -24]);
   const h1Opacity = useOptimizedScrollTransform(containerRef, [0, 1.6]);
-  const h1Scale = useOptimizedScrollTransform(containerRef, [0.8, 1.4]);
-  const pScale = useOptimizedScrollTransform(containerRef, [0.8, 1.1]);
+  const h1Scale = useOptimizedScrollTransform(containerRef, [0.94, 1]);
+  const pScale = useOptimizedScrollTransform(containerRef, [0.96, 1]);
   const buttonTransform = useOptimizedScrollTransform(
     containerRef,
-    [-160, 130]
+    [-12, 18]
   );
   const router = useRouter();
 
   return (
     <motion.div
       ref={containerRef}
-      className="relative z-1 max-w-[62rem] mx-auto text-center text-[min(10vw,70px)] lg:mt-20"
+      className="relative z-1 max-w-[62rem] mx-auto text-center lg:mt-20"
       initial="hidden"
       viewport={{ once: true }}
     >
@@ -33,11 +33,13 @@ const HeroHeading = () => {
           scale: h1Scale,
           willChange: "transform, opacity",
         }}
-        className="mb-6 h1 mt-10 px-7"
+        className="mb-6 h1 mt-10 px-3 sm:px-7"
       >
-        Turn<span className="opacity-60 text-purple-200/50"> Your </span>Fingers
-        <span className="opacity-60 text-purple-200/50"> into </span>Speed
-        Machines!
+        <span className="block">
+          Turn <span className="opacity-60 text-purple-200/50">Your</span>{" "}
+          Fingers <span className="opacity-60 text-purple-200/50">into</span>
+        </span>
+        <span className="block">Speed Machines!</span>
       </motion.h1>
 
       <motion.p
@@ -99,8 +101,8 @@ const STATIC_TEXT = [
 
 const HeroCard = () => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const cardTransform = useOptimizedScrollTransform(containerRef, [65, -125]);
-  const cardScale = useOptimizedScrollTransform(containerRef, [1, 1.2]);
+  const cardTransform = useOptimizedScrollTransform(containerRef, [24, -36]);
+  const cardScale = useOptimizedScrollTransform(containerRef, [0.98, 1.02]);
 
   return (
     <motion.div

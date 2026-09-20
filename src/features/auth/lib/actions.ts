@@ -12,6 +12,7 @@ import { logging } from '@/log/ServerLogger';
 import { headers } from "next/headers";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import { normalizeUsernameForStorage } from "@/features/auth/utils/username";
+import { isDatabaseTemporarilyUnavailableError } from "@/lib/db-error-utils";
 
 // Safe logging utilities for auth operations
 const logAuthOperation = {
@@ -171,6 +172,13 @@ export const signUp = async (formData: FormData) => {
       requestId,
       errorType: "unexpected_error"
     });
+
+    if (isDatabaseTemporarilyUnavailableError(error)) {
+      return {
+        success: false,
+        error: "DATABASE_UNAVAILABLE",
+      };
+    }
     
     return {
       success: false,
