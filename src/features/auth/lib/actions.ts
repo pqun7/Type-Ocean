@@ -3,7 +3,7 @@
 
 import { signUpSchema } from "@/schemas/authSchema";
 import { eq, or } from "drizzle-orm";
-import { db } from "@/db";
+import { db, transactionDb } from "@/db";
 import { pendingSignups, playerProfiles, users } from "@/db/schema";
 import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { ZodError } from "zod";
@@ -109,7 +109,7 @@ export const signUp = async (formData: FormData) => {
     logging.debug("Hashing password", { requestId });
     const hashedPassword = await saltAndHashPassword(validatedData.password);
 
-    await db.transaction(async (tx) => {
+    await transactionDb.transaction(async (tx) => {
       const createdRows = await tx
         .insert(users)
         .values({

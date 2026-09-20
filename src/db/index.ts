@@ -21,6 +21,15 @@ function withStatementTimeout(url: string, ms = 8_000): string {
     if (!parsed.searchParams.has("options")) {
       parsed.searchParams.set("options", `-c statement_timeout=${ms}`);
     }
+
+    // pg currently treats these modes as certificate verification, but will
+    // weaken that behavior in its next major version. Make the intended secure
+    // behavior explicit and avoid the runtime deprecation warning.
+    const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+    if (sslMode === "prefer" || sslMode === "require" || sslMode === "verify-ca") {
+      parsed.searchParams.set("sslmode", "verify-full");
+    }
+
     return parsed.toString();
   } catch {
     return url;
@@ -43,8 +52,31 @@ const isLocalPostgres = /^postgres(?:ql)?:\/\/(?:[^/@]+(?::[^/@]*)?@)?(?:localho
 
 const neonDb = drizzle({ client: neon(databaseUrl), schema });
 
+// The Neon HTTP driver is ideal for one-shot serverless queries, but Drizzle's
+// callback-style `transaction()` API is intentionally unsupported by that
+// driver. Keep a small, lazily connected PostgreSQL pool for the few workflows
+// that require true transactions (for example, creating a user and profile
+// atomically). Reuse the pool during local hot reloads to avoid leaking
+// connections.
+const globalForDatabase = globalThis as typeof globalThis & {
+  __typeOceanTransactionPool?: Pool;
+};
+
+const transactionPool =
+  globalForDatabase.__typeOceanTransactionPool ??
+  new Pool({
+    connectionString: databaseUrl,
+    max: process.env.NODE_ENV === "production" ? 5 : 2,
+  });
+
+if (process.env.NODE_ENV !== "production") {
+  globalForDatabase.__typeOceanTransactionPool = transactionPool;
+}
+
+export const transactionDb = drizzleNodePostgres(transactionPool, { schema });
+
 export const db = isLocalPostgres
-  ? (drizzleNodePostgres(new Pool({ connectionString: databaseUrl }), { schema }) as unknown as typeof neonDb)
+  ? (transactionDb as unknown as typeof neonDb)
   : neonDb;
 
 export { schema };

@@ -1,6 +1,6 @@
 import { asc, count, desc, eq } from "drizzle-orm";
 
-import { db } from "@/db";
+import { db, transactionDb } from "@/db";
 import { leaderboardSnapshotMeta, leaderboardSnapshots, playerProfiles } from "@/db/schema";
 import { getRankInfo } from "@/features/ranking/rating";
 import { connectIfNeeded, redis } from "@/lib/redis";
@@ -364,7 +364,7 @@ async function refreshLeaderboardSnapshot() {
     refreshedAt,
   }));
 
-  await db.transaction(async (tx) => {
+  await transactionDb.transaction(async (tx) => {
     await tx.delete(leaderboardSnapshots).where(eq(leaderboardSnapshots.snapshotKey, LEADERBOARD_SNAPSHOT_KEY));
 
     for (const chunk of chunkRows(snapshotRows, 500)) {

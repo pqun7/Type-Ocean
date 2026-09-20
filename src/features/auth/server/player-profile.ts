@@ -2,7 +2,7 @@ import "server-only";
 
 import { eq } from "drizzle-orm";
 
-import { db } from "@/db";
+import { transactionDb } from "@/db";
 import { playerProfiles, users } from "@/db/schema";
 
 type PlayerProfileSelectArg = Record<string, boolean> | undefined;
@@ -122,7 +122,7 @@ export async function syncPlayerProfile<TSelect extends PlayerProfileSelectArg =
   update?: PlayerProfileUpdateInput;
   select?: TSelect;
 }): Promise<PlayerProfileResult<TSelect>> {
-  return db.transaction(async (tx) => {
+  return transactionDb.transaction(async (tx) => {
     const userRows = await tx
       .select({ username: users.username })
       .from(users)

@@ -2,7 +2,7 @@
 "use server";
 
 import { and, eq, gt, ne, or } from "drizzle-orm";
-import { db } from "@/db";
+import { db, transactionDb } from "@/db";
 import { pendingSignups, playerProfiles, users } from "@/db/schema";
 import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
 import { redirect } from "next/navigation";
@@ -57,7 +57,7 @@ export async function verifyEmail(token: string) {
     const pending = pendingRows[0] ?? null;
 
     if (pending) {
-      const created = await db.transaction(async (tx) => {
+      const created = await transactionDb.transaction(async (tx) => {
         const createdUsers = await tx
           .insert(users)
           .values({
