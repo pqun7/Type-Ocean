@@ -16,6 +16,8 @@ var mockDb: {
 
 // eslint-disable-next-line no-var
 var mockTransaction: jest.Mock;
+// eslint-disable-next-line no-var
+var mockBatchTransaction: jest.Mock;
 
 jest.mock("@/db", () => ({
   __esModule: true,
@@ -31,8 +33,19 @@ jest.mock("@/db", () => ({
     mockDb.selectFrom.mockReturnValue({ where: mockDb.selectWhere });
     mockDb.select.mockReturnValue({ from: mockDb.selectFrom });
 
-    return { select: mockDb.select };
+    mockBatchTransaction = jest.fn().mockResolvedValue(undefined);
+
+    const values = jest.fn().mockReturnValue({});
+    const where = jest.fn().mockReturnValue({});
+
+    return {
+      select: mockDb.select,
+      insert: jest.fn(() => ({ values })),
+      delete: jest.fn(() => ({ where })),
+      batch: (...args: unknown[]) => mockBatchTransaction(...args),
+    };
   })(),
+  isLocalDatabase: false,
   transactionDb: {
     transaction: (...args: unknown[]) => mockTransaction(...args),
   },
@@ -81,7 +94,7 @@ describe("signUp", () => {
     });
   });
 
-  it("creates the user and profile through the transaction-capable database", async () => {
+  it("creates the user and profile through a Neon batch transaction", async () => {
     const formData = new FormData();
     formData.set("email", "new@example.com");
     formData.set("username", "New_User");
@@ -90,7 +103,8 @@ describe("signUp", () => {
 
     await expect(signUp(formData)).resolves.toEqual({ success: true });
 
-    expect(mockTransaction).toHaveBeenCalledTimes(1);
+    expect(mockBatchTransaction).toHaveBeenCalledTimes(1);
+    expect(mockTransaction).not.toHaveBeenCalled();
     expect(saltAndHashPassword).toHaveBeenCalledWith("Password1");
   });
 });

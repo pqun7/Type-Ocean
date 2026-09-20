@@ -40,15 +40,17 @@ jobs:
       AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET }}
 
       # Non-sensitive defaults
-      NEXTAUTH_URL: 'https://type-ocean.vercel.app'
+      AUTH_URL: 'https://type-ocean-theta.vercel.app'
+      NEXTAUTH_URL: 'https://type-ocean-theta.vercel.app'
+      AUTH_TRUST_HOST: 'true'
       SESSION_MAX_AGE: '2592000'
       LOG_LEVEL: 'info'
       DEBUG_SENSITIVE: 'false'
       SERVICE_NAME: 'type-ocean-production'
       REDIS_TLS: 'true'
       REDIS_PARALLEL: 'false'
-      NEXT_PUBLIC_PVP_WS_URL: 'wss://type-ocean.vercel.app'
-      PVP_ALLOWED_ORIGINS: 'https://type-ocean.vercel.app'
+      NEXT_PUBLIC_PVP_WS_URL: 'wss://type-ocean-theta.vercel.app'
+      PVP_ALLOWED_ORIGINS: 'https://type-ocean-theta.vercel.app'
 
     steps:
       - uses: actions/checkout@v4

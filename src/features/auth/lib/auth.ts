@@ -23,6 +23,9 @@ import {
 } from "@/features/auth/utils/username";
 import { ensurePlayerProfile } from "@/features/auth/server/player-profile";
 import { ZodError } from "zod";
+import { sanitizeAuthUrlEnvironment } from "./runtime-env";
+
+sanitizeAuthUrlEnvironment();
 
 // declare module "next-auth" {
 //   interface Session {
@@ -396,7 +399,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
-  trustHost: process.env.AUTH_TRUST_HOST === "true" || process.env.NODE_ENV === "development",
+  trustHost:
+    process.env.AUTH_TRUST_HOST === "true" ||
+    process.env.VERCEL === "1" ||
+    process.env.NODE_ENV === "development",
   secret: process.env.AUTH_SECRET,
   // Auth.js warns loudly when debug is enabled because it can log secrets.
   // Make it opt-in via AUTHJS_DEBUG=true.

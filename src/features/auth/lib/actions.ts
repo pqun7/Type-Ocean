@@ -3,7 +3,8 @@
 
 import { signUpSchema } from "@/schemas/authSchema";
 import { eq, or } from "drizzle-orm";
-import { db, transactionDb } from "@/db";
+import { randomUUID } from "crypto";
+import { db, isLocalDatabase, transactionDb } from "@/db";
 import { pendingSignups, playerProfiles, users } from "@/db/schema";
 import { saltAndHashPassword } from "@/features/auth/utils/password";
 import { ZodError } from "zod";
@@ -109,35 +110,46 @@ export const signUp = async (formData: FormData) => {
     logging.debug("Hashing password", { requestId });
     const hashedPassword = await saltAndHashPassword(validatedData.password);
 
-    await transactionDb.transaction(async (tx) => {
-      const createdRows = await tx
-        .insert(users)
-        .values({
-          email: normalizedEmail,
-          username: normalizedUsername,
-          passwordHash: hashedPassword,
-          emailVerified: null,
-          emailVerifyToken: null,
-          emailVerifyTokenExpiry: null,
-          emailVerificationAttempts: 0,
-        })
-        .returning({ id: users.id, username: users.username });
+    const userId = randomUUID();
+    const userValues = {
+      id: userId,
+      email: normalizedEmail,
+      username: normalizedUsername,
+      passwordHash: hashedPassword,
+      emailVerified: null,
+      emailVerifyToken: null,
+      emailVerifyTokenExpiry: null,
+      emailVerificationAttempts: 0,
+    };
+    const profileValues = {
+      userId,
+      username: normalizedUsername,
+      level: 1,
+      xp: 0,
+      achievements: [],
+      avatar: null,
+    };
+    const clearPendingSignup = or(
+      eq(pendingSignups.email, normalizedEmail),
+      eq(pendingSignups.username, normalizedUsername),
+    );
 
-      const user = createdRows[0]!;
-
-      await tx.insert(playerProfiles).values({
-        userId: user.id,
-        username: user.username,
-        level: 1,
-        xp: 0,
-        achievements: [],
-        avatar: null,
+    if (isLocalDatabase) {
+      // node-postgres supports callback transactions and is used by local Postgres.
+      await transactionDb.transaction(async (tx) => {
+        await tx.insert(users).values(userValues);
+        await tx.insert(playerProfiles).values(profileValues);
+        await tx.delete(pendingSignups).where(clearPendingSignup);
       });
-
-      await tx
-        .delete(pendingSignups)
-        .where(or(eq(pendingSignups.email, normalizedEmail), eq(pendingSignups.username, normalizedUsername)));
-    });
+    } else {
+      // Neon HTTP supports atomic batch transactions and is more reliable in
+      // short-lived Vercel functions than keeping a TCP pool alive.
+      await db.batch([
+        db.insert(users).values(userValues),
+        db.insert(playerProfiles).values(profileValues),
+        db.delete(pendingSignups).where(clearPendingSignup),
+      ]);
+    }
 
     logAuthOperation.success("user_signup", {
       requestId,

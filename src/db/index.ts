@@ -50,6 +50,8 @@ const isLocalPostgres = /^postgres(?:ql)?:\/\/(?:[^/@]+(?::[^/@]*)?@)?(?:localho
   databaseUrl,
 );
 
+export const isLocalDatabase = isLocalPostgres;
+
 const neonDb = drizzle({ client: neon(databaseUrl), schema });
 
 // The Neon HTTP driver is ideal for one-shot serverless queries, but Drizzle's
